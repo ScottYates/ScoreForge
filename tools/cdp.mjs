@@ -8,18 +8,68 @@
 //                      [--start "<js expr run once before waiting>"]
 //                      [--eval "<js expr returning JSON-able value>"]
 //                      [--shot <out.png>] [--width n] [--height n] [--headful]
+//                      [--browser <path>]
+//
+// Browser selection: --browser, else $SCOREFORGE_BROWSER, else the first
+// Chrome/Edge/Chromium found on this platform.
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-const EDGE = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-
 function arg(name, def = null) {
   const i = process.argv.indexOf('--' + name);
   return i === -1 ? def : (process.argv[i + 1] ?? true);
 }
+
+/**
+ * Locate a Chromium browser. The paths differ per platform and CI images move
+ * around, so try the well-known locations rather than hardcoding one machine's
+ * layout -- a harness that only works on the author's box is not a test suite.
+ */
+function findBrowser() {
+  const explicit = arg('browser', null) || process.env.SCOREFORGE_BROWSER;
+  if (explicit) {
+    if (!fs.existsSync(explicit)) {
+      throw new Error(`browser not found at ${explicit} (--browser / $SCOREFORGE_BROWSER)`);
+    }
+    return explicit;
+  }
+  const home = os.homedir();
+  const candidates = process.platform === 'win32'
+    ? [
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        path.join(home, 'AppData\\Local\\Google\\Chrome\\Application\\chrome.exe'),
+      ]
+    : process.platform === 'darwin'
+      ? [
+          '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+          '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+          '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        ]
+      : [
+          '/usr/bin/google-chrome',
+          '/usr/bin/google-chrome-stable',
+          '/usr/bin/chromium',
+          '/usr/bin/chromium-browser',
+          '/snap/bin/chromium',
+          path.join(home, '.cache/ms-playwright/chromium_headless_shell'),
+        ];
+  const found = candidates.find((p) => fs.existsSync(p));
+  if (!found) {
+    throw new Error(
+      'no Chrome/Chromium/Edge found. Pass --browser <path> or set $SCOREFORGE_BROWSER. ' +
+      `Looked in:\n  ${candidates.join('\n  ')}`
+    );
+  }
+  return found;
+}
+
+const BROWSER = findBrowser();
 
 async function freePort() {
   return new Promise((res, rej) => {
@@ -92,7 +142,7 @@ const delay = parseInt(arg('delay', '0'), 10);
     `--user-data-dir=${profile}`,
     'about:blank',
   ];
-  const proc = spawn(EDGE, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const proc = spawn(BROWSER, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   let stderrBuf = '';
   proc.stderr.on('data', d => { stderrBuf += d.toString(); });
 
