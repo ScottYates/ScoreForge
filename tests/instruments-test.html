@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>instruments test</title>
+<style>
+  body { background:#0d1117; color:#c9d1d9; font:12px ui-monospace,Consolas,monospace; padding:10px; }
+  .pass { color:#3fb950; } .fail { color:#f85149; }
+</style>
+</head>
+<body>
+<pre id="out">running…</pre>
+<script type="module">
+/* Headless verification harness for src/js/audio/instruments.js.
+   Renders every instrument offline and measures the signal — the point is to be
+   able to prove the synthesis is physical without listening to it. */
+
+import { INSTRUMENTS, createInstrument } from '../src/js/audio/instruments.js';
+
+const out = document.getElementById('out');
+const SR = 44100;
+const log = [];
+
+/* ------------------------------------------------------------------ FFT */
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      let t = re[i]; re[i] = re[j]; re[j] = t;
+      t = im[i]; im[i] = im[j]; im[j] = t;
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const half = len >> 1;
+    for (let k = 0; k < half; k++) {
+      const ang = -Math.PI * k / half;
+      const wr = Math.cos(ang), wi = Math.sin(ang);
+      for (let i = 0; i < n; i += len) {
+        const ur = re[i + k], ui = im[i + k];
+        const vr = re[i + k + half] * wr - im[i + k + half] * wi;
+        const vi = re[i + k + half] * wi + im[i + k + half] * wr;
+        re[i + k] = ur + vr; im[i + k] = ui + vi;
+        re[i + k + half] = ur - vr; im[i + k + half] = ui - vi;
+      }
+    }
+  }
+}
+
+/** Hann-windowed magnitude spectrum of one channel. */
+function spectrum(data, sr, startSec, n) {
+  const re = new Float64Array(n), im = new Float64Array(n);
+  const off = Math.max(0, Math.round(startSec * sr));
+  for (let i = 0; i < n; i++) {
+    const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
+    re[i] = (data[off + i] || 0) * w;
+  }
+  fft(re, im);
+  const half = n >> 1;
+  const mag = new Float64Array(half);
+  for (let k = 0; k < half; k++) mag[k] = Math.hypot(re[k], im[k]);
+  return { mag, sr, n };
+}
+
+/** Power-weighted spectral centroid in Hz (bins below 50 Hz excluded). */
+function centroid(sp, loHz = 50) {
+  let num = 0, den = 0;
+  const k0 = Math.max(1, Math.round(loHz / (sp.sr / sp.n)));
+  for (let k = k0; k < sp.mag.length; k++) {
+    const f = k * sp.sr / sp.n;
+    const p = sp.mag[k] * sp.mag[k];
+    num += f * p; den += p;
+  }
+  return den > 0 ? num / den : 0;
+}
+
+/**
+ * Frequency of a partial: find the main lobe near `fExpected`, then take a
+ * power-weighted centroid across it. With a Hann window this is far more
+ * accurate than bin picking, and the symmetric unison spread means the measured
+ * frequency is the true mean of the string choir.
+ */
+function partialFreq(sp, fExpected, relWin = 0.06) {
+  const binHz = sp.sr / sp.n;
+  const c = Math.round(fExpected / binHz);
+  const half = Math.max(3, Math.round((relWin * fExpected) / binHz));
+  let best = c;
+  for (let k = Math.max(1, c - half); k < Math.min(sp.mag.length, c + half + 1); k++) {
+    if (sp.mag[k] > sp.mag[best]) best = k;
+  }
+  let num = 0, den = 0;
+  for (let k = Math.max(1, best - 3); k <= Math.min(sp.mag.length - 1, best + 3); k++) {
+    const p = sp.mag[k] * sp.mag[k];
+    num += p * k * binHz; den += p;
+  }
+  return { hz: den > 0 ? num / den : best * binHz, level: sp.mag[best] };
+}
+
+const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+const cents = (a, b) => 1200 * Math.log2(a / b);
+
+/* --------------------------------------------------------------- render */
+
+/** Render one instrument; returns the PCM plus the instrument's own node stats. */
+async function render(id, notes, dur, opts = {}) {
+  const oc = new OfflineAudioContext(2, Math.ceil(SR * dur), SR);
+  const inst = createInstrument(id, oc, oc.destination);
+  if (opts.params) for (const [k, v] of Object.entries(opts.params)) inst.setParam(k, v, 0);
+  const handles = notes.map((n) => inst.noteOn({
+    midi: n.midi, velocity: n.velocity == null ? 0.8 : n.velocity,
+    when: n.when == null ? 0.01 : n.when,
+    duration: n.duration == null ? 1 : n.duration,
+  }));
+  for (let i = 0; i < notes.length; i++) {
+    if (notes[i].off != null) inst.noteOff(handles[i], notes[i].off);
+  }
+  if (opts.sustainAt != null) inst.setSustain(true, opts.sustainAt);
+  const afterSchedule = inst.debugStats();
+  const buf = await oc.startRendering();
+  const afterRender = inst.debugStats();
+  const a = buf.getChannelData(0), b = buf.getChannelData(1);
+  inst.dispose(0);
+  return { a, b, stats: afterRender, statsScheduled: afterSchedule, warnings: inst.warnings.slice() };
+}
+
+/**
+ * peak / DC / non-finite, plus the -40 dB fall time.
+ *
+ * The fall time is measured on a windowed RMS envelope rather than from the
+ * raw sample peak: for a sustained voice the largest individual cycle can
+ * occur anywhere in the note, and taking the decay from it makes t40 depend on
+ * where that one cycle happened to land.
+ */
+function measure(a) {
+  let peak = 0, sum = 0, bad = 0;
+  for (let i = 0; i < a.length; i++) {
+    const v = a[i];
+    if (!Number.isFinite(v)) { bad++; continue; }
+    sum += v;
+    const av = Math.abs(v);
+    if (av > peak) peak = av;
+  }
+  const W = Math.round(SR * 0.01);
+  const env = new Float64Array(Math.floor(a.length / W));
+  for (let i = 0; i < env.length; i++) {
+    let s = 0;
+    for (let j = 0; j < W; j++) { const v = a[i * W + j]; s += v * v; }
+    env[i] = Math.sqrt(s / W);
+  }
+  let ePeak = 0, eIdx = 0;
+  for (let i = 0; i < env.length; i++) if (env[i] > ePeak) { ePeak = env[i]; eIdx = i; }
+  let last = eIdx;
+  for (let i = eIdx; i < env.length; i++) if (env[i] > ePeak * 0.01) last = i;
+  // Reference the fall to the note's onset, not to the single loudest window:
+  // a sustained voice has no unique peak and its envelope is flat for seconds,
+  // so "peak −40 dB" would depend on which window happened to win.
+  let onset = 0;
+  for (let i = 0; i < env.length; i++) if (env[i] >= ePeak * 0.5) { onset = i; break; }
+  return {
+    peak, dc: sum / a.length, nonFinite: bad,
+    t40: ((last - onset) * W) / SR,
+    t60Env: ePeak, peakAt: (eIdx * W) / SR,
+  };
+}
+
+/* ---------------------------------------------------------- assertions */
+
+const checks = [];
+function check(name, ok, info) {
+  checks.push({ name, ok: !!ok, info });
+  if (!ok) log.push('FAIL ' + name + ' :: ' + JSON.stringify(info));
+  return ok;
+}
+
+const r3 = (x) => (typeof x === 'number' ? +x.toFixed(3) : x);
+const r4 = (x) => (typeof x === 'number' ? +x.toFixed(4) : x);
+
+/* ==================================================================== run */
+
+async function run() {
+  const table = [];
+
+  for (const spec of INSTRUMENTS) {
+    /* --- chord render: level, headroom, DC, node budget ---------------- */
+    const chord = [52, 59, 64, 71].map((m) => ({ midi: m, velocity: 0.8, duration: 1.5, off: 1.6 }));
+    const ch = await render(spec.id, chord, 4.0);
+    const mc = measure(ch.a);
+    const nodesPerVoice = Math.max(0, Math.round((ch.stats.peakNodes - 10) / chord.length));
+
+    /* --- velocity: spectral centroid at 0.15 vs 0.95 -------------------- */
+    // Measured over the first ~93 ms. Dynamics change the *attack* spectrum,
+    // and on a fast-decaying bell most of the upper partial energy is gone
+    // before a long window finishes, which would flatten the measurement.
+    const lo = await render(spec.id, [{ midi: 60, velocity: 0.15, duration: 1.0 }], 1.2);
+    const hi = await render(spec.id, [{ midi: 60, velocity: 0.95, duration: 1.0 }], 1.2);
+    const cLo = centroid(spectrum(lo.a, SR, 0.005, 4096));
+    const cHi = centroid(spectrum(hi.a, SR, 0.005, 4096));
+    const pkLo = measure(lo.a).peak, pkHi = measure(hi.a).peak;
+
+    /* --- decay of a single held-then-released note --------------------- */
+    const dec = await render(spec.id, [{ midi: 60, velocity: 0.7, duration: 1.5, off: 1.5 }], 5.0);
+    const md = measure(dec.a);
+
+    table.push({
+      id: spec.id, group: spec.group, name: spec.name,
+      peak: r3(mc.peak), dc: r4(mc.dc), t40: r3(md.t40), envPeakAt: r3(md.peakAt),
+      centroidLo: Math.round(cLo), centroidHi: Math.round(cHi),
+      pkLo: r3(pkLo), pkHi: r3(pkHi),
+      nodesPerVoice, peakNodes: ch.stats.peakNodes, cap: ch.stats.cap,
+    });
+
+    check(spec.id + ':not_silent', mc.peak >= 0.02 && mc.peak <= 0.9, { peak: r4(mc.peak) });
+    check(spec.id + ':no_clip', mc.peak < 1.0, { peak: r4(mc.peak) });
+    check(spec.id + ':finite', mc.nonFinite === 0, { nonFinite: mc.nonFinite });
+    check(spec.id + ':dc_offset', Math.abs(mc.dc) < 0.004, { dc: mc.dc });
+    check(spec.id + ':velocity_centroid_rises', cHi > cLo * 1.02,
+      { lo: Math.round(cLo), hi: Math.round(cHi), ratio: r3(cHi / (cLo || 1)) });
+    check(spec.id + ':velocity_is_louder', pkHi > pkLo * 1.5, { pkLo: r3(pkLo), pkHi: r3(pkHi) });
+    check(spec.id + ':node_budget', nodesPerVoice <= 45, { nodesPerVoice });
+    if (spec.warnings_count === undefined && (spec.warnings || []).length) { /* n/a */ }
+  }
+
+  /* ------------------------------------------------ grand: inharmonicity */
+  const inN = 65536;                                     // 1.49 s window @ 44.1 k
+  async function partialSpread(midi, vel) {
+    const r = await render('grand', [{ midi, velocity: vel, duration: 3 }], 3.0);
+    const sp = spectrum(r.a, SR, 0.05, inN);
+    const f0 = mtof(midi);
+    const f1 = partialFreq(sp, f0, 0.05).hz;
+    const rows = [];
+    for (const n of [1, 2, 3, 4, 5]) {
+      const p = partialFreq(sp, n * f0, 0.07);
+      rows.push({ n, hz: r3(p.hz), cents: r3(cents(p.hz, n * f1)), lvl: r3(p.level) });
+    }
+    return { midi, f0: r3(f0), f1: r3(f1), rows };
+  }
+  const bass = await partialSpread(33, 0.95);
+  const treble = await partialSpread(79, 0.95);
+  const avg = (sp, ns) => {
+    const v = sp.rows.filter((x) => ns.includes(x.n)).map((x) => x.cents);
+    return v.reduce((a, b) => a + b, 0) / v.length;
+  };
+  const bassC = avg(bass, [3, 4, 5]);
+  const trebleC = avg(treble, [3, 4, 5]);
+  check('grand:partials_are_inharmonic', bassC > 15, { bassCents: bassC, bass });
+  check('grand:stretch_bass_gt_treble', bassC > trebleC + 10, { bassC, trebleC, treble });
+
+  /* ---------------------------------------- grand: per-partial decay order */
+  // High partials must die faster than the fundamental. Compare the level of
+  // the 5th partial relative to the 1st early in the note against late in it:
+  // with the per-partial decay law removed the ratio never moves.
+  {
+    const r = await render('grand', [{ midi: 86, velocity: 0.95, duration: 4 }], 4.5);
+    const N = 8192;
+    const early = spectrum(r.a, SR, 0.02, N);
+    const late = spectrum(r.a, SR, 2.4, N);
+    const f0 = mtof(86);
+    const e1 = partialFreq(early, f0, 0.06).level, e5 = partialFreq(early, 5 * f0, 0.08).level;
+    const l1 = partialFreq(late, f0, 0.06).level, l5 = partialFreq(late, 5 * f0, 0.08).level;
+    const earlyDb = r3(20 * Math.log10(e5 / e1));
+    const lateDb = r3(20 * Math.log10(l5 / l1));
+    window.__PDECAY__ = { earlyDb, lateDb, drop: r3(earlyDb - lateDb) };
+    check('grand:high_partials_decay_first', earlyDb - lateDb > 12,
+      { earlyDb, lateDb, drop: r3(earlyDb - lateDb) });
+  }
+
+  /* ------------------------------------------------------- grand: decay */
+  const dHeld = await render('grand', [{ midi: 86, velocity: 0.6, duration: 4 }], 6.0);
+  const mHeld = measure(dHeld.a);
+  const dRel = await render('grand', [{ midi: 60, velocity: 0.75, duration: 1.2, off: 1.2 }], 5.0);
+  const mRel = measure(dRel.a);
+  check('grand:decay_treble_held', mHeld.t40 >= 0.8 && mHeld.t40 <= 4.0, { t40: r3(mHeld.t40) });
+  check('grand:decay_with_damper', mRel.t40 >= 0.8 && mRel.t40 <= 4.0, { t40: r3(mRel.t40) });
+
+  /* --------------------------------------- grand: damper + sustain pedal */
+  const ped = await render('grand',
+    [{ midi: 55, velocity: 0.8, duration: 0.5, off: 0.5 }, { midi: 62, velocity: 0.8, duration: 3, off: 3.4 }],
+    5.0, { sustainAt: 0 });
+  const mPed = measure(ped.a);
+  const noPed = await render('grand', [{ midi: 55, velocity: 0.8, duration: 0.5, off: 0.5 }], 5.0);
+  const mNoPed = measure(noPed.a);
+  check('grand:sustain_pedal_rings_on', mPed.t40 > mNoPed.t40 * 1.5,
+    { pedalT40: r3(mPed.t40), noPedalT40: r3(mNoPed.t40) });
+
+  /* ------------------------------------------------- extreme pitch range */
+  for (const midi of [0, 1, 20, 108, 126, 127]) {
+    const r = await render('grand', [{ midi, velocity: 0.9, duration: 1 }], 2.0);
+    const m = measure(r.a);
+    check('grand:range_midi_' + midi, m.nonFinite === 0 && m.peak < 1.0 && Number.isFinite(m.peak),
+      { peak: r4(m.peak), nonFinite: m.nonFinite });
+  }
+
+  /* ---------------------------------------------------- pooling / stress */
+  /**
+   * 200 notes over 4 s over 48 distinct pitches — more distinct pitches than
+   * any instrument's polyphony cap, so the cap and oldest-voice stealing are
+   * the only thing that can keep the voice count down (re-striking the same
+   * pitch re-excites the ringing string rather than allocating a new voice).
+   *
+   *   withOff=true  — musical passage, notes released after 250 ms.
+   *   withOff=false — worst case: nothing is released, so without pooling every
+   *                  one of the 200 notes would still be sounding at the end.
+   */
+  function storm(withOff) {
+    const notes = [];
+    for (let i = 0; i < 200; i++) {
+      const when = 0.01 + i * 0.02;
+      const n = { midi: 36 + (i * 7) % 48, velocity: 0.5 + 0.45 * ((i * 7) % 10) / 10, when, duration: 3 };
+      if (withOff) n.off = when + 0.25;
+      notes.push(n);
+    }
+    return notes;
+  }
+  // Absolute budgets, deliberately *not* derived from each instrument's own cap:
+  // a bound computed from the cap would stay true if the cap were removed.
+  const ABS_VOICES = 40;      // 48 distinct pitches are live at once uncapped
+  const ABS_NODES = 1600;     // grand caps at 36 voices x <=41 nodes + chain
+  const poolRows = [];
+  for (const id of ['grand', 'vibraphone', 'strings', 'flute']) {
+    for (const withOff of [true, false]) {
+      const t0 = performance.now();
+      const r = await render(id, storm(withOff), withOff ? 6.0 : 9.0);
+      const m = measure(r.a);
+      const ms = performance.now() - t0;
+      const tag = 'pool:' + id + (withOff ? '' : ':held');
+      poolRows.push({
+        id, mode: withOff ? 'released' : 'held', cap: r.stats.cap,
+        peakVoices: r.stats.peakVoices, peakNodes: r.stats.peakNodes,
+        liveNodes: r.stats.nodes, peak: r4(m.peak), nonFinite: m.nonFinite, ms: Math.round(ms),
+      });
+      check(tag + ':voices_bounded', r.stats.peakVoices <= ABS_VOICES && r.stats.peakVoices <= r.stats.cap,
+        { peakVoices: r.stats.peakVoices, cap: r.stats.cap, abs: ABS_VOICES });
+      check(tag + ':nodes_bounded', r.stats.peakNodes <= ABS_NODES,
+        { peakNodes: r.stats.peakNodes, abs: ABS_NODES });
+      check(tag + ':render_clean', m.nonFinite === 0 && Number.isFinite(m.peak),
+        { peak: r4(m.peak), nonFinite: m.nonFinite, ms: Math.round(ms) });
+      // The released storm is also the headroom check: it deliberately stacks up
+      // to `cap` fortissimo notes, so a couple of dB over unity there is the fx
+      // chain's job. The contract's per-instrument headroom requirement is
+      // asserted above against a 4-note chord.
+      if (withOff) {
+        check(tag + ':headroom', m.peak < 2.0 && m.peak > 0.02,
+          { peak: r4(m.peak) });
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------- report */
+  const failed = checks.filter((c) => !c.ok);
+  const summary = {
+    pass: failed.length === 0,
+    checks: checks.length,
+    failed: failed.length,
+    failures: failed.map((f) => f.name + ' ' + JSON.stringify(f.info)),
+    table,
+    grand: { inharmonic: { bass, treble, bassCents: r3(bassC), trebleCents: r3(trebleC) },
+             decay: { trebleHeldT40: r3(mHeld.t40), releasedT40: r3(mRel.t40), pedalT40: r3(mPed.t40) } },
+    pool: poolRows,
+  };
+  out.textContent = JSON.stringify(summary, null, 1);
+  window.__RESULT__ = summary;
+  window.__DONE__ = true;
+}
+
+run().catch((e) => {
+  out.textContent = JSON.stringify({ pass: false, fatal: String(e && e.stack || e), checks: checks.length, failures: checks.filter(c=>!c.ok).map(f=>f.name), log }, null, 1);
+  window.__DONE__ = true;
+});
+</script>
+</body>
+</html>

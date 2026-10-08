@@ -1,0 +1,10 @@
+# Normalise line endings so a clone on Linux, macOS or Windows produces the
+# same diffs. Without this, git rewrites LF to CRLF on checkout on Windows and
+# every file shows as modified.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.pdf binary
+*.mp3 binary
+ScoreForge.html text eol=lf

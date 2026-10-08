@@ -1,0 +1,25 @@
+{
+  "name": "scoreforge",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Turn uploaded sheet music (MusicXML / MIDI / MuseScore / scanned photos and PDFs) into a rendered MP3. Scoring and audio run in the browser; optical music recognition runs in a local Python service on the CPU.",
+  "license": "MIT",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "dev": "node tools/build.mjs --dev",
+    "test": "node tools/verify.mjs",
+    "serve": "backend\\.venv\\Scripts\\python.exe backend/app.py",
+    "fixtures": "node tools/make-fixtures.mjs",
+    "test:omr": "backend\\.venv\\Scripts\\python.exe tools/score_omr.py"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "lamejs": "^1.2.1",
+    "opensheetmusicdisplay": "^2.2.0",
+    "vexflow": "^1.2.93"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SMF parser tests</title>
+<style>
+  body { background:#111; color:#ddd; font:12px ui-monospace,Consolas,monospace; margin:0; padding:12px; }
+  #out { white-space:pre-wrap; }
+  .pass { color:#7fd18a; }
+  .fail { color:#ff6b6b; font-weight:bold; }
+  h2 { color:#8ab4f8; font-size:13px; margin:14px 0 4px; }
+</style>
+</head>
+<body>
+<div id="out">running…</div>
+
+<script type="module">
+import { parseMidi } from '../src/js/io/smf.js';
+
+/* ===================================================== assertion harness === */
+
+const lines = [];
+let pass = 0, fail = 0;
+const out = document.getElementById('out');
+
+function head(t) { lines.push('', '── ' + t + ' ' + '─'.repeat(Math.max(0, 56 - t.length))); }
+function line(text, cls) { lines.push(cls ? `<span class="${cls}">${text}</span>` : text); }
+function ok(name, cond, detail = '') {
+  if (cond) { pass++; line(`  PASS  ${name}`); }
+  else { fail++; line(`  FAIL  ${name}${detail ? '  → ' + detail : ''}`, 'fail'); }
+}
+function eq(name, actual, expected) {
+  const a = JSON.stringify(actual), b = JSON.stringify(expected);
+  ok(name, a === b, `expected ${b}, got ${a}`);
+}
+function near(name, actual, expected, tol = 1e-9) {
+  const good = Number.isFinite(actual) && Math.abs(actual - expected) <= tol;
+  ok(name, good, `expected ${expected}±${tol}, got ${actual}`);
+}
+function throws(name, fn, re) {
+  try {
+    fn();
+    ok(name, false, 'did not throw');
+  } catch (e) {
+    ok(name, re.test(e.message), `message ${JSON.stringify(e.message)} does not match ${re}`);
+  }
+}
+function anyWarning(score, re) {
+  return (score.warnings || []).some((w) => re.test(w));
+}
+function parse(bytes, opts) { return parseMidi(bytes, opts || {}); }
+function notesOf(score, i = 0) { return (score.parts[i] || { notes: [] }).notes; }
+function shapes(notes) {
+  return notes.map((n) => `${n.midi}@${+n.quarter.toFixed(6)}/${+n.durationQuarters.toFixed(6)}`);
+}
+function hasWarn(score, re) {
+  if (!anyWarning(score, re)) {
+    fail++;
+    line(`  FAIL  expected a warning matching ${re} — got ${JSON.stringify(score.warnings)}`, 'fail');
+    return false;
+  }
+  pass++;
+  return true;
+}
+
+/* ===================================================== MIDI byte builder === */
+
+const vlq = (n) => {                     // variable-length quantity
+  const b = [n & 0x7f];
+  n = Math.floor(n / 128);
+  while (n > 0) { b.unshift((n & 0x7f) | 0x80); n = Math.floor(n / 128); }
+  return b;
+};
+const ascii = (s) => [...s].map((c) => c.charCodeAt(0));
+
+function chunk(id, data) {
+  const len = data.length;
+  return [...ascii(id), (len >>> 24) & 255, (len >>> 16) & 255, (len >>> 8) & 255, len & 255, ...data];
+}
+/** Assemble a complete Standard MIDI File from raw event byte arrays. */
+function midiFile(format, division, tracks) {
+  const bytes = [...chunk('MThd', [
+    (format >> 8) & 255, format & 255, (tracks.length >> 8) & 255, tracks.length & 255,
+    (division >> 8) & 255, division & 255,
+  ])];
+  // each track is an array of event byte-arrays; flatten to one byte string
+  for (const t of tracks) bytes.push(...chunk('MTrk', [].concat(...t)));
+  return Uint8Array.from(bytes).buffer;
+}
+
+const ev   = (d, ...b) => [...vlq(d), ...b];
+const meta = (d, type, data) => ev(d, 0xff, type, ...vlq(data.length), ...data);
+const tempo    = (d, bpm) => meta(d, 0x51, [Math.round(60000000 / bpm) >> 16 & 255, Math.round(60000000 / bpm) >> 8 & 255, Math.round(60000000 / bpm) & 255]);
+const timeSig  = (d, n, d2) => meta(d, 0x58, [n, Math.round(Math.log2(d2)), 24, 8]);
+const keySig   = (d, sf, mi) => meta(d, 0x59, [sf & 255, mi]);
+const name     = (d, s) => meta(d, 0x03, ascii(s));
+const instr    = (d, s) => meta(d, 0x04, ascii(s));
+const eot      = (d = 0) => meta(d, 0x2f, []);
+const on       = (d, ch, p, v) => ev(d, 0x90 | ch, p, v);
+const off      = (d, ch, p, v = 0) => ev(d, 0x80 | ch, p, v);
+const polyAT   = (d, ch, p, v) => ev(d, 0xa0 | ch, p, v);
+const cc       = (d, ch, n, v) => ev(d, 0xb0 | ch, n, v);
+const prog     = (d, ch, p) => ev(d, 0xc0 | ch, p);
+const chanAT   = (d, ch, v) => ev(d, 0xd0 | ch, v);
+const bend     = (d, ch, v14) => ev(d, 0xe0 | ch, v14 & 0x7f, (v14 >> 7) & 0x7f);
+
+/**
+ * A large file, written straight into a Uint8Array (150 000 notes ≈ 1.2 MB).
+ * Division 96, so each note is exactly one quarter: note i sits at quarter i
+ * and lasts one quarter, because note-on is at delta 0 and note-off at 96.
+ */
+function bigFile(noteCount, division = 96) {
+  const buf = new Uint8Array(64 + noteCount * 8);
+  let p = 0;
+  const put = (...v) => { for (const b of v) buf[p++] = b; };
+  put(...ascii('MThd'), 0, 0, 0, 6, 0, 1, 0, 1, (division >> 8) & 255, division & 255);
+  put(...ascii('MTrk'), 0, 0, 0, 0);              // length patched below
+  const lenPos = p - 4;
+  put(0, 0xff, 0x51, 3, 0x07, 0xa1, 0x20);        // 120 bpm
+  for (let i = 0; i < noteCount; i++) {
+    const pitch = 36 + (i % 60);
+    put(0, 0x90, pitch, 0x50);
+    put(96, 0x80, pitch, 0x00);
+  }
+  put(0, 0xff, 0x2f, 0x00);
+  const len = p - (lenPos + 4);
+  buf[lenPos] = (len >>> 24) & 255; buf[lenPos + 1] = (len >>> 16) & 255;
+  buf[lenPos + 2] = (len >>> 8) & 255; buf[lenPos + 3] = len & 255;
+  return buf.slice(0, p).buffer;
+}
+
+/* ------------------------------------------------- embedded real-world file */
+/* A 179-byte format-1 file, base64 of a hand-laid-out byte sequence:
+   track 0 = "Study in C" (tempo 120, 4/4, C major)
+   track 1 = Piano  (ch0, prog 0)  C4 E4 G4 quarters, C5 dotted-half, then at
+                                       quarter 6 a tempo drop to 60 bpm, D4 F#4 quarters
+   track 2 = Cello  (ch1, prog 42) C3 G2 F2 whole notes on beats 1, 5, 9        */
+const STUDY_IN_C_B64 =
+  'TVRoZAAAAAYAAQADAeBNVHJrAAAAJwD/AwpTdHVkeSBpbiBDAP9YBAQCGAgA/1kCAAAA/1EDB6EgAP8vAE1U' +
+  'cmsAAABEAMAAAJA8UINggDwAAJBAUINggEAAAJBDUINggEMAAJBIWosggEgAAP9RAw9CQACQPlSDYIA+AACQQlS' +
+  'DYIBCAAD/LwBNVHJrAAAAIgDBKgCRMFCPAIEwAACRK0yPAIErAACRKUiPAIEpAAD/LwA=';
+
+function b64ToBuffer(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
+
+/* ================================================================ tests ==== */
+
+try {
+
+/* ---------------------------------------------------------- 1. real file -- */
+head('1. embedded base64 file (format 1, 3 tracks, 179 bytes)');
+{
+  const buf = b64ToBuffer(STUDY_IN_C_B64);
+  eq('byte length', buf.byteLength, 179);
+  const s = parse(buf);
+
+  eq('sourceFormat', s.sourceFormat, 'midi');
+  eq('title comes from the track name', s.title, 'Study in C');
+  eq('part count (only tracks with notes become parts)', s.parts.length, 2);
+  eq('totalQuarters', s.totalQuarters, 12);
+  eq('measureCount (4/4, 12 quarters)', s.measureCount, 3);
+  eq('tempoMap', s.tempoMap, [{ quarter: 0, bpm: 120 }, { quarter: 6, bpm: 60 }]);
+  eq('timeSigs', s.timeSigs, [{ quarter: 0, beats: 4, beatType: 4 }]);
+  eq('keySigs', s.keySigs, [{ quarter: 0, fifths: 0, mode: null }]);
+  eq('no warnings for a clean file', s.warnings, []);
+
+  const piano = s.parts[0], cello = s.parts[1];
+  eq('part 0 name (unnamed track)', piano.name, 'Track 2');
+  eq('part 0 channel', piano.channel, 0);
+  eq('part 0 program', piano.midiProgram, 0);
+  eq('part 0 note shape midi@quarter/duration', shapes(piano.notes),
+    ['60@0/1', '64@1/1', '67@2/1', '72@3/3', '62@6/1', '66@7/1']);
+  eq('part 0 first velocity', piano.notes[0].velocity, 80 / 127);
+  eq('part 0 tie flags', [piano.notes[0].tieFrom, piano.notes[0].tieTo], [false, false]);
+  eq('part 0 sustain', [piano.notes[0].sustainQuarters, piano.notes[0].soundingQuarters], [0, 1]);
+  eq('part 0 bendCents default', piano.notes[0].bendCents, 0);
+
+  eq('part 1 name', cello.name, 'Track 3');
+  eq('part 1 channel', cello.channel, 1);
+  eq('part 1 program', cello.midiProgram, 42);
+  eq('part 1 note shape', shapes(cello.notes), ['48@0/4', '43@4/4', '41@8/4']);
+
+  const ids = new Set(piano.notes.concat(cello.notes).map((n) => n.id));
+  eq('every note has a unique id', ids.size, 9);
+  eq('notes are sorted ascending by quarter',
+    piano.notes.every((n, i, a) => i === 0 || a[i - 1].quarter <= n.quarter), true);
+}
+
+/* -------------------------------------------------- 2. running status ----- */
+head('2. format 0, running status, chords, unmatched note-off');
+{
+  const track = [
+    tempo(0, 120), prog(0, 0, 0), timeSig(0, 4, 4),
+    on(0, 0, 60, 100), on(0, 0, 64, 100), on(0, 0, 67, 100),
+    ...off(96, 0, 60),                       // 0x80 3C 00 sets running status
+    ev(0, 0x40, 0x00),                       // running 0x80 → note off E4
+    ev(0, 0x43, 0x00),                       // running 0x80 → note off G4
+    ev(0, 0x90, 30, 0x00),                   // note-off with no matching note-on
+    on(0, 0, 72, 90), ...off(96, 0, 72),     // must still parse afterwards
+    eot(),
+  ];
+  const s = parse(midiFile(0, 96, [track]));
+  eq('note count', notesOf(s).length, 4);
+  eq('three simultaneous notes survive running status', shapes(notesOf(s)),
+    ['60@0/1', '64@0/1', '67@0/1', '72@1/1']);
+  eq('velocities', notesOf(s).map((n) => n.velocity), [100 / 127, 100 / 127, 100 / 127, 90 / 127]);
+  hasWarn(s, /no matching note-on/);
+  eq('one part only', s.parts.length, 1);
+}
+
+/* ---------------------------------------------------------- 3. SMPTE ------ */
+head('3. SMPTE division (25 fps x 40 ticks, with a tempo change)');
+{
+  const division = 0xe728;                  // -25 fps, 40 ticks/frame = 1000 tps
+  const track = [
+    tempo(0, 120),                          // 500 ticks per quarter
+    on(0, 0, 60, 100),
+    tempo(1000, 60),                        // tick 1000 → quarter 2; now 1000 t/q
+    ...off(1000, 0, 60),
+    on(0, 0, 64, 100), ...off(1000, 0, 64),
+    eot(),
+  ];
+  const s = parse(midiFile(0, division, [track]));
+  eq('smpte flag', s.midiSmpte, true);
+  eq('tempoMap in quarters', s.tempoMap, [{ quarter: 0, bpm: 120 }, { quarter: 2, bpm: 60 }]);
+  eq('note 1 spans the tempo change: 1000t@120 + 1000t@60 = 3 quarters', shapes(notesOf(s)),
+    ['60@0/3', '64@3/1']);
+  eq('totalQuarters', s.totalQuarters, 4);
+  eq('measureCount', s.measureCount, 1);
+
+  const metric = parse(midiFile(0, 480, [[tempo(0, 120), on(0, 0, 60, 100), ...off(1000, 0, 60), eot()]]));
+  near('metric division conversion', metric.parts[0].notes[0].durationQuarters, 1000 / 480);
+}
+
+/* ------------------------------------------------------- 4. sustain ------- */
+head('4. sustain pedal (CC64)');
+{
+  const track = [
+    tempo(0, 120),
+    on(0, 0, 60, 100), cc(0, 0, 64, 127), ...off(960, 0, 60),   // key held 2 quarters, released while down
+    cc(480, 0, 64, 0),                                           // pedal up at quarter 3
+    on(0, 0, 64, 100), ...off(480, 0, 64),                       // plain note
+    eot(),
+  ];
+  const s = parse(midiFile(0, 480, [track]));
+  const n = notesOf(s);
+  eq('note count', n.length, 2);
+  eq('key length unchanged by the pedal', n[0].durationQuarters, 2);
+  eq('sustainQuarters extends to pedal-up', n[0].sustainQuarters, 1);
+  eq('soundingQuarters', n[0].soundingQuarters, 3);
+  eq('no pedal → no sustain', [n[1].sustainQuarters, n[1].soundingQuarters], [0, 1]);
+  eq('totalQuarters uses sounding length', s.totalQuarters, 4);
+}
+{
+  // pedal goes down and is never released → sustain runs to the end of the track
+  const track = [
+    tempo(0, 120),
+    on(0, 0, 60, 100), cc(0, 0, 64, 127), ...off(480, 0, 60),   // C4 released at quarter 1
+    on(0, 0, 64, 100), ...off(480, 0, 64),                       // E4 released at quarter 2
+    on(0, 0, 67, 100), ...off(960, 0, 67),                       // C5 held to quarter 4
+    eot(),                                                       // pedal still down at the end
+  ];
+  const s = parse(midiFile(0, 480, [track]));
+  eq('note onsets', notesOf(s).map((n) => n.quarter), [0, 1, 2]);
+  eq('sustain to end of track', notesOf(s).map((n) => n.sustainQuarters), [3, 2, 0]);
+  eq('soundingQuarters to end of track', notesOf(s).map((n) => n.soundingQuarters), [4, 3, 2]);
+  eq('totalQuarters', s.totalQuarters, 4);
+}
+
+/* ------------------------------------------------------ 5. pitch bend ----- */
+head('5. pitch bend, aftertouch, channel pressure');
+{
+  const track = [
+    tempo(0, 120),
+    bend(0, 0, 16383), on(0, 0, 60, 100), ...off(480, 0, 60),   // full up
+    bend(0, 0, 0), on(0, 0, 60, 100), ...off(480, 0, 60),       // full down
+    bend(0, 0, 8192), on(0, 0, 60, 100), polyAT(0, 0, 60, 64), chanAT(0, 0, 90),
+    ...off(480, 0, 60),
+    eot(),
+  ];
+  const s = parse(midiFile(0, 480, [track]));
+  const n = notesOf(s);
+  near('full bend up = +200 cents', n[0].bendCents, (16383 - 8192) / 8192 * 200);
+  near('full bend down = -200 cents', n[1].bendCents, (0 - 8192) / 8192 * 200);
+  eq('bend centre', n[2].bendCents, 0);
+  eq('poly aftertouch recorded on the note', n[2].aftertouch, 64 / 127);
+  eq('duration unaffected by bend', n.map((x) => x.durationQuarters), [1, 1, 1]);
+}
+
+/* -------------------------------------------- 6. sysex / unknown metas ---- */
+head('6. sysEx, escaped sysEx and unknown meta events skipped by length');
+{
+  const track = [
+    tempo(0, 120),
+    ev(0, 0xf0, 4, 0x7e, 0x7f, 0x09, 0x01),          // F0 sysex
+    ev(0, 0xff, 0xf7, 3, 1, 2, 3),                  // FF F7 escape
+    ev(0, 0xf7, 2, 9, 9),                           // bare F7
+    meta(0, 0x7f, [0x90, 0x3c, 0x40, 0x80, 0x3c, 0x00, 0xff, 0x51]),   // payload that looks like events
+    meta(0, 0x21, [0x01]),                          // MIDI port
+    on(0, 0, 62, 100), ...off(480, 0, 62),
+    eot(),
+  ];
+  const s = parse(midiFile(0, 480, [track]));
+  eq('only the real note is parsed', shapes(notesOf(s)), ['62@0/1']);
+  eq('the decoy tempo byte inside the unknown meta did not fire', s.tempoMap, [{ quarter: 0, bpm: 120 }]);
+  eq('totalQuarters', s.totalQuarters, 1);
+  hasWarn(s, /system-exclusive/);
+}
+
+/* ---------------------------------------- 7. transpose / merged parts ----- */
+head('7. opts.transpose and opts.splitTracks');
+{
+  const buf = b64ToBuffer(STUDY_IN_C_B64);
+  const t2 = parse(buf, { transpose: 2 });
+  eq('every note shifted up 2', notesOf(t2).map((n) => n.midi), [62, 66, 69, 74, 64, 68]);
+  eq('onsets unchanged by transposition', notesOf(t2).map((n) => n.quarter), [0, 1, 2, 3, 6, 7]);
+
+  const clamped = parse(buf, { transpose: 100 });
+  eq('out-of-range pitch is clamped to 127', notesOf(clamped)[0].midi, 127);
+  hasWarn(clamped, /clamped/);
+
+  const merged = parse(buf, { splitTracks: false });
+  eq('merged into a single part', merged.parts.length, 1);
+  eq('all 9 notes kept', merged.parts[0].notes.length, 9);
+  eq('merged part is time-sorted', merged.parts[0].notes.map((n) => n.quarter),
+    [0, 0, 1, 2, 3, 4, 6, 7, 8]);
+  eq('merged part takes the file name', merged.parts[0].name, 'Study in C');
+  eq('merged part duration', merged.totalQuarters, 12);
+}
+
+/* ------------------------------------------- 8. meters, keys, multi-chan --- */
+head('8. mixed time signatures, key signature, multi-channel track');
+{
+  // bar 1 is 6/8 (3 quarters), then a 4/4 bar that the last note fills exactly
+  const track = [
+    tempo(0, 120), timeSig(0, 6, 8), keySig(0, -3, 1),
+    on(0, 0, 60, 100), ...off(480, 0, 60),        // quarter 0, ch 0
+    on(0, 1, 48, 100), ...off(480, 1, 48),        // quarter 1, ch 1
+    timeSig(480, 4, 4),                            // tick 960 + 480 = quarter 3
+    on(0, 0, 62, 100), ...off(1920, 0, 62),        // quarter 3, 4 quarters long
+    eot(),
+  ];
+  const s = parse(midiFile(0, 480, [track]));
+  eq('timeSigs both kept', s.timeSigs, [{ quarter: 0, beats: 6, beatType: 8 }, { quarter: 3, beats: 4, beatType: 4 }]);
+  eq('keySigs (sf -3, minor)', s.keySigs, [{ quarter: 0, fifths: -3, mode: 'minor' }]);
+  eq('onsets', notesOf(s).map((n) => n.quarter), [0, 1, 3]);
+  eq('totalQuarters (3 + 4)', s.totalQuarters, 7);
+  eq('measureCount walks both meters (6/8 bar then 4/4 bar)', s.measureCount, 2);
+  eq('both channels kept in one part', notesOf(s).map((n) => n.channel), [0, 1, 0]);
+  eq('dominant channel wins the part', s.parts[0].channel, 0);
+  hasWarn(s, /uses 2 MIDI channels/);
+}
+
+/* ------------------------------------------------- 9. graceful recovery --- */
+head('9. recovery from damaged files (must not throw)');
+{
+  const riff = Uint8Array.from([...ascii('RIFF'), ...ascii('....WAVEfmt '), 1, 2, 3]);
+  throws('RIFF/WAV input is rejected clearly', () => parse(riff.buffer), /RIFF/);
+
+  const id3 = Uint8Array.from([...ascii('ID3    jquery'), 1, 2, 3, 4, 5, 6, 7, 8]);
+  throws('non-MIDI input is rejected clearly', () => parse(id3.buffer), /MThd/);
+
+  throws('a 4-byte file is rejected', () => parse(Uint8Array.from(ascii('MThd')).buffer), /too short/);
+  throws('a truncated MThd is rejected',
+    () => parse(Uint8Array.from([...ascii('MThd'), 0, 0, 0, 6]).buffer), /truncated/);
+
+  const junk = midiFile(0, 480, [[0x40, 0x41, 0x00, 0xff, 0x2f, 0x00]]);   // data byte, no running status
+  const sJunk = parse(junk);
+  eq('junk track yields no notes', sJunk.parts.length, 0);
+  hasWarn(sJunk, /no matching note-on|running status/);
+
+  const lying = midiFile(0, 480, []).slice(0);
+  const padded = new Uint8Array(lying.byteLength + 6);
+  padded.set(new Uint8Array(lying), 0);
+  padded.set(Uint8Array.from(ascii('MTrk')), lying.byteLength);   // chunk id with no length
+  const sPad = parse(padded.buffer);
+  eq('trailing junk chunk does not throw', sPad.sourceFormat, 'midi');
+
+  const empty = parse(midiFile(0, 480, [[eot()]]));
+  eq('a track with no notes yields no parts', empty.parts.length, 0);
+  hasWarn(empty, /no notes/);
+
+  const f2 = parse(midiFile(2, 480, [[tempo(0, 120), on(0, 0, 60, 100), ...off(480, 0, 60), eot()]]));
+  eq('format 2 still parses its notes', notesOf(f2).length, 1);
+  hasWarn(f2, /format 2/);
+
+  // a note held past the end of the track
+  const held = parse(midiFile(0, 480, [[tempo(0, 120), on(0, 0, 60, 100), eot()]]));
+  eq('unterminated note gets a tail', shapes(notesOf(held)), ['60@0/0.25']);
+  hasWarn(held, /still sounding/);
+
+  const div0 = parse(midiFile(0, 0, [[tempo(0, 120), on(0, 0, 60, 100), ...off(480, 0, 60), eot()]]));
+  near('division 0 falls back to 480 tpq', div0.parts[0].notes[0].durationQuarters, 1);
+  hasWarn(div0, /0 ticks per quarter/);
+
+  const bogusLen = (() => {                       // track chunk claims 16 MB, file is tiny
+    const b = new Uint8Array(midiFile(0, 480, [[tempo(0, 120), on(0, 0, 60, 100), ...off(480, 0, 60), eot()]]));
+    new DataView(b.buffer).setUint32(b.byteLength - 4, 0x01000000);
+    return b.buffer;
+  })();
+  const sBogus = parse(bogusLen);
+  eq('a lying chunk length recovers, still 1 note', sBogus.parts.length, 1);
+
+  const shortChunk = parse(midiFile(0, 480, [[ev(0, 0xff, 0x51, 0x7f, 7, 0xa1, 0x20), eot()]]));
+  eq('overrunning meta length does not throw', shortChunk.sourceFormat, 'midi');
+  hasWarn(shortChunk, /ends early/);
+  eq('tempo read before the overrun survives', shortChunk.tempoMap[0].bpm, 120);
+}
+
+/* ------------------------------------------------------- 10. performance -- */
+head('10. large file');
+{
+  const buf = bigFile(150000);
+  ok('fixture is over 1 MB', buf.byteLength > 1000000, `${buf.byteLength} bytes`);
+  const t0 = performance.now();
+  const s = parse(buf);
+  const ms = performance.now() - t0;
+  eq('all 150 000 notes parsed', s.parts[0].notes.length, 150000);
+  eq('first note', shapes([s.parts[0].notes[0]]), ['36@0/1']);
+  eq('last note', shapes([s.parts[0].notes[149999]]), ['95@149999/1']);
+  eq('totalQuarters', s.totalQuarters, 150000);
+  eq('measureCount', s.measureCount, 37500);
+  ok(`parse under 2000 ms (took ${ms.toFixed(0)} ms)`, ms < 2000, `${ms.toFixed(0)} ms`);
+  lines.push(`  ..  ${(buf.byteLength / 1048576).toFixed(2)} MiB parsed in ${ms.toFixed(0)} ms`);
+}
+
+} catch (e) {
+  fail++;
+  lines.push('', `<span class="fail">EXCEPTION ${e && e.stack || e}</span>`);
+}
+
+/* =============================================================== summary === */
+const summary = `${pass} passed, ${fail} failed`;
+lines.unshift(`<span class="${fail ? 'fail' : 'pass'}">SMF PARSER TESTS: ${summary}</span>`);
+out.innerHTML = lines.join('\n');
+window.__RESULT__ = { pass, fail, summary };
+window.__DONE__ = true;
+document.title = `SMF ${summary}`;
+</script>
+</body>
+</html>

@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>mscx parser tests</title>
+<style>
+  body { font: 13px/1.45 ui-monospace, Consolas, monospace; background: #111; color: #ddd; margin: 16px; }
+  pre { white-space: pre-wrap; }
+  .fail { color: #ff6b6b; }
+</style>
+</head>
+<body>
+<h3>mscx parser tests</h3>
+<pre id="out">booting…</pre>
+
+<script type="module">
+import { parseMuseScoreXml } from '../src/js/io/mscx.js';
+import { resolveScore, Timing } from '../src/js/score/model.js';
+
+const lines = [];
+let pass = 0, fail = 0;
+const fmt = (v) => {
+  if (Array.isArray(v)) return '[' + v.map(fmt).join(' ') + ']';
+  if (v && typeof v === 'object') {
+    return '{' + Object.keys(v).map(k => k + ':' + fmt(v[k])).join(',') + '}';
+  }
+  if (typeof v === 'number') return Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : v.toFixed(4).replace(/0+$/, '');
+  return String(v);
+};
+function ok(name, cond, detail) {
+  const line = (cond ? 'PASS  ' : 'FAIL  ') + name + (detail ? '   [' + detail + ']' : '');
+  if (cond) pass++; else fail++;
+  lines.push(line);
+}
+const eq = (name, actual, expected) => ok(name, JSON.stringify(actual) === JSON.stringify(expected), 'got ' + fmt(actual) + ' want ' + fmt(expected));
+const near = (name, actual, expected, tol) => ok(name, Math.abs(actual - expected) <= (tol == null ? 1e-9 : tol), 'got ' + fmt(actual) + ' want ' + fmt(expected));
+const throws = (name, fn, re) => {
+  try { fn(); ok(name, false, 'did not throw'); }
+  catch (e) { ok(name, re ? re.test(e.message) : true, 'threw: ' + String(e.message).slice(0, 90)); }
+};
+
+/* -------------------------------------------------------------- fixtures */
+
+// The snippet from the parse contract, plus a second bar so alignment matters.
+const BASIC = `<?xml version="1.0" encoding="UTF-8"?>
+<museScore version="4.20">
+  <programVersion>4.20.2</programVersion>
+  <Score>
+    <Division>480</Division>
+    <metaTag name="workTitle">Prelude in C</metaTag>
+    <metaTag name="composer">J. S. Bach</metaTag>
+    <Part>
+      <Staff id="1">
+        <StaffType group="pitched"><name>stdNormal</name></StaffType>
+      </Staff>
+      <trackName>Piano</trackName>
+      <Instrument>
+        <longName>Piano</longName>
+        <shortName>Pno.</shortName>
+        <instrumentId>Piano</instrumentId>
+        <minPitchP>21</minPitchP><maxPitchP>108</maxPitchP>
+        <transposeDiatonic>0</transposeDiatonic><transposeChromatic>0</transposeChromatic>
+      </Instrument>
+      <Staff id="1">
+        <Measure>
+          <voice>
+            <KeySig><concertKey>0</concertKey><mode>major</mode></KeySig>
+            <TimeSig><sigN>4</sigN><sigD>4</sigD></TimeSig>
+            <Tempo><tempo>1.9</tempo><text><sym>metNoteQuarterUp</sym> = 114</text></Tempo>
+            <Chord>
+              <durationType>quarter</durationType>
+              <Note><pitch>60</pitch><tpc>14</tpc></Note>
+              <Note><pitch>64</pitch><tpc>16</tpc></Note>
+            </Chord>
+            <Rest><durationType>quarter</durationType></Rest>
+          </voice>
+        </Measure>
+        <Measure>
+          <voice>
+            <Chord><durationType>half</durationType><Note><pitch>62</pitch><tpc>16</tpc></Note></Chord>
+            <Rest><durationType>half</durationType></Rest>
+          </voice>
+        </Measure>
+      </Staff>
+    </Part>
+  </Score>
+</museScore>`;
+
+const wrap = (division, body, meta = '') => `<?xml version="1.0" encoding="UTF-8"?>
+<museScore version="4.20"><Score><Division>${division}</Division>${meta}
+  <Part><trackName>X</trackName><Instrument><longName>Test</longName></Instrument>
+    <Staff id="1">${body}</Staff>
+  </Part>
+</Score></museScore>`;
+
+const bar = (inner) => `<Measure><voice>${inner}</voice></Measure>`;
+const chord = (type, pitch, extra = '') => `<Chord><durationType>${type}</durationType>${extra}<Note><pitch>${pitch}</pitch></Note></Chord>`;
+
+/* ============================== 1. XML parse errors ======================== */
+
+// The whole suite runs inside a try/catch so that a badly broken parser reports
+// as a FAIL line rather than an exception: the CDP harness reads the page text,
+// and an aborted page would say nothing about which assertions held.
+try {
+
+throws('1a malformed XML throws a clear error',
+  () => parseMuseScoreXml('<museScore><Score><Division>480</Division>', { fileName: 'broken.mscx' }),
+  /not well-formed XML/);
+throws('1b a MusicXML document is rejected, not misread',
+  () => parseMuseScoreXml('<?xml version="1.0"?><score-partwise version="4.0"><part-list/></score-partwise>'),
+  /<museScore> document/);
+throws('1c an empty string throws',
+  () => parseMuseScoreXml(''), /expected the text/);
+ok('1d valid mscx parses without throwing', (() => {
+  try { parseMuseScoreXml(BASIC); return true; } catch (e) { lines.push('      threw: ' + e.message); return false; }
+})());
+
+/* ============================== 2. Division → quarters ==================== */
+
+{
+  const s = parseMuseScoreXml(wrap(480, bar(chord('eighth', 60)) + bar(chord('eighth', 62))));
+  near('2a Division 480: an eighth note is 0.5 quarters', s.parts[0].notes[0].durationQuarters, 0.5);
+  near('2b the next bar starts at quarter 0.5', s.parts[0].notes[1].quarter, 0.5);
+}
+{
+  const s = parseMuseScoreXml(wrap(960, bar(chord('eighth', 60))));
+  near('2c Division 960: the same note is still 0.5 quarters', s.parts[0].notes[0].durationQuarters, 0.5);
+}
+{
+  // Unknown duration type must fall back to the raw <duration> tick count.
+  const s = parseMuseScoreXml(wrap(480,
+    bar('<Chord><durationType>blorp</durationType><duration>960</duration><Note><pitch>60</pitch></Note></Chord>')));
+  near('2d unknown durationType falls back to <duration> ticks / Division', s.parts[0].notes[0].durationQuarters, 2);
+  ok('2e that fallback is warned about, not thrown', s.warnings.some(w => /Unknown duration type "blorp"/.test(w)),
+    JSON.stringify(s.warnings));
+}
+
+/* ============================== 3. Part / instrument ====================== */
+
+{
+  const s = parseMuseScoreXml(BASIC);
+  const p = s.parts[0];
+  eq('3a one <Part> becomes one part', s.parts.length, 1);
+  eq('3b name comes from <Instrument><longName>', p.name, 'Piano');
+  eq('3c abbrev comes from <shortName>', p.abbrev, 'Pno.');
+  near('3d transposeChromatic 0 → part.transpose 0', p.transpose, 0);
+}
+{
+  const s = parseMuseScoreXml(`<museScore version="3.9"><Score><Division>480</Division>
+    <Part><trackName>Clarinet in Bb</trackName>
+      <Instrument><instrumentId>clarinet</instrumentId>
+        <transposeDiatonic>-1</transposeDiatonic><transposeChromatic>-2</transposeChromatic><transposeOctave>0</transposeOctave>
+      </Instrument>
+      <Staff id="1">${bar(chord('whole', 71))}</Staff>
+    </Part></Score></museScore>`);
+  const p = s.parts[0];
+  eq('3e name falls back to <trackName>', p.name, 'Clarinet in Bb');
+  near('3f part.transpose is the chromatic interval', p.transpose, -2);
+  const r = resolveScore(s);
+  near('3g resolveScore adds the transposition to the sounding pitch', r.notes[0].midi, 69);
+}
+{
+  const s = parseMuseScoreXml(`<museScore version="3.9"><Score><Division>480</Division>
+    <Part><trackName>Piccolo</trackName><Instrument><instrumentId>flute</instrumentId>
+      <transposeDiatonic>-1</transposeDiatonic><transposeChromatic>12</transposeChromatic></Instrument>
+      <Staff id="1">${bar(chord('whole', 72))}</Staff></Part></Score></museScore>`);
+  near('3h octave transposition is read from transposeChromatic', s.parts[0].transpose, 12);
+}
+
+/* ============================== 4. Tempo ================================== */
+
+{
+  const s = parseMuseScoreXml(BASIC);
+  eq('4a <tempo>1.9</tempo> (quarters/sec) → 114 bpm', s.tempoMap, [{ quarter: 0, bpm: 114 }]);
+  ok('4b the tempo map starts at quarter 0', s.tempoMap[0].quarter === 0);
+  near('4c Timing uses it (4 quarters ≈ 2.105 s)', new Timing(s.tempoMap, 4).durationSec, 4 * 60 / 114, 1e-6);
+}
+{
+  const s = parseMuseScoreXml(wrap(480,
+    bar('<Tempo><tempo>2</tempo></Tempo>' + chord('whole', 60)) +
+    bar('<Tempo><tempo>1</tempo></Tempo>' + chord('whole', 62))));
+  eq('4d a mid-piece tempo change makes a second entry', s.tempoMap, [{ quarter: 0, bpm: 120 }, { quarter: 4, bpm: 60 }]);
+  ok('4e tempoMap stays ascending', s.tempoMap.every((t, i, a) => i === 0 || t.quarter > a[i - 1].quarter));
+}
+{
+  const s = parseMuseScoreXml(wrap(480, bar(chord('whole', 60))));
+  eq('4f no tempo anywhere → 100 bpm default', s.tempoMap, [{ quarter: 0, bpm: 100 }]);
+  ok('4g the default tempo is mentioned in warnings', s.warnings.some(w => /assumed 100 bpm/.test(w)), JSON.stringify(s.warnings));
+}
+{
+  // A tempo first seen at quarter 8 still has to produce a map starting at 0.
+  const s = parseMuseScoreXml(wrap(480,
+    bar(chord('whole', 60)) + bar(chord('whole', 62)) + bar('<Tempo><tempo>1</tempo></Tempo>' + chord('whole', 64))));
+  eq('4h a late first tempo is held back to quarter 0', s.tempoMap, [{ quarter: 0, bpm: 60 }, { quarter: 8, bpm: 60 }]);
+}
+
+/* ============================== 5. Key signature =========================== */
+
+{
+  const s = parseMuseScoreXml(wrap(480,
+    bar('<KeySig><concertKey>-3</concertKey><mode>minor</mode></KeySig>' + chord('whole', 60))));
+  eq('5a <concertKey> + <mode> fill score.keySigs', s.keySigs, [{ quarter: 0, fifths: -3, mode: 'minor' }]);
+}
+{
+  const s = parseMuseScoreXml(wrap(480,
+    bar('<KeySig><concertKey>0</concertKey><mode>major</mode></KeySig>' + chord('whole', 60)) +
+    bar('<KeySig><concertKey>3</concertKey><mode>major</mode></KeySig>' + chord('whole', 62))));
+  eq('5b a mid-piece key change is a second entry', s.keySigs,
+    [{ quarter: 0, fifths: 0, mode: 'major' }, { quarter: 4, fifths: 3, mode: 'major' }]);
+}
+{
+  const s = parseMuseScoreXml(wrap(480, bar(chord('whole', 60))));
+  eq('5c no KeySig still yields a usable default', s.keySigs, [{ quarter: 0, fifths: 0, mode: null }]);
+}
+
+/* ============================== 6. Time signature ========================== */
+
+{
+  const s = parseMuseScoreXml(wrap(480, bar('<TimeSig><sigN>3</sigN><sigD>4</sigD></TimeSig>' + chord('half', 60) + chord('quarter', 62))));
+  eq('6a <sigN>/<sigD> fill score.timeSigs', s.timeSigs, [{ quarter: 0, beats: 3, beatType: 4 }]);
+  near('6b totalQuarters respects a 3/4 bar', s.totalQuarters, 3);
+}
+{
+  const s = parseMuseScoreXml(wrap(480,
+    bar('<TimeSig><sigN>4</sigN><sigD>4</sigD></TimeSig>' + chord('whole', 60)) +
+    bar('<TimeSig><sigN>6</sigN><sigD>8</sigD></TimeSig>' + chord('quarter', 62) + chord('quarter', 64) + chord('quarter', 65))));
+  eq('6c a meter change mid-piece is recorded', s.timeSigs,
+    [{ quarter: 0, beats: 4, beatType: 4 }, { quarter: 4, beats: 6, beatType: 8 }]);
+  near('6d a 6/8 bar is 3 quarters long', s.totalQuarters, 7);
+}
+
+/* ============================== 7. Durations + dots ======================= */
+
+{
+  const types = [
+    ['breve', 16], ['long', 16], ['whole', 4], ['half', 2], ['quarter', 1],
+    ['eighth', 0.5], ['16th', 0.25], ['32nd', 0.125], ['64th', 0.0625], ['128th', 0.03125],
+  ];
+  let bad = [];
+  for (const [type, quarters] of types) {
+    const s = parseMuseScoreXml(wrap(480, bar(chord(type, 60))));
+    const got = s.parts[0].notes[0].durationQuarters;
+    if (Math.abs(got - quarters) > 1e-9) bad.push(type + '=' + got + ' want ' + quarters);
+  }
+  ok('7a every durationType maps to its quarter length', bad.length === 0, bad.join(', '));
+}
+{
+  const s = parseMuseScoreXml(wrap(480,
+    bar('<Chord><durationType>quarter</durationType><dots>1</dots><Note><pitch>60</pitch></Note></Chord>')));
+  near('7b one dot → 1.5 quarters', s.parts[0].notes[0].durationQuarters, 1.5);
+  const s2 = parseMuseScoreXml(wrap(480,
+    bar('<Chord><durationType>quarter</durationType><dots>2</dots><Note><pitch>60</pitch></Note></Chord>')));
+  near('7c two dots → 1.75 quarters', s2.parts[0].notes[0].durationQuarters, 1.75);
+}
+{
+  // `measure` duration = exactly one bar, taken from the time signature.
+  const s = parseMuseScoreXml(wrap(480,
+    bar('<TimeSig><sigN>12</sigN><sigD>8</sigD></TimeSig><Rest><durationType>measure</durationType></Rest>')));
+  near('7d a whole-bar rest in 12/8 lasts 6 quarters', s.totalQuarters, 6);
+}
+
+/* ============================== 8. Chords ================================= */
+
+{
+  const s = parseMuseScoreXml(wrap(480,
+    bar('<Chord><durationType>quarter</durationType>' +
+        '<Note><pitch>60</pitch></Note><Note><pitch>64</pitch></Note><Note><pitch>67</pitch></Note></Chord>' +
+        chord('quarter', 72))));
+  const ns = s.parts[0].notes;
+  eq('8a a 3-note chord emits 3 notes', ns.length, 4);
+  eq('8b all three share one onset', [ns[0].quarter, ns[1].quarter, ns[2].quarter], [0, 0, 0]);
+  eq('8c only the first is not a chord member', [ns[0].chord, ns[1].chord, ns[2].chord], [false, true, true]);
+  near('8d the chord advances the cursor once', ns[3].quarter, 1);
+  eq('8e pitches are in chord order', [ns[0].midi, ns[1].midi, ns[2].midi], [60, 64, 67]);
+}
+
+/* ============================== 9. Tuplets ================================ */
+
+{
+  const inner = chord('eighth', 60) + chord('eighth', 62) + chord('eighth', 64);
+  const s = parseMuseScoreXml(wrap(480,
+    bar(`<Tuplet id="1"><normalNotes>2</normalNotes><actualNotes>3</actualNotes><baseNote>eighth</baseNote>${inner}<endTuplet/></Tuplet>`)));
+  const ns = s.parts[0].notes;
+  near('9a 3 eighths in the time of 2 → 1/3 quarter each', ns[0].durationQuarters, 1 / 3);
+  near('9b the second tuplet note is at 1/3', ns[1].quarter, 1 / 3);
+  near('9c the whole group takes 1 quarter', ns[2].quarter + ns[2].durationQuarters, 1);
+}
+{
+  const inner = chord('eighth', 60) + chord('eighth', 62) + chord('eighth', 64);
+  const xml = wrap(480, bar(
+    `<Tuplet id="1"><normalNotes>2</normalNotes><actualNotes>3</actualNotes>` +
+      `<Tuplet id="2"><normalNotes>2</normalNotes><actualNotes>3</actualNotes>${inner}<endTuplet/></Tuplet>` +
+    `<endTuplet/></Tuplet>`));
+  const ns = parseMuseScoreXml(xml).parts[0].notes;
+  near('9d nested tuplet ratios multiply (0.5 · 2/3 · 2/3)', ns[0].durationQuarters, 0.5 * (2 / 3) * (2 / 3));
+  near('9e the nested group ends after 2/3 of a quarter', ns[2].quarter + ns[2].durationQuarters, 2 / 3);
+}
+
+/* ============================== 10. Ties ================================== */
+
+// A half note tied across the barline into the next bar (Spanner in the Note).
+const TIE_XBAR = `<museScore version="4.20"><Score><Division>480</Division>
+  <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+    <Measure><voice>
+      <Chord><durationType>half</durationType>
+        <Note><pitch>60</pitch>
+          <Spanner type="Tie">
+            <next><location><measures>1</measures><fractions>0</fractions></location></next>
+          </Spanner>
+        </Note>
+      </Chord>
+      <Chord><durationType>half</durationType><Note><pitch>62</pitch></Note></Chord>
+    </voice></Measure>
+    <Measure><voice>
+      <Chord><durationType>half</durationType>
+        <Note><pitch>60</pitch>
+          <Spanner type="Tie">
+            <prev><location><measures>-1</measures><fractions>0</fractions></location></prev>
+          </Spanner>
+        </Note>
+      </Chord>
+      <Chord><durationType>half</durationType><Note><pitch>62</pitch></Note></Chord>
+    </voice></Measure>
+  </Staff></Part></Score></museScore>`;
+
+{
+  const s = parseMuseScoreXml(TIE_XBAR);
+  const ns = s.parts[0].notes;
+  eq('10a a tie across the barline merges into one note', ns.length, 3);
+  const merged = ns.find(n => n.midi === 60);
+  near('10b the merged note has the summed duration (2 + 2)', merged.durationQuarters, 4);
+  near('10c the merged note keeps the first onset', merged.quarter, 0);
+  ok('10d it carries tieFrom and tieTo flags', merged.tieFrom === true && merged.tieTo === true);
+  eq('10e the untied note is untouched', [ns.filter(n => n.midi === 62).length, ns.find(n => n.midi === 62).durationQuarters], [2, 2]);
+  ok('10f the merged note is still first in the part', s.parts[0].notes[0] === merged);
+}
+{
+  // Partial chord: only the middle note is tied.
+  const xml = `<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure><voice>
+        <Chord><durationType>whole</durationType>
+          <Note><pitch>60</pitch><Spanner type="Tie"><next><location><measures>0</measures><fractions>4</fractions></location></next></Spanner></Note>
+          <Note><pitch>64</pitch><Spanner type="Tie"><next><location><measures>0</measures><fractions>4</fractions></location></next></Spanner></Note>
+          <Note><pitch>67</pitch></Note>
+        </Chord>
+      </voice></Measure>
+      <Measure><voice>
+        <Chord><durationType>whole</durationType><Note><pitch>60</pitch></Note><Note><pitch>64</pitch></Note><Note><pitch>67</pitch></Note></Chord>
+      </voice></Measure>
+    </Staff></Part></Score></museScore>`;
+  const ns = parseMuseScoreXml(xml).parts[0].notes;
+  eq('10g a partial chord tie only merges the tied members', ns.length, 4);
+  near('10h the tied member of the chord lasts 8 quarters', ns.find(n => n.midi === 64).durationQuarters, 8);
+  eq('10i the untied member still lasts its own 4 quarters', ns.filter(n => n.midi === 67).map(n => n.durationQuarters), [4, 4]);
+  eq('10j the tied member’s continuation is absorbed into it', ns.filter(n => n.midi === 60).map(n => n.durationQuarters), [8]);
+}
+{
+  // A three-note chain A–B–C collapses into a single A.
+  const tieNext = '<Spanner type="Tie"><next><location><measures>0</measures><fractions>1</fractions></location></next></Spanner>';
+  const xml = `<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure><voice>
+        <Chord><durationType>quarter</durationType><Note><pitch>60</pitch>${tieNext}</Note></Chord>
+      </voice></Measure>
+      <Measure><voice>
+        <Chord><durationType>quarter</durationType><Note><pitch>60</pitch>${tieNext}</Note></Chord>
+        <Chord><durationType>quarter</durationType><Note><pitch>60</pitch></Note></Chord>
+      </voice></Measure>
+    </Staff></Part></Score></museScore>`;
+  const ns = parseMuseScoreXml(xml).parts[0].notes;
+  eq('10k an A–B–C chain becomes a single note', ns.length, 1);
+  eq('10l … with all three durations summed', ns.map(n => n.durationQuarters), [3]);
+}
+{
+  // Older files: a bare <Tie> on the note.
+  const xml = `<museScore version="1.9"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure><voice>
+        <Chord><durationType>half</durationType><Note><pitch>60</pitch><Tie>start</Tie></Note></Chord>
+        <Rest><durationType>half</durationType></Rest>
+      </voice></Measure>
+      <Measure><voice>
+        <Chord><durationType>half</durationType><Note><pitch>60</pitch><Tie>end</Tie></Note></Chord>
+        <Rest><durationType>half</durationType></Rest>
+      </voice></Measure>
+    </Staff></Part></Score></museScore>`;
+  const ns = parseMuseScoreXml(xml).parts[0].notes;
+  eq('10m a legacy <Tie>start/end pair merges across the barline', ns.length, 1);
+  near('10n … to the summed 4 quarters', ns[0].durationQuarters, 4);
+  ok('10o … and is flagged', ns[0].tieFrom === true && ns[0].tieTo === true);
+}
+{
+  // A tie written once, on the Chord, covers every note of that chord.
+  const xml = `<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure><voice>
+        <Chord><durationType>whole</durationType>
+          <Tie><next><location><measures>0</measures><fractions>4</fractions></location></next></Tie>
+          <Note><pitch>60</pitch></Note><Note><pitch>64</pitch></Note>
+        </Chord>
+      </voice></Measure>
+      <Measure><voice>
+        <Chord><durationType>whole</durationType><Note><pitch>60</pitch></Note><Note><pitch>64</pitch></Note></Chord>
+      </voice></Measure>
+    </Staff></Part></Score></museScore>`;
+  const ns = parseMuseScoreXml(xml).parts[0].notes;
+  eq('10p a chord-level <Tie> ties every member of the chord', ns.length, 2);
+  ok('10q … each becoming one 8-quarter note',
+    ns.every(n => Math.abs(n.durationQuarters - 8) < 1e-9), fmt(ns.map(n => n.durationQuarters)));
+}
+
+/* ============================== 11. Grand staff ============================ */
+
+{
+  const xml = `<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>Piano</trackName><Instrument><longName>Piano</longName></Instrument>
+      <Staff id="1"><Measure><voice>${chord('whole', 60)}</voice></Measure></Staff>
+      <Staff id="2"><Measure><voice>${chord('whole', 36)}</voice></Measure></Staff>
+    </Part></Score></museScore>`;
+  const s = parseMuseScoreXml(xml);
+  eq('11a two <Staff> in one <Part> → still ONE part', s.parts.length, 1);
+  eq('11b the part reports both staves', s.parts[0].staves, 2);
+  eq('11c both stafflines contribute notes', s.parts[0].notes.length, 2);
+  eq('11d each note keeps its staff number', s.parts[0].notes.map(n => n.staff).sort(), [1, 2]);
+  eq('11e and both staves start at the same quarter', s.parts[0].notes.map(n => n.quarter), [0, 0]);
+  ok('11f the merge is reported as a warning', s.warnings.some(w => /2 staves/.test(w)), JSON.stringify(s.warnings));
+}
+
+/* ============================== 12. Bar length ============================ */
+
+{
+  // Pickup bar: len="1/4" of a 4/4 bar = 1 quarter, then full bars.
+  const s = parseMuseScoreXml(`<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure len="1/4"><voice>${chord('quarter', 60)}</voice></Measure>
+      <Measure><voice>${chord('half', 62)}${chord('half', 64)}</voice></Measure>
+      <Measure><voice>${chord('half', 65)}${chord('half', 67)}</voice></Measure>
+    </Staff></Part></Score></museScore>`);
+  eq('12a <Measure len> is honoured for the pickup bar', s.totalQuarters, 9);
+  eq('12b measureCount counts every bar', s.measureCount, 3);
+  near('12c bar 2 starts after the short bar', s.parts[0].notes.find(n => n.midi === 62).quarter, 1);
+  near('12d bar 3 follows a full bar', s.parts[0].notes.find(n => n.midi === 65).quarter, 5);
+}
+{
+  // len is a fraction of the whole bar for the meter in force.
+  const s = parseMuseScoreXml(`<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure><voice><TimeSig><sigN>4</sigN><sigD>4</sigD></TimeSig><Rest><durationType>measure</durationType></Rest></voice></Measure>
+      <Measure len="1/2"><voice>${chord('half', 60)}</voice></Measure>
+    </Staff></Part></Score></museScore>`);
+  near('12e len="1/2" in 4/4 is 2 quarters', s.totalQuarters, 6);
+}
+{
+  // A staffline with fewer voices than its sibling, and a bar missing entirely.
+  const xml = `<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>Piano</trackName><Instrument><longName>Piano</longName></Instrument>
+      <Staff id="1">
+        <Measure>
+          <voice>${chord('half', 60)}${chord('half', 62)}</voice>
+          <voice>${chord('half', 55)}${chord('half', 57)}</voice>
+        </Measure>
+        <Measure>
+          <voice>${chord('half', 64)}${chord('half', 65)}</voice>
+        </Measure>
+      </Staff>
+      <Staff id="2">
+        <Measure><voice>${chord('whole', 40)}</voice></Measure>
+      </Staff>
+    </Part></Score></museScore>`;
+  const s = parseMuseScoreXml(xml);
+  const p = s.parts[0];
+  eq('12f voice 2 of staff 1 is read', p.notes.filter(n => n.voice === 2).length, 2);
+  eq('12g staff 2 is read as its own staff', p.notes.filter(n => n.staff === 2).length, 1);
+  eq('12h every voice of bar 1 shares quarter 0', p.notes.filter(n => n.quarter === 0).length, 3);
+  near('12i bar 2 of staff 1 starts at quarter 4', p.notes.find(n => n.staff === 1 && n.quarter === 4).quarter, 4);
+  near('12j staff 2’s bar is aligned with staff 1’s', p.notes.find(n => n.staff === 2).quarter, 0);
+  eq('12k missing bars are reported, not fatal', s.warnings.filter(w => /missing/.test(w)).length > 0, true);
+  near('12l the length still comes from the fullest bar', s.totalQuarters, 8);
+}
+{
+  // Notes that overrun the declared bar length are reported, not silently cut.
+  const s = parseMuseScoreXml(`<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure len="1/2"><voice>${chord('whole', 60)}</voice></Measure>
+    </Staff></Part></Score></museScore>`);
+  ok('12m a bar whose notes disagree with len warns', s.warnings.some(w => /declares 2 quarter/.test(w)), JSON.stringify(s.warnings));
+  near('12n … and the longer value is used', s.totalQuarters, 4);
+}
+
+/* ============================== 13. Metadata ============================== */
+
+{
+  const s = parseMuseScoreXml(BASIC);
+  eq('13a <metaTag name="workTitle"> becomes the title', s.title, 'Prelude in C');
+  eq('13b <metaTag name="composer"> becomes the composer', s.composer, 'J. S. Bach');
+  eq('13c sourceFormat is mscx', s.sourceFormat, 'mscx');
+  eq('13d rawMusicXml stays null (no notation view for mscx)', s.rawMusicXml, null);
+  ok('13e the score is playable through the model', resolveScore(s).notes.length === 3);
+}
+{
+  const s = parseMuseScoreXml(`<museScore version="4.20"><Score><Division>480</Division>
+    <workTitle>Fallback Title</workTitle><composer>Anon.</composer>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">${bar(chord('whole', 60))}</Staff></Part>
+  </Score></museScore>`);
+  eq('13f plain <workTitle>/<composer> elements are the fallback', [s.title, s.composer], ['Fallback Title', 'Anon.']);
+}
+{
+  const s = parseMuseScoreXml(wrap(480, bar(chord('whole', 60))));
+  eq('13g no metadata at all still yields a usable score', [s.title, s.composer], ['Untitled', '']);
+  eq('13h opts.title can supply the title', parseMuseScoreXml(wrap(480, bar(chord('whole', 60))), { title: 'From opts' }).title, 'From opts');
+}
+
+/* ============================== 14. Grace notes =========================== */
+
+{
+  const xml = `<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure><voice>
+        <Chord>
+          <graceNotes>
+            <Chord><durationType>16th</durationType><Note><pitch>67</pitch></Note><Note><pitch>69</pitch></Note></Chord>
+          </graceNotes>
+          <durationType>quarter</durationType>
+          <Note><pitch>60</pitch></Note>
+        </Chord>
+        ${chord('quarter', 62)}
+      </voice></Measure>
+    </Staff></Part></Score></museScore>`;
+  const ns = parseMuseScoreXml(xml).parts[0].notes;
+  eq('14a grace notes are kept, not dropped', ns.length, 4);
+  const graces = ns.filter(n => n.grace);
+  eq('14b exactly the two container grace notes are flagged', graces.map(n => n.midi), [67, 69]);
+  eq('14c the second grace note is a chord member of the grace chord', graces.map(n => n.chord), [false, true]);
+  const main = ns.find(n => n.midi === 60);
+  near('14d the main note keeps its own duration', main.durationQuarters, 1);
+  near('14e grace notes do not advance the cursor', ns.find(n => n.midi === 62).quarter, 1);
+  eq('14f grace notes share the main note’s onset', [graces[0].quarter, graces[1].quarter, main.quarter], [0, 0, 0]);
+  eq('14g the main note is not a chord member', main.chord, false);
+}
+{
+  // Legacy spellings: <durationType>grace</durationType> and <Note><grace/>.
+  const xml = `<museScore version="1.9"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure><voice>
+        <Chord><durationType>grace</durationType><Note><pitch>72</pitch></Note></Chord>
+        ${chord('half', 60)}
+        <Chord><durationType>eighth</durationType><Note><pitch>76</pitch><grace/></Note></Chord>
+        ${chord('quarter', 62)}
+      </voice></Measure>
+    </Staff></Part></Score></museScore>`;
+  const ns = parseMuseScoreXml(xml).parts[0].notes;
+  const g1 = ns.find(n => n.midi === 72);
+  eq('14h <durationType>grace</durationType> is a grace note', [g1.midi, g1.grace, g1.quarter], [72, true, 0]);
+  near('14i the real note is not pushed back by it', ns.find(n => n.midi === 60).quarter, 0);
+  const legacy = ns.find(n => n.midi === 76);
+  eq('14j <Note><grace/> is also a grace note', [legacy.midi, legacy.grace, legacy.quarter], [76, true, 2]);
+  const last = ns.find(n => n.midi === 62);
+  near('14k and it does not advance the cursor either', last.quarter, 2);
+  near('14l the whole bar still measures 3 quarters', last.quarter + last.durationQuarters, 3);
+}
+
+/* ============================== 15. Warnings / robustness ================= */
+
+{
+  const xml = `<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure>
+        <irregular>1</irregular>
+        <voice>
+          <SomethingUnknown><deeper>1</deeper></SomethingUnknown>
+          <BarLine><subtype>end</subtype></BarLine>
+          <Dynamic><subtype>pp</subtype></Dynamic>
+          <StaffText><text>Allegro</text></StaffText>
+          <Spanner type="HairPin"><HairPin><subtype>0</subtype></HairPin></Spanner>
+          <LayoutBreak><subtype>line</subtype></LayoutBreak>
+          ${chord('whole', 60)}
+          <endTuplet/>
+        </voice>
+      </Measure>
+    </Staff></Part></Score></museScore>`;
+  let s = null, threw = null;
+  try { s = parseMuseScoreXml(xml); } catch (e) { threw = e; }
+  ok('15a unknown elements never crash the parse', threw === null, threw && threw.message);
+  ok('15b … and the note inside them still parses', s && s.parts[0].notes.length === 1);
+  near('15c … with its duration intact', s && s.parts[0].notes[0].durationQuarters, 4);
+  eq('15d warnings is an array of readable strings',
+    s.warnings.every(w => typeof w === 'string' && w.length > 4), true);
+}
+{
+  // A measure with no <voice> at all must still be read.
+  const xml = `<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure>${chord('whole', 60)}</Measure>
+    </Staff></Part></Score></museScore>`;
+  let s = null, threw = null;
+  try { s = parseMuseScoreXml(xml); } catch (e) { threw = e; }
+  ok('15e a bar with no <voice> does not crash', threw === null, threw && threw.message);
+  ok('15f … and its chords are still read', s && s.parts[0].notes.length === 1);
+}
+{
+  // A missing <Division> must be survivable.
+  const xml = `<museScore version="4.20"><Score>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure><voice>${chord('whole', 60)}</voice></Measure>
+    </Staff></Part></Score></museScore>`;
+  let s = null, threw = null;
+  try { s = parseMuseScoreXml(xml); } catch (e) { threw = e; }
+  ok('15g a missing <Division> does not crash', threw === null, threw && threw.message);
+  near('15h … durations are unaffected (480 assumed)', s && s.parts[0].notes[0].durationQuarters, 4);
+  ok('15i … and the guess is reported', s && s.warnings.some(w => /Division/.test(w)));
+}
+{
+  // A <Part> with no staff at all.
+  const xml = `<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>Ghost</trackName><Instrument><longName>Ghost</longName></Instrument></Part>
+  </Score></museScore>`;
+  let s = null, threw = null;
+  try { s = parseMuseScoreXml(xml); } catch (e) { threw = e; }
+  ok('15j a <Part> with no staff does not crash', threw === null, threw && threw.message);
+  eq('15k … it becomes an empty part', s && s.parts[0].notes.length, 0);
+}
+{
+  // A score with no parts at all.
+  const s = parseMuseScoreXml('<museScore version="4.20"><Score><Division>480</Division></Score></museScore>');
+  eq('15l a score with no <Part> parses to zero parts', s.parts.length, 0);
+  ok('15m … with a warning', s.warnings.some(w => /no <Part>/.test(w)), JSON.stringify(s.warnings));
+  ok('15n … and is still a legal score for the model', Array.isArray(resolveScore(s).notes));
+}
+{
+  // Rich note metadata that must not derail the parse.
+  const xml = `<museScore version="4.20"><Score><Division>480</Division>
+    <Part><trackName>X</trackName><Instrument><longName>X</longName></Instrument><Staff id="1">
+      <Measure><voice>
+        <Clef><concertClefType>F</concertClefType></Clef>
+        <Chord><durationType>quarter</durationType>
+          <Articulation><subtype>articStaccatoBelow</subtype></Articulation>
+          <Note>
+            <pitch>60</pitch><tpc>14</tpc><velocity>100</velocity>
+            <Lyrics><text>do</text><syllabic>begin</syllabic></Lyrics>
+          </Note>
+        </Chord>
+      </voice></Measure>
+    </Staff></Part></Score></museScore>`;
+  const s = parseMuseScoreXml(xml);
+  const n = s.parts[0].notes[0];
+  eq('15o an F clef reaches part.clef', s.parts[0].clef, 'bass');
+  eq('15p articulation is normalised', n.articulation, 'staccato');
+  near('15q a 0–127 velocity is scaled to 0–1', n.velocity, 100 / 127, 1e-9);
+  eq('15r lyrics reach the note', n.lyric, 'do');
+}
+{
+  // Model invariants.
+  const s = parseMuseScoreXml(BASIC);
+  ok('15s part notes are sorted ascending by quarter',
+    s.parts[0].notes.every((n, i, a) => i === 0 || a[i - 1].quarter <= n.quarter));
+  ok('15t tempoMap is ascending and starts at 0',
+    s.tempoMap[0].quarter === 0 && s.tempoMap.every((t, i, a) => i === 0 || t.quarter > a[i - 1].quarter));
+  ok('15u keySigs/timeSigs are ascending',
+    s.keySigs.every((k, i, a) => i === 0 || a[i - 1].quarter <= k.quarter) &&
+    s.timeSigs.every((k, i, a) => i === 0 || a[i - 1].quarter <= k.quarter));
+  ok('15v totalQuarters is a number > 0', typeof s.totalQuarters === 'number' && s.totalQuarters > 0);
+}
+
+} catch (err) {
+  fail++;
+  lines.push('FAIL  suite aborted before finishing: ' + (err && err.message ? err.message : String(err)));
+}
+
+/* ------------------------------------------------------------------ report */
+
+lines.push('');
+lines.push(`TOTAL: ${pass} passed, ${fail} failed`);
+lines.push(fail === 0 ? 'RESULT: ALL GREEN' : 'RESULT: FAILURES PRESENT');
+
+const out = document.getElementById('out');
+out.textContent = lines.join('\n');
+out.className = fail === 0 ? '' : 'fail';
+window.__SUMMARY__ = { pass, fail };
+window.__DONE__ = true;
+</script>
+</body>
+</html>

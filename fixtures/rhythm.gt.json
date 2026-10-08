@@ -1,0 +1,181 @@
+{
+ "key": "rhythm",
+ "name": "GT Rhythm",
+ "sourceNotes": 18,
+ "restCount": 4,
+ "renderedNotes": 22,
+ "consistent": true,
+ "staves": [
+  {
+   "index": 1,
+   "name": "Rhythm",
+   "clef": "G",
+   "notes": [
+    {
+     "midi": 60,
+     "quarters": 1
+    },
+    {
+     "midi": 62,
+     "quarters": 0.5
+    },
+    {
+     "midi": 64,
+     "quarters": 0.5
+    },
+    {
+     "midi": 67,
+     "quarters": 0.5
+    },
+    {
+     "midi": 67,
+     "quarters": 0.5
+    },
+    {
+     "midi": 69,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 0.75
+    },
+    {
+     "midi": 64,
+     "quarters": 0.5
+    },
+    {
+     "midi": 62,
+     "quarters": 0.5
+    },
+    {
+     "midi": 60,
+     "quarters": 1
+    },
+    {
+     "midi": 62,
+     "quarters": 0.5
+    },
+    {
+     "midi": 64,
+     "quarters": 0.5
+    },
+    {
+     "midi": 67,
+     "quarters": 0.5
+    },
+    {
+     "midi": 67,
+     "quarters": 0.5
+    },
+    {
+     "midi": 69,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 0.75
+    },
+    {
+     "midi": 64,
+     "quarters": 0.5
+    },
+    {
+     "midi": 62,
+     "quarters": 0.5
+    }
+   ]
+  }
+ ],
+ "notes": [
+  {
+   "midi": 60,
+   "quarters": 1,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 62,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 64,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 67,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 67,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 69,
+   "quarters": 1,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 67,
+   "quarters": 0.75,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 64,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 62,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 60,
+   "quarters": 1,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 62,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 64,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 67,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 67,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 69,
+   "quarters": 1,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 67,
+   "quarters": 0.75,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 64,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  },
+  {
+   "midi": 62,
+   "quarters": 0.5,
+   "part": "Rhythm"
+  }
+ ]
+}

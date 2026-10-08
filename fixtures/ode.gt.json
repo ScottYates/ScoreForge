@@ -1,0 +1,280 @@
+{
+ "key": "ode",
+ "name": "GT Ode to Joy",
+ "sourceNotes": 29,
+ "restCount": 0,
+ "renderedNotes": 29,
+ "consistent": true,
+ "staves": [
+  {
+   "index": 1,
+   "name": "Melody",
+   "clef": "G",
+   "notes": [
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 65,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 1
+    },
+    {
+     "midi": 65,
+     "quarters": 1
+    },
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 62,
+     "quarters": 1
+    },
+    {
+     "midi": 60,
+     "quarters": 1
+    },
+    {
+     "midi": 60,
+     "quarters": 1
+    },
+    {
+     "midi": 62,
+     "quarters": 1
+    },
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 64,
+     "quarters": 2
+    },
+    {
+     "midi": 62,
+     "quarters": 1
+    },
+    {
+     "midi": 62,
+     "quarters": 1
+    },
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 65,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 1
+    },
+    {
+     "midi": 65,
+     "quarters": 1
+    },
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 62,
+     "quarters": 1
+    },
+    {
+     "midi": 60,
+     "quarters": 1
+    },
+    {
+     "midi": 60,
+     "quarters": 1
+    },
+    {
+     "midi": 62,
+     "quarters": 1
+    },
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 62,
+     "quarters": 2
+    },
+    {
+     "midi": 60,
+     "quarters": 2
+    }
+   ]
+  }
+ ],
+ "notes": [
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 65,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 67,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 67,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 65,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 62,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 60,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 60,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 62,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 64,
+   "quarters": 2,
+   "part": "Melody"
+  },
+  {
+   "midi": 62,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 62,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 65,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 67,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 67,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 65,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 62,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 60,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 60,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 62,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 62,
+   "quarters": 2,
+   "part": "Melody"
+  },
+  {
+   "midi": 60,
+   "quarters": 2,
+   "part": "Melody"
+  }
+ ]
+}

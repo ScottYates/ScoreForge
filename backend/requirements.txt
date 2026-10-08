@@ -1,0 +1,30 @@
+# ScoreForge optical music recognition backend
+#
+# CPU only. There is deliberately no torch, no tensorflow and no CUDA package:
+# homr runs on ONNX Runtime, which is what keeps this installable on a machine
+# with no graphics card.
+#
+#   python -m venv backend/.venv
+#   backend/.venv\Scripts\pip install -r backend/requirements.txt
+#   backend/.venv\Scripts\python backend/app.py
+
+# --- recognition -------------------------------------------------------------
+homr==0.7.0                 # AGPL-3.0. ONNX Runtime based. See README licence note.
+onnxruntime==1.30.0         # CPU execution provider only
+rapidocr==3.9.2             # title detection inside homr
+
+# --- image handling ----------------------------------------------------------
+# homr pins opencv-python < 5.0.0 but its own code imports cv2.typing, which
+# only exists in OpenCV 5. Installing 5.0 satisfies the import; pip emits a
+# harmless pin-conflict warning about homr's declared range.
+opencv-python-headless==5.0.0.93
+numpy==2.5.3
+Pillow==12.3.0              # EXIF-aware decoding
+
+# --- PDFs --------------------------------------------------------------------
+pypdfium2==5.14.0           # rasterises each PDF page to an image
+
+# --- service -----------------------------------------------------------------
+fastapi==0.142.4
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32    # multipart/form-data, required by POST /api/omr

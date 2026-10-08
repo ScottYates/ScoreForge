@@ -1,0 +1,134 @@
+{
+ "key": "grand",
+ "name": "GT Two Staves",
+ "sourceNotes": 12,
+ "restCount": 0,
+ "renderedNotes": 12,
+ "consistent": true,
+ "staves": [
+  {
+   "index": 1,
+   "name": "Upper",
+   "clef": "G",
+   "notes": [
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 65,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 1
+    },
+    {
+     "midi": 65,
+     "quarters": 1
+    },
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 62,
+     "quarters": 1
+    }
+   ]
+  },
+  {
+   "index": 2,
+   "name": "Lower",
+   "clef": "F",
+   "notes": [
+    {
+     "midi": 48,
+     "quarters": 2
+    },
+    {
+     "midi": 43,
+     "quarters": 2
+    },
+    {
+     "midi": 48,
+     "quarters": 2
+    },
+    {
+     "midi": 40,
+     "quarters": 2
+    }
+   ]
+  }
+ ],
+ "notes": [
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Upper"
+  },
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Upper"
+  },
+  {
+   "midi": 65,
+   "quarters": 1,
+   "part": "Upper"
+  },
+  {
+   "midi": 67,
+   "quarters": 1,
+   "part": "Upper"
+  },
+  {
+   "midi": 67,
+   "quarters": 1,
+   "part": "Upper"
+  },
+  {
+   "midi": 65,
+   "quarters": 1,
+   "part": "Upper"
+  },
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Upper"
+  },
+  {
+   "midi": 62,
+   "quarters": 1,
+   "part": "Upper"
+  },
+  {
+   "midi": 48,
+   "quarters": 2,
+   "part": "Lower"
+  },
+  {
+   "midi": 43,
+   "quarters": 2,
+   "part": "Lower"
+  },
+  {
+   "midi": 48,
+   "quarters": 2,
+   "part": "Lower"
+  },
+  {
+   "midi": 40,
+   "quarters": 2,
+   "part": "Lower"
+  }
+ ]
+}

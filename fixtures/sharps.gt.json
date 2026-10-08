@@ -1,0 +1,91 @@
+{
+ "key": "sharps",
+ "name": "GT Sharps",
+ "sourceNotes": 8,
+ "restCount": 0,
+ "renderedNotes": 8,
+ "consistent": true,
+ "staves": [
+  {
+   "index": 1,
+   "name": "Melody",
+   "clef": "G",
+   "notes": [
+    {
+     "midi": 65,
+     "quarters": 1
+    },
+    {
+     "midi": 69,
+     "quarters": 1
+    },
+    {
+     "midi": 65,
+     "quarters": 1
+    },
+    {
+     "midi": 69,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 1
+    },
+    {
+     "midi": 59,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 1
+    },
+    {
+     "midi": 62,
+     "quarters": 1
+    }
+   ]
+  }
+ ],
+ "notes": [
+  {
+   "midi": 65,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 69,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 65,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 69,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 67,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 59,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 67,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 62,
+   "quarters": 1,
+   "part": "Melody"
+  }
+ ]
+}

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Turn sheet music into audio. Drop in MusicXML or MIDI, choose a key, tempo and instrument, preview it, then export an MP3 — entirely in your browser.">
+<title>ScoreForge - sheet music to MP3</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%23151824'/%3E%3Cpath d='M9 18V6.2l9-1.7V16' fill='none' stroke='%237d8cff' stroke-width='2.1' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='6.6' cy='18' r='2.7' fill='%237d8cff'/%3E%3Ccircle cx='15.6' cy='16' r='2.7' fill='%237d8cff'/%3E%3C/svg%3E">
+<style>/*{{CSS}}*/</style>
+</head>
+<body>
+
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l10.8-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14Z" fill="currentColor"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 4h3.5v16H7zM13.5 4H17v16h-3.5z" fill="currentColor"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M7 5h2.2v14H7zM19 5.6v12.8a1 1 0 0 1-1.54.84l-9-6.4a1 1 0 0 1 0-1.68l9-6.4A1 1 0 0 1 19 5.6Z" fill="currentColor"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M16.8 5H19v14h-2.2zM5 5.6v12.8a1 1 0 0 0 1.54.84l9-6.4a1 1 0 0 0 0-1.68l-9-6.4A1 1 0 0 0 5 5.6Z" fill="currentColor"/></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4.2l1.6 2h9.2A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
+  <symbol id="i-piano" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 5v8M12 5v8M16 5v8M3 13h18"/></symbol>
+  <symbol id="i-metronome" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l3 16H6Z"/><path d="M12 18 17 7"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 21V14M5 10V3M12 21v-9M12 8V3M19 21v-5M19 12V3"/><path d="M2.5 14h5M9.5 8h5M16.5 16h5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4.5 4.5L19 7"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 1.8 20.5h20.4Z"/><path d="M12 10v4.5M12 17.5h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-zoomin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.5-4.5M11 8.5v5M8.5 11h5"/></symbol>
+  <symbol id="i-zoomout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.5-4.5M8.5 11h5"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12h2l2-7 3 14 3-10 2.5 6H21"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="4.5"/><path d="m11.5 11.5 8 8M17 17l2-2M14.5 14.5l2-2"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m4 17 5-5 4 4 3-2 4 4"/></symbol>
+  <symbol id="i-brand" viewBox="0 0 24 24"><path d="M9 18V6.2l9-1.7V16" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.6" cy="18" r="2.7" fill="currentColor"/><circle cx="15.6" cy="16" r="2.7" fill="currentColor"/></symbol>
+</svg>
+
+<div id="app">
+
+  <!-- ------------------------------------------------------------- top -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark"><svg><use href="#i-brand"/></svg></span>
+      <span class="name">Score<span>Forge</span></span>
+    </div>
+    <div class="doc-title empty" id="docTitle">
+      <span class="t" id="docName">No score loaded</span>
+      <span class="m" id="docMeta"></span>
+    </div>
+    <div class="top-actions">
+      <button class="btn" id="btnOpen"><svg><use href="#i-open"/></svg>Open score</button>
+      <button class="btn primary" id="btnExport" disabled><svg><use href="#i-export"/></svg>Export MP3</button>
+    </div>
+  </header>
+
+  <!-- ------------------------------------------------------------- rail -->
+  <aside class="rail">
+    <div class="rail-scroll">
+      <section class="sec">
+        <div class="sec-head">
+          <span class="sec-title">Library</span>
+          <button class="sec-action" id="btnAddMore">Add files…</button>
+        </div>
+        <div class="lib-list" id="libList">
+          <p style="color:var(--ink-3);font-size:12px;margin:2px 4px">Nothing loaded yet.</p>
+        </div>
+      </section>
+
+      <section class="sec" id="refSec" hidden>
+        <div class="sec-head"><span class="sec-title">Source scan</span></div>
+        <div id="refCard"></div>
+        <div class="note-hint" id="refHint">
+          <b>No recognition backend is running,</b> so this scan is kept for reference only — notes
+          can’t be read from a picture in the browser. Start the service with
+          <code>python backend/app.py</code> and drop the scan in again to have it transcribed.
+        </div>
+      </section>
+
+      <section class="sec" id="omrSec" hidden>
+        <div class="sec-head">
+          <span class="sec-title">Transcription</span>
+          <span class="omr-badge" id="omrBadge">CPU</span>
+        </div>
+        <div id="omrCard"></div>
+        <div class="note-hint">
+          Photos and PDFs are read by a Python optical music recognition service running on the CPU —
+          no graphics card needed. It is a best-effort transcription: check the result against your
+          scan before trusting the audio.
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head"><span class="sec-title">About the sound</span></div>
+        <p style="color:var(--ink-3);font-size:11.5px;line-height:1.55;margin:0">
+          Every instrument is <b style="color:var(--ink-2);font-weight:600">physically modelled
+          synthesis</b> built in Web&nbsp;Audio — inharmonic piano strings, hammer transients,
+          bowed vibrato, wind breath. Nothing is streamed or downloaded, which is why the whole app
+          fits in one file and works offline.
+        </p>
+      </section>
+    </div>
+  </aside>
+
+  <!-- ------------------------------------------------------------ stage -->
+  <main class="stage">
+    <div class="stage-bar">
+      <div class="tabs">
+        <button class="tab active" data-view="score"><svg style="width:13px;height:13px;vertical-align:-2px"><use href="#i-note"/></svg> Score</button>
+        <button class="tab" data-view="roll"><svg style="width:13px;height:13px;vertical-align:-2px"><use href="#i-wave"/></svg> Piano roll</button>
+      </div>
+      <div style="flex:1"></div>
+      <button class="btn ghost icon sm" id="btnZoomOut" title="Zoom out"><svg><use href="#i-zoomout"/></svg></button>
+      <button class="btn ghost icon sm" id="btnZoomIn" title="Zoom in"><svg><use href="#i-zoomin"/></svg></button>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--ink-3);min-width:38px;text-align:right" id="zoomLabel">100%</span>
+      <span class="busy-bar" id="busyBar" hidden></span>
+    </div>
+
+    <div class="stage-body" id="stageBody">
+      <div class="paper-wrap" id="paperWrap">
+        <div class="paper" id="paper"></div>
+      </div>
+      <div class="roll-wrap" id="rollWrap" hidden><canvas id="rollCanvas"></canvas></div>
+      <div class="stage-empty" id="stageEmpty">
+        <div style="max-width:560px">
+          <div class="dropzone" id="dropzone">
+            <h3>Drop your sheet music here</h3>
+            <p id="dropHint">Everything runs locally in this page — nothing is uploaded anywhere.</p>
+            <button class="btn primary" id="btnBrowse"><svg><use href="#i-open"/></svg>Choose files</button>
+            <div class="fmt-list">
+              <span class="fmt"><b>MusicXML</b> .musicxml .xml .mxl</span>
+              <span class="fmt"><b>MuseScore</b> .mscz .mscx</span>
+              <span class="fmt"><b>MIDI</b> .mid .midi .kar</span>
+              <span class="fmt" id="fmtScan"><b>Scans</b> .png .jpg .pdf — read via the local service</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ------------------------------------------------------- inspector -->
+  <aside class="insp">
+    <section class="sec">
+      <div class="sec-head"><span class="sec-title">Parts &amp; instruments</span></div>
+      <div id="partList"></div>
+    </section>
+
+    <section class="sec">
+      <div class="sec-head"><span class="sec-title">Key &amp; tempo</span></div>
+      <div class="field">
+        <label>Key <span class="v" id="transposeVal">original</span></label>
+        <select id="selKey"></select>
+      </div>
+      <div class="field">
+        <label>Tempo <span class="v" id="tempoVal">×1.00</span></label>
+        <input type="range" id="rngTempo" min="25" max="200" step="1" value="100">
+      </div>
+      <label class="check"><input type="checkbox" id="chkMetronome"><span class="box"><svg><use href="#i-check"/></svg></span>Click track</label>
+      <div class="field" style="margin-top:8px">
+        <label>Count-in <span class="v" id="countInVal">1 bar</span></label>
+        <input type="range" id="rngCountIn" min="0" max="4" step="1" value="0">
+      </div>
+    </section>
+
+    <section class="sec">
+      <div class="sec-head"><span class="sec-title">Mix</span></div>
+      <div class="field">
+        <label>Volume <span class="v" id="volVal">85%</span></label>
+        <input type="range" id="rngVol" min="0" max="100" step="1" value="85">
+      </div>
+      <div class="field">
+        <label>Room <span class="v" id="roomVal">Studio</span></label>
+        <select id="selRoom"></select>
+      </div>
+      <div class="field">
+        <label>Bass <span class="v" id="lowVal">0 dB</span></label>
+        <input type="range" id="rngLow" min="-12" max="12" step="1" value="0">
+      </div>
+      <div class="field">
+        <label>Midrange <span class="v" id="midVal">0 dB</span></label>
+        <input type="range" id="rngMid" min="-12" max="12" step="1" value="0">
+      </div>
+      <div class="field">
+        <label>Treble <span class="v" id="highVal">0 dB</span></label>
+        <input type="range" id="rngHigh" min="-12" max="12" step="1" value="0">
+      </div>
+      <label class="check"><input type="checkbox" id="chkHuman"><span class="box"><svg><use href="#i-check"/></svg></span>Humanise timing &amp; dynamics</label>
+    </section>
+
+    <section class="sec">
+      <div class="sec-head"><span class="sec-title">Output</span></div>
+      <div class="field">
+        <label>Quality <span class="v" id="kbpsVal">192 kbps</span></label>
+        <select id="selKbps"></select>
+      </div>
+      <div class="field">
+        <label>Sample rate</label>
+        <select id="selRate">
+          <option value="44100">44.1 kHz — CD</option>
+          <option value="48000">48 kHz — video</option>
+        </select>
+      </div>
+      <label class="check"><input type="checkbox" id="chkNormalize" checked><span class="box"><svg><use href="#i-check"/></svg></span>Normalise to −1 dBFS</label>
+    </section>
+  </aside>
+
+  <!-- -------------------------------------------------------- transport -->
+  <footer class="transport">
+    <div class="tp-buttons">
+      <button class="tp-btn" id="btnPrev" title="Back to start"><svg><use href="#i-prev"/></svg></button>
+      <button class="tp-btn play" id="btnPlay" title="Play / pause  (Space)"><svg><use href="#i-play"/></svg></button>
+      <button class="tp-btn" id="btnStop" title="Stop"><svg><use href="#i-stop"/></svg></button>
+      <button class="tp-btn" id="btnNext" title="Next note"><svg><use href="#i-next"/></svg></button>
+    </div>
+
+    <div class="scrub">
+      <div class="scrub-track" id="scrubTrack">
+        <div class="scrub-rail"></div>
+        <div class="scrub-fill" id="scrubFill"></div>
+        <div class="scrub-knob" id="scrubKnob"></div>
+      </div>
+      <div class="scrub-times">
+        <span class="now" id="tNow">0:00</span>
+        <span id="tTotal">0:00</span>
+      </div>
+    </div>
+
+    <div class="tp-group">
+      <div class="mini-field">
+        <span>Tempo</span>
+        <div class="stepper">
+          <button class="mini" id="tempoDown">−</button>
+          <span class="val" id="tempoDisp">100</span>
+          <button class="mini" id="tempoUp">+</button>
+        </div>
+      </div>
+    </div>
+    <div class="tp-div"></div>
+    <div class="tp-group">
+      <div class="mini-field">
+        <span>Key</span>
+        <div class="stepper">
+          <button class="mini" id="keyDown">♭</button>
+          <span class="val" id="keyDisp">C</span>
+          <button class="mini" id="keyUp">♯</button>
+        </div>
+      </div>
+    </div>
+    <div class="tp-div"></div>
+    <div class="meters">
+      <div class="meter"><i id="meterR"></i></div>
+      <div class="meter"><i id="meterP"></i></div>
+    </div>
+  </footer>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<div id="modalRoot"></div>
+<input type="file" id="fileInput" multiple accept=".musicxml,.xml,.mxl,.mscz,.mscx,.mid,.midi,.kar,.rmi,.png,.jpg,.jpeg,.webp,.gif,.bmp,.pdf" style="display:none">
+
+<script>/*{{VENDOR}}*/</script>
+<script>/*{{APP}}*/</script>
+</body>
+</html>

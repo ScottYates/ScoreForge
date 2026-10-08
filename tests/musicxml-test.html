@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MusicXML parser tests</title>
+<style>
+  body { background:#0d1117; color:#c9d1d9; font:13px ui-monospace,Consolas,monospace; margin:0; padding:12px; }
+  #out { white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<pre id="out">booting…</pre>
+
+<script type="module">
+import { parseMusicXml } from '../src/js/io/musicxml.js';
+import { resolveScore, Timing, describeScore } from '../src/js/score/model.js';
+
+/* ------------------------------------------------------------------ harness */
+
+const lines = [];
+let pass = 0, fail = 0;
+
+function section(name) { lines.push('', '== ' + name + ' =='); }
+function assert(name, cond, detail) {
+  if (cond) { pass++; lines.push('PASS  ' + name); }
+  else { fail++; lines.push('FAIL  ' + name + (detail ? '   [' + detail + ']' : '')); }
+}
+function eq(name, actual, expected) {
+  assert(name, Object.is(actual, expected), 'got ' + JSON.stringify(actual) + ', want ' + JSON.stringify(expected));
+}
+function near(name, actual, expected, eps = 1e-9) {
+  assert(name, Number.isFinite(actual) && Math.abs(actual - expected) <= eps, 'got ' + actual + ', want ' + expected);
+}
+function deepEq(name, actual, expected) {
+  const a = JSON.stringify(actual), b = JSON.stringify(expected);
+  assert(name, a === b, 'got ' + a + ', want ' + b);
+}
+function throws(name, fn, re) {
+  let threw = null;
+  try { fn(); } catch (e) { threw = e; }
+  assert(name, threw instanceof Error && (re ? re.test(threw.message) : true),
+    threw ? 'threw: ' + threw.message : 'did not throw');
+}
+const show = (v) => JSON.stringify(v);
+
+/* ----------------------------------------------------------------- fixtures */
+
+const HEAD = '<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="3.1">';
+const wrap = (inner) => HEAD + '\n' + inner + '\n</score-partwise>';
+
+const partList = (defs) =>
+  '<part-list>' + defs.map(d =>
+    `<score-part id="${d.id}"><part-name>${d.name}</part-name>` +
+    (d.abbrev ? `<part-abbreviation>${d.abbrev}</part-abbreviation>` : '') +
+    `<score-instrument id="${d.id}-I1"><instrument-name>${d.inst || d.name}</instrument-name></score-instrument>` +
+    '</score-part>').join('') + '</part-list>';
+
+const note = (o) => {
+  let s = '<note>';
+  if (o.grace) s += '<grace/>';
+  if (o.cue) s += '<cue/>';
+  if (o.chord) s += '<chord/>';
+  if (o.rest) s += '<rest/>';
+  else s += `<pitch><step>${o.step}</step>${o.alter != null ? `<alter>${o.alter}</alter>` : ''}${o.octave != null ? `<octave>${o.octave}</octave>` : ''}</pitch>`;
+  if (o.dur != null) s += `<duration>${o.dur}</duration>`;
+  for (const t of [].concat(o.tie || [])) s += `<tie type="${t}"/>`;
+  if (o.voice) s += `<voice>${o.voice}</voice>`;
+  if (o.type) s += `<type>${o.type}</type>`;
+  for (let i = 0; i < (o.dots || 0); i++) s += '<dot/>';
+  if (o.accidental) s += `<accidental>${o.accidental}</accidental>`;
+  if (o.tm) s += `<time-modification><actual-notes>${o.tm[0]}</actual-notes><normal-notes>${o.tm[1]}</normal-notes></time-modification>`;
+  if (o.staff) s += `<staff>${o.staff}</staff>`;
+  if (o.lyric) s += `<lyric><text>${o.lyric}</text></lyric>`;
+  return s + '</note>';
+};
+
+let fatal = null;
+try {
+
+/* ============================================================ 1. part-list */
+section('1. part-list -> parts, staves, backup, chords');
+{
+  const xml = wrap(
+    '<work><work-title>Partwise Basics</work-title></work>' +
+    partList([{ id: 'P1', name: 'Piano', abbrev: 'Pno', inst: 'Concert Grand' }]) +
+    `<part id="P1">
+      <measure number="1">
+        <attributes>
+          <divisions>2</divisions>
+          <key><fifths>0</fifths><mode>major</mode></key>
+          <time><beats>4</beats><beat-type>4</beat-type></time>
+          <staves>2</staves>
+          <clef number="1"><sign>G</sign><line>2</line></clef>
+          <clef number="2"><sign>F</sign><line>4</line></clef>
+        </attributes>
+        ${note({ step: 'C', octave: 4, dur: 4, type: 'half', voice: 1, staff: 1 })}
+        ${note({ step: 'E', octave: 4, dur: 4, type: 'half', voice: 1, staff: 1 })}
+        ${note({ chord: true, step: 'G', octave: 4, dur: 2, type: 'quarter', voice: 1, staff: 1 })}
+        <backup><duration>8</duration></backup>
+        ${note({ step: 'C', octave: 3, dur: 4, type: 'half', voice: 2, staff: 2 })}
+        ${note({ step: 'G', octave: 2, dur: 4, type: 'half', voice: 2, staff: 2 })}
+      </measure>
+      <measure number="2">
+        ${note({ step: 'F', octave: 4, dur: 8, type: 'whole', voice: 1, staff: 1 })}
+        ${note({ chord: true, step: 'A', octave: 4, dur: 8, type: 'whole', voice: 1, staff: 1 })}
+        <backup><duration>8</duration></backup>
+        ${note({ step: 'F', octave: 2, dur: 8, type: 'whole', voice: 2, staff: 2 })}
+      </measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  eq('one part', s.parts.length, 1);
+  eq('part id', s.parts[0].id, 'P1');
+  eq('part name', s.parts[0].name, 'Piano');
+  eq('part abbrev', s.parts[0].abbrev, 'Pno');
+  eq('instrument-name read', s.parts[0].instrumentName, 'Concert Grand');
+  eq('staves', s.parts[0].staves, 2);
+  eq('clef comes from staff 1', s.parts[0].clef, 'treble');
+  eq('sourceFormat', s.sourceFormat, 'musicxml');
+  eq('rawMusicXml is the original, untouched string', s.rawMusicXml, xml);
+  eq('work-title', s.title, 'Partwise Basics');
+  eq('measureCount', s.measureCount, 2);
+  near('totalQuarters (two 4/4 bars)', s.totalQuarters, 8);
+
+  const notes = s.parts[0].notes;
+  const at = (q, midi) => notes.find(x => x.quarter === q && x.midi === midi);
+  eq('note count (chords kept, rests dropped)', notes.length, 8);
+  eq('notes sorted ascending', notes.every((x, i) => i === 0 || notes[i - 1].quarter <= x.quarter), true);
+
+  const c4 = at(0, 60);
+  near('C4 onset', c4.quarter, 0);
+  near('C4 duration (half)', c4.durationQuarters, 2);
+  eq('C4 staff', c4.staff, 1);
+  eq('C4 voice', c4.voice, 1);
+  const c3 = at(0, 48);
+  near('C3 onset after <backup>', c3.quarter, 0);
+  near('C3 duration', c3.durationQuarters, 2);
+  eq('C3 staff 2', c3.staff, 2);
+  eq('C3 voice 2', c3.voice, 2);
+
+  near('E4 onset', at(2, 64).quarter, 2);
+  const g4 = at(2, 67);
+  eq('<chord/> flagged', g4.chord, true);
+  near('chord shares the previous onset', g4.quarter, 2);
+  near('chord duration is its own', g4.durationQuarters, 1);
+  eq('non-chord note not flagged', at(2, 64).chord, false);
+
+  near('F4 in bar 2', at(4, 65).quarter, 4);
+  near('F4 duration (whole)', at(4, 65).durationQuarters, 4);
+  eq('A4 chord in bar 2', at(4, 69).chord, true);
+  near('F2 in bar 2', at(4, 41).quarter, 4);
+  deepEq('timeSigs', s.timeSigs, [{ quarter: 0, beats: 4, beatType: 4 }]);
+  deepEq('keySigs', s.keySigs, [{ quarter: 0, fifths: 0, mode: 'major' }]);
+  deepEq('no tempo -> default 100', s.tempoMap, [{ quarter: 0, bpm: 100 }]);
+  eq('no warnings on a clean file', s.warnings.length, 0);
+}
+
+/* ============================================================ 2. note values */
+section('2. rests / grace / cue / dots / accidentals / triplets');
+{
+  const xml = wrap(
+    partList([{ id: 'P1', name: 'Flute' }]) +
+    `<part id="P1">
+      <measure number="1">
+        <attributes><divisions>12</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+        ${note({ grace: true, step: 'F', octave: 4, type: 'eighth', voice: 1, staff: 1 })}
+        ${note({ cue: true, step: 'G', octave: 4, dur: 12, type: 'quarter', voice: 1 })}
+        ${note({ rest: true, dur: 12, type: 'quarter', voice: 1 })}
+        ${note({ step: 'C', octave: 4, dur: 18, type: 'quarter', dots: 1, voice: 1 })}
+        ${note({ step: 'B', octave: 4, dur: 18, type: 'quarter', dots: 1, voice: 1, accidental: 'natural', lyric: 'la' })}
+      </measure>
+      <measure number="2">
+        ${Array.from({ length: 12 }, () => note({ step: 'E', octave: 4, dur: 4, type: 'eighth', tm: [3, 2], voice: 1 })).join('')}
+      </measure>
+      <measure number="3">
+        ${note({ step: 'D', octave: 4, dur: 21, type: 'quarter', dots: 2, voice: 1 })}
+        ${note({ step: 'E', octave: 4, dur: 18, type: 'quarter', dots: 1, voice: 1 })}
+        ${note({ step: 'F', octave: 4, dur: 6, type: 'eighth', voice: 1 })}
+        ${note({ step: 'G', octave: 4, dur: 3, type: '16th', voice: 1 })}
+      </measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  const notes = s.parts[0].notes;
+  eq('note count', notes.length, 19);
+  eq('grace note kept', notes[0].grace, true);
+  near('grace length from <type>', notes[0].durationQuarters, 0.5);
+  near('grace does NOT advance the clock', notes[1].quarter, 1);
+  eq('cue note is skipped entirely', notes.some(x => x.quarter === 0 && x.midi === 67), false);
+  eq('rest produced no note', notes.filter(x => x.quarter === 0 && x.midi === 60).length, 0);
+  near('rest advanced exactly one quarter', notes[1].quarter, 1);
+  near('dotted quarter = 1.5', notes[1].durationQuarters, 1.5);
+  eq('accidental ignored, B4 = 71', notes[2].midi, 71);
+  eq('lyric captured', notes[2].lyric, 'la');
+  near('eighth-triplet = 1/3', notes[3].durationQuarters, 1 / 3);
+  near('triplets fill bar 2', notes[14].quarter + notes[14].durationQuarters, 8);
+  near('bar 3 starts at 8', notes[15].quarter, 8);
+  near('double dotted quarter = 1.75', notes[15].durationQuarters, 1.75);
+  near('dotted quarter = 1.5', notes[16].durationQuarters, 1.5);
+  near('eighth = 0.5', notes[17].durationQuarters, 0.5);
+  near('16th = 0.25', notes[18].durationQuarters, 0.25);
+  near('totalQuarters', s.totalQuarters, 12);
+  eq('no warnings', s.warnings.length, 0);
+}
+
+/* ================================================ 3. nested tuplet stacking */
+section('3. nested tuplets (triplet inside a triplet)');
+{
+  // Un-scaled writer: <duration> holds the plain note value, so the ratio has
+  // to be built from the open <tuplet> elements. 16th = 1 division here.
+  const xml = wrap(
+    partList([{ id: 'P1', name: 'Cello' }]) +
+    `<part id="P1">
+      <measure number="1">
+        <attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+        <note><tuplet type="start" number="1" actual-notes="3" normal-notes="2"/><pitch><step>C</step><octave>3</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type></note>
+        <note><tuplet type="start" number="2" actual-notes="3" normal-notes="2"/><pitch><step>D</step><octave>3</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type></note>
+        <note><tuplet type="stop" number="2"/><pitch><step>E</step><octave>3</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type></note>
+        <note><pitch><step>F</step><octave>3</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type></note>
+        <note><tuplet type="stop" number="1"/><pitch><step>G</step><octave>3</octave></pitch><duration>1</duration><voice>1</voice><type>16th</type></note>
+      </measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  const notes = s.parts[0].notes;
+  eq('five notes', notes.length, 5);
+  near('outer triplet 3:2 on a 16th', notes[0].durationQuarters, 0.25 * 1.5);
+  near('inner note nests 3:2 * 3:2', notes[1].durationQuarters, 0.25 * 2.25);
+  near('inner note 2 nests', notes[2].durationQuarters, 0.25 * 2.25);
+  near('outer again after the inner closes', notes[3].durationQuarters, 0.25 * 1.5);
+  near('outer last', notes[4].durationQuarters, 0.25 * 1.5);
+  assert('nesting really multiplies (inner > outer)', notes[1].durationQuarters > notes[0].durationQuarters);
+  near('onsets accumulate', notes[2].quarter, 0.375 + 0.5625);
+  near('bar padded to the notated 4/4', s.totalQuarters, 4);
+  eq('no warnings', s.warnings.length, 0);
+}
+
+/* =============================================== 4. un-scaled dot/tuplet files */
+section('4. files that store un-scaled durations');
+{
+  const xml = wrap(
+    partList([{ id: 'P1', name: 'Snare' }]) +
+    `<part id="P1">
+      <measure number="1">
+        <attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+        ${note({ step: 'C', octave: 4, dur: 4, type: 'quarter', dots: 1, voice: 1 })}
+        ${note({ step: 'D', octave: 4, dur: 2, type: 'eighth', tm: [3, 2], voice: 1 })}
+        ${note({ step: 'E', octave: 4, dur: 2, type: 'eighth', tm: [3, 2], voice: 1 })}
+        ${note({ step: 'F', octave: 4, dur: 2, type: 'eighth', tm: [3, 2], voice: 1 })}
+        ${note({ step: 'G', octave: 4, dur: 6, type: 'quarter', voice: 1 })}
+      </measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  const notes = s.parts[0].notes;
+  near('dotted quarter scaled to 1.5', notes[0].durationQuarters, 1.5);
+  near('eighth-triplet scaled to 0.75', notes[1].durationQuarters, 0.75);
+  near('plain quarter not double-counted', notes[4].durationQuarters, 1.5);
+}
+
+/* ========================================================= 5. conformant dots */
+section('5. conformant durations are NOT scaled twice');
+{
+  // Same rhythm as section 4 but written the standard way: <duration> already
+  // includes the dot and the tuplet.
+  const xml = wrap(
+    partList([{ id: 'P1', name: 'Piano' }]) +
+    `<part id="P1">
+      <measure number="1">
+        <attributes><divisions>12</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+        ${note({ step: 'C', octave: 4, dur: 18, type: 'quarter', dots: 1, voice: 1 })}
+        ${note({ step: 'D', octave: 4, dur: 4, type: 'eighth', tm: [3, 2], voice: 1 })}
+        ${note({ step: 'E', octave: 4, dur: 4, type: 'eighth', tm: [3, 2], voice: 1 })}
+        ${note({ step: 'F', octave: 4, dur: 4, type: 'eighth', tm: [3, 2], voice: 1 })}
+        ${note({ step: 'G', octave: 4, dur: 12, type: 'quarter', voice: 1 })}
+      </measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  const notes = s.parts[0].notes;
+  near('dotted quarter stays 1.5', notes[0].durationQuarters, 1.5);
+  near('triplet eighth stays 1/3', notes[1].durationQuarters, 1 / 3);
+  near('plain quarter stays 1.0', notes[4].durationQuarters, 1);
+  near('bar total is 4.0', s.totalQuarters, 4);
+}
+
+/* ================================================================= 6. ties */
+section('6. ties: chains, barlines, middle of chain, chords');
+{
+  // Tied notes must abut: in every bar the tied note fills the bar it continues
+  // from, so there is no gap between the chain members.
+  const xml = wrap(
+    partList([{ id: 'P1', name: 'Piano' }]) +
+    `<part id="P1">
+      <measure number="1">
+        <attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves></attributes>
+        ${note({ step: 'C', octave: 4, dur: 16, type: 'whole', voice: 1, staff: 1, tie: 'start' })}
+        <backup><duration>16</duration></backup>
+        ${note({ step: 'E', octave: 4, dur: 16, type: 'whole', voice: 5, staff: 2, tie: 'start' })}
+      </measure>
+      <measure number="2">
+        ${note({ step: 'C', octave: 4, dur: 16, type: 'whole', voice: 1, staff: 1, tie: ['stop', 'start'] })}
+        ${note({ chord: true, step: 'G', octave: 4, dur: 16, type: 'whole', voice: 1, staff: 1 })}
+        <backup><duration>16</duration></backup>
+        ${note({ step: 'E', octave: 4, dur: 8, type: 'half', voice: 5, staff: 2, tie: 'stop' })}
+        ${note({ step: 'B', octave: 2, dur: 8, type: 'half', voice: 5, staff: 2, tie: 'start' })}
+      </measure>
+      <measure number="3">
+        ${note({ step: 'C', octave: 4, dur: 16, type: 'whole', voice: 1, staff: 1, tie: 'stop' })}
+        <backup><duration>16</duration></backup>
+        ${note({ step: 'B', octave: 2, dur: 16, type: 'whole', voice: 5, staff: 2, tie: 'stop' })}
+      </measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  const notes = s.parts[0].notes;
+  eq('tied continuations never become notes', notes.length, 4);
+  near('C4 chain across two barlines: 4+4+4', notes[0].durationQuarters, 12);
+  near('C4 onset', notes[0].quarter, 0);
+  eq('C4 tieFrom (absorbed continuations)', notes[0].tieFrom, true);
+  eq('C4 tieTo (middle of a chain)', notes[0].tieTo, true);
+  near('E4 chain 4+2', notes[1].durationQuarters, 6);
+  eq('E4 tieFrom', notes[1].tieFrom, true);
+  eq('E4 tieTo', notes[1].tieTo, true);
+  near('G4 chord member was NOT tied', notes[2].durationQuarters, 4);
+  eq('G4 tieFrom', notes[2].tieFrom, false);
+  eq('G4 tieTo', notes[2].tieTo, false);
+  eq('G4 is a chord', notes[2].chord, true);
+  near('G4 shares the merged C4 onset', notes[2].quarter, 4);
+  near('B2 chain 2+4', notes[3].durationQuarters, 6);
+  eq('B2 tieFrom', notes[3].tieFrom, true);
+  near('B2 onset', notes[3].quarter, 6);
+  near('totalQuarters', s.totalQuarters, 12);
+  eq('no warnings', s.warnings.length, 0);
+}
+
+/* ============================================ 7. backup / forward, two staves */
+section('7. backup / forward keep a two-staff part aligned');
+{
+  const xml = wrap(
+    partList([{ id: 'P1', name: 'Piano' }]) +
+    `<part id="P1">
+      <measure number="1">
+        <attributes><divisions>2</divisions><time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves></attributes>
+        ${note({ step: 'C', octave: 5, dur: 2, type: 'quarter', voice: 1, staff: 1 })}
+        ${note({ step: 'D', octave: 5, dur: 2, type: 'quarter', voice: 1, staff: 1 })}
+        ${note({ rest: true, dur: 4, type: 'half', voice: 1, staff: 1 })}
+        <backup><duration>8</duration></backup>
+        ${note({ step: 'C', octave: 3, dur: 4, type: 'half', voice: 5, staff: 2 })}
+        ${note({ step: 'B', octave: 2, dur: 4, type: 'half', voice: 5, staff: 2 })}
+      </measure>
+      <measure number="2">
+        <forward><duration>4</duration></forward>
+        ${note({ step: 'E', octave: 5, dur: 4, type: 'half', voice: 1, staff: 1 })}
+        <backup><duration>8</duration></backup>
+        ${note({ step: 'C', octave: 3, dur: 8, type: 'whole', voice: 5, staff: 2 })}
+      </measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  const lower = s.parts[0].notes.filter(x => x.staff === 2);
+  eq('lower staff note count', lower.length, 3);
+  deepEq('lower staff bar 1 onsets', lower.slice(0, 2).map(x => x.quarter), [0, 2]);
+  deepEq('lower staff keeps its own voice', lower.map(x => x.voice), [5, 5, 5]);
+  near('backup re-wound bar 2 to the bar line', lower[2].quarter, 4);
+  near('totalQuarters still 8', s.totalQuarters, 8);
+  eq('no warnings', s.warnings.length, 0);
+}
+{
+  // A <forward> with no following backup genuinely skips time for its voice.
+  const xml = wrap(
+    partList([{ id: 'P1', name: 'Solo' }]) +
+    `<part id="P1">
+      <measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+        ${note({ step: 'C', octave: 5, dur: 4, type: 'quarter' })}
+        <forward><duration>8</duration></forward>
+        ${note({ step: 'E', octave: 5, dur: 4, type: 'quarter' })}
+      </measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  deepEq('forward moves the next onset', s.parts[0].notes.map(x => x.quarter), [0, 3]);
+}
+
+/* ============================================ 8. clefs, staves, transposition */
+section('8. clef mapping and <transpose>');
+{
+  const mkPart = (id, sign, line, transpose) =>
+    `<part id="${id}"><measure number="1">
+      <attributes><divisions>1</divisions><time><beats>1</beats><beat-type>4</beat-type></time>
+      <clef><sign>${sign}</sign><line>${line}</line></clef>${transpose ? '<transpose>' + transpose + '</transpose>' : ''}</attributes>
+      ${note({ step: 'C', octave: 4, dur: 1, type: 'quarter' })}
+    </measure></part>`;
+  const xml = wrap(
+    partList([
+      { id: 'PC', name: 'Clarinet in Bb' }, { id: 'PB', name: 'Bassoon' },
+      { id: 'PA', name: 'Viola' }, { id: 'PT', name: 'Tenor Cello' }, { id: 'PD', name: 'Drums' },
+    ]) +
+    mkPart('PC', 'G', 2, '<diatonic>-1</diatonic><chromatic>-2</chromatic>') +
+    mkPart('PB', 'F', 4, '') + mkPart('PA', 'C', 3, '') +
+    mkPart('PT', 'C', 4, '') + mkPart('PD', 'PERC', 2, ''));
+  const s = parseMusicXml(xml);
+  eq('five parts', s.parts.length, 5);
+  eq('G/2 -> treble', s.parts[0].clef, 'treble');
+  eq('F/4 -> bass', s.parts[1].clef, 'bass');
+  eq('C/3 -> alto', s.parts[2].clef, 'alto');
+  eq('C/4 -> tenor', s.parts[3].clef, 'tenor');
+  eq('PERC -> percussion', s.parts[4].clef, 'percussion');
+  // MusicXML's own example for a Bb clarinet is <diatonic>-1</diatonic>
+  // <chromatic>-2</chromatic>: what you ADD to a written pitch to reach the
+  // sounding one. Written C4 sounds Bb3, so the stored offset is -2 and the
+  // clarinet plays a whole tone BELOW its written notes.
+  eq('Bb clarinet transpose is -2', s.parts[0].transpose, -2);
+  eq('untransposed part stays 0', s.parts[1].transpose, 0);
+  const clarinet = resolveScore(s, {}).notes.filter(x => x.partId === 'PC')[0];
+  eq('resolveScore sounds the clarinet a tone lower', clarinet.midi, 58);
+  eq('bassoon stays as written', resolveScore(s, {}).notes.filter(x => x.partId === 'PB')[0].midi, 60);
+  eq('no warnings', s.warnings.length, 0);
+}
+
+/* ================================================================= 9. tempo */
+section('9. tempo: metronome, <sound>, precedence, defaults');
+{
+  const xml = wrap(
+    partList([{ id: 'P1', name: 'Piano' }]) +
+    `<part id="P1">
+      <measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+        <direction><direction-type><metronome><beat-unit>half</beat-unit><per-minute>90</per-minute></metronome></direction-type></direction>
+        ${note({ step: 'C', octave: 4, dur: 16, type: 'whole' })}</measure>
+      <measure number="2">
+        <direction><direction-type><metronome><beat-unit>quarter</beat-unit><beat-unit-dot/><per-minute>72</per-minute></metronome></direction-type><sound tempo="60"/></direction>
+        ${note({ step: 'D', octave: 4, dur: 16, type: 'whole' })}</measure>
+      <measure number="3">
+        <direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>144</per-minute></metronome></direction-type></direction>
+        ${note({ step: 'E', octave: 4, dur: 16, type: 'whole' })}</measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  // "half = 90" is 90 half notes per minute = 180 quarter notes per minute.
+  deepEq('tempoMap (half=90 -> 180 quarter-bpm, sound wins in bar 2)', s.tempoMap,
+    [{ quarter: 0, bpm: 180 }, { quarter: 4, bpm: 60 }, { quarter: 8, bpm: 144 }]);
+  eq('first tempo entry is at quarter 0', s.tempoMap[0].quarter, 0);
+  eq('tempoMap ascending', s.tempoMap.every((t, i) => i === 0 || s.tempoMap[i - 1].quarter <= t.quarter), true);
+  // The dotted beat-unit mark alone would be 72 * 1.5 = 108 quarter-bpm.
+  eq('<sound tempo> beats the metronome mark at the same quarter', s.tempoMap[1].bpm, 60);
+  eq('tempoMarks count', s.tempoMarks.length, 3);
+  assert('tempoMarks carry labels', s.tempoMarks.every(t => typeof t.label === 'string' && t.label.length), show(s.tempoMarks));
+  assert('tempoMarks align with tempoMap',
+    s.tempoMarks.every((t, i) => t.quarter === s.tempoMap[i].quarter && t.bpm === s.tempoMap[i].bpm));
+  near('Timing sees the converted bpm', new Timing(s.tempoMap, s.totalQuarters).bpmAtQuarter(0), 180);
+
+  const late = wrap(
+    partList([{ id: 'P1', name: 'Piano' }]) +
+    `<part id="P1">
+      <measure number="1"><attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>${note({ step: 'C', octave: 4, dur: 16, type: 'whole' })}</measure>
+      <measure number="2">
+        <direction><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>100</per-minute></metronome></direction-type></direction>
+        ${note({ step: 'D', octave: 4, dur: 16, type: 'whole' })}</measure>
+    </part>`);
+  deepEq('a tempo only in bar 2 is back-filled to quarter 0', parseMusicXml(late).tempoMap,
+    [{ quarter: 0, bpm: 100 }, { quarter: 4, bpm: 100 }]);
+
+  const none = wrap(
+    partList([{ id: 'P1', name: 'P' }]) +
+    `<part id="P1"><measure number="1"><attributes><divisions>1</divisions></attributes>${note({ step: 'C', octave: 4, dur: 4, type: 'whole' })}</measure></part>`);
+  eq('defaultTempo when the file has none', parseMusicXml(none, { defaultTempo: 77 }).tempoMap[0].bpm, 77);
+  eq('default of 100 with no opts', parseMusicXml(none).tempoMap[0].bpm, 100);
+  eq('a file tempo beats defaultTempo', parseMusicXml(late, { defaultTempo: 77 }).tempoMap[0].bpm, 100);
+  eq('opts.fileName is carried onto the score (io/files.js passes it)', parseMusicXml(none, { fileName: 'x.musicxml' }).fileName, 'x.musicxml');
+  eq('unknown opts keys are ignored safely', parseMusicXml(none, { whatever: 1 }).title, 'Untitled');
+}
+
+/* ============================================ 10. key/time changes, metadata */
+section('10. key & time changes, metadata, mid-part divisions, multi-part');
+{
+  const xml = wrap(
+    '<work><work-title>Symphony No. 1</work-title></work>' +
+    '<movement-title>First Movement</movement-title>' +
+    '<identification><creator type="lyricist">Someone Else</creator><creator type="composer">A Composer</creator></identification>' +
+    partList([{ id: 'P1', name: 'Flute' }, { id: 'P2', name: 'Oboe' }]) +
+    `<part id="P1">
+      <measure number="1"><attributes><divisions>4</divisions><key><fifths>-3</fifths><mode>minor</mode></key><time><beats>4</beats><beat-type>4</beat-type></time></attributes>${note({ step: 'C', octave: 5, dur: 16, type: 'whole' })}</measure>
+      <measure number="2"><attributes><divisions>2</divisions><key><fifths>3</fifths><mode>major</mode></key><time><beats>3</beats><beat-type>4</beat-type></time></attributes>${note({ step: 'D', octave: 5, dur: 6, type: 'whole' })}</measure>
+      <measure number="3"><attributes><divisions>4</divisions></attributes>${note({ step: 'E', octave: 5, dur: 8, type: 'half' })}${note({ step: 'F', octave: 5, dur: 4, type: 'quarter' })}</measure>
+    </part>
+    <part id="P2">
+      <measure number="1"><attributes><divisions>4</divisions><key><fifths>-3</fifths><mode>minor</mode></key><time><beats>4</beats><beat-type>4</beat-type></time></attributes>${note({ step: 'G', octave: 4, dur: 16, type: 'whole' })}</measure>
+      <measure number="2"><attributes><divisions>2</divisions><key><fifths>3</fifths><mode>major</mode></key><time><beats>3</beats><beat-type>4</beat-type></time></attributes>${note({ step: 'A', octave: 4, dur: 6, type: 'whole' })}</measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  eq('work-title wins over movement-title', s.title, 'Symphony No. 1');
+  eq('composer from creator type="composer"', s.composer, 'A Composer');
+  deepEq('keySigs deduped across parts', s.keySigs,
+    [{ quarter: 0, fifths: -3, mode: 'minor' }, { quarter: 4, fifths: 3, mode: 'major' }]);
+  deepEq('timeSigs', s.timeSigs, [{ quarter: 0, beats: 4, beatType: 4 }, { quarter: 4, beats: 3, beatType: 4 }]);
+  eq('measureCount from the longest part', s.measureCount, 3);
+  near('totalQuarters follows the longest part (4+3+3)', s.totalQuarters, 10);
+
+  const p1 = s.parts[0].notes;
+  near('bar 2 recomputed with divisions=2 (whole = 3 quarters)', p1[1].durationQuarters, 3);
+  near('bar 3 recomputed with divisions=4 again (half)', p1[2].durationQuarters, 2);
+  near('bar 3 quarter recomputed', p1[3].durationQuarters, 1);
+  near('bar 3 starts after 4+3 quarters', p1[2].quarter, 7);
+  near('shorter part still lines up in bar 2', s.parts[1].notes[1].quarter, 4);
+  eq('no warnings', s.warnings.length, 0);
+  assert('describeScore works on the result', typeof describeScore(s) === 'string', describeScore(s));
+}
+
+/* ==================================================== 11. compound 6/8 bars */
+section('11. compound 6/8');
+{
+  const xml = wrap(
+    partList([{ id: 'P1', name: 'Clarinet' }]) +
+    `<part id="P1">
+      <measure number="1"><attributes><divisions>2</divisions><time><beats>6</beats><beat-type>8</beat-type></time></attributes>
+        ${Array.from({ length: 6 }, () => note({ step: 'E', octave: 4, dur: 1, type: 'eighth', voice: 1 })).join('')}</measure>
+      <measure number="2">${Array.from({ length: 6 }, () => note({ step: 'D', octave: 4, dur: 1, type: 'eighth', voice: 1 })).join('')}</measure>
+    </part>`);
+  const s = parseMusicXml(xml);
+  eq('6 eighth notes per bar', s.parts[0].notes.length, 12);
+  near('6/8 bar = 3.0 quarters', s.totalQuarters, 6);
+  near('bar 2 starts at 3.0', s.parts[0].notes[6].quarter, 3);
+  deepEq('timeSigs keeps 6/8', s.timeSigs, [{ quarter: 0, beats: 6, beatType: 8 }]);
+  eq('no warnings', s.warnings.length, 0);
+}
+
+/* ====================================================== 12. score-timewise */
+section('12. score-timewise root');
+{
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  <score-timewise version="3.1">
+    ${partList([{ id: 'A', name: 'Violin' }, { id: 'B', name: 'Viola' }])}
+    <measure number="1">
+      <part id="A"><attributes><divisions>2</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>${note({ step: 'C', octave: 5, dur: 8, type: 'whole' })}</part>
+      <part id="B"><attributes><divisions>2</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>${note({ step: 'C', octave: 4, dur: 8, type: 'whole' })}</part>
+    </measure>
+    <measure number="2">
+      <part id="A">${note({ step: 'D', octave: 5, dur: 8, type: 'whole' })}</part>
+      <part id="B">${note({ step: 'D', octave: 4, dur: 8, type: 'whole' })}</part>
+    </measure>
+  </score-timewise>`;
+  const s = parseMusicXml(xml);
+  eq('timewise gives two parts', s.parts.length, 2);
+  deepEq('timewise part names', [s.parts[0].name, s.parts[1].name], ['Violin', 'Viola']);
+  deepEq('timewise note counts', [s.parts[0].notes.length, s.parts[1].notes.length], [2, 2]);
+  near('timewise bar 2 at 4.0', s.parts[0].notes[1].quarter, 4);
+  near('timewise total', s.totalQuarters, 8);
+  eq('no warnings', s.warnings.length, 0);
+}
+
+/* ============================================ 13. defensive parsing, warnings */
+section('13. defensive parsing and warnings');
+{
+  const messy = wrap(
+    '<work-title>Messy</work-title>' +
+    partList([{ id: 'P1', name: 'Thing' }, { id: 'P9', name: 'Silent' }]) +
+    `<part id="P1">
+      <measure number="1">
+        <print new-system="yes"/>
+        <identification><encoding><software>Test</software></encoding></identification>
+        <attributes><divisions>4</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><staves>1</staves></attributes>
+        <direction placement="above"><direction-type><dynamics><mf/></dynamics></direction-type><sound dynamics="0.6"/></direction>
+        <direction><direction-type><words>allegro</words><wedge type="crescendo"/></direction-type></direction>
+        <harmony><root><root-step>C</root-step></root><kind>major</kind></harmony>
+        ${note({ step: 'C', octave: 4, dur: 4, type: 'quarter' })}
+        ${note({ step: 'H', octave: 4, dur: 4, type: 'quarter' })}
+        ${note({ step: 'D', dur: 4, type: 'quarter' })}
+        ${note({ step: 'E', octave: 4, dur: 4, type: 'quarter' })}
+        <backup><duration>40</duration></backup>
+        <forward><duration>4</duration></forward>
+        <barline location="right"><bar-style>light-heavy</bar-style></barline>
+        <unknown-element foo="bar"><nested/></unknown-element>
+      </measure>
+    </part>`);
+  const s = parseMusicXml(messy);
+  eq('survives unknown elements', s.parts.length, 2);
+  eq('a declared part with no <part> body still appears', s.parts[1].name, 'Silent');
+  eq('only the valid pitches survive', s.parts[0].notes.length, 2);
+  assert('bad step name surfaced', s.warnings.some(w => /unsupported note name/.test(w)), show(s.warnings));
+  assert('missing octave surfaced', s.warnings.some(w => /missing <octave>/.test(w)), show(s.warnings));
+  assert('over-backup clamp surfaced', s.warnings.some(w => /backup/.test(w)), show(s.warnings));
+  assert('warnings are short readable strings', s.warnings.every(w => typeof w === 'string' && w.length > 10 && w.length < 300), show(s.warnings));
+  eq('dynamic became a velocity', s.parts[0].notes[0].velocity, 0.7);
+}
+{
+  const noDivisions = wrap(
+    partList([{ id: 'P1', name: 'X' }]) +
+    `<part id="P1"><measure number="1"><attributes><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      ${note({ step: 'C', octave: 4, type: 'whole' })}${note({ step: 'D', octave: 4, type: 'whole' })}
+    </measure></part>`);
+  const s = parseMusicXml(noDivisions);
+  eq('falls back to <type> without <divisions>', s.parts[0].notes.length, 2);
+  near('type-derived length', s.parts[0].notes[0].durationQuarters, 4);
+  assert('missing <divisions> surfaced', s.warnings.some(w => /divisions/.test(w)), show(s.warnings));
+}
+{
+  const xml = wrap(
+    partList([{ id: 'P1', name: 'X' }]) +
+    `<part id="P1"><measure number="1">
+      <attributes><divisions>2</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><grace slash="yes"/><pitch><step>B</step><octave>4</octave></pitch><type>eighth</type><voice>1</voice></note>
+      <note><cue/><pitch><step>C</step><octave>5</octave></pitch><duration>2</duration><type>eighth</type><voice>1</voice></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>8</duration><type>whole</type></note>
+    </measure></part>`);
+  const s = parseMusicXml(xml);
+  eq('grace survives, cue dropped', s.parts[0].notes.length, 2);
+  eq('cue gone, only the grace and the D4 remain', s.parts[0].notes.some(x => x.midi === 72), false);
+  eq('D4 present', s.parts[0].notes.some(x => x.midi === 62 && !x.grace), true);
+  eq('grace flagged', s.parts[0].notes.filter(x => x.grace).length, 1);
+  eq('absent <voice> defaults to 1', s.parts[0].notes.filter(x => x.midi === 62)[0].voice, 1);
+}
+
+throws('empty input throws', () => parseMusicXml(''), /empty/i);
+throws('null input throws', () => parseMusicXml(null), /empty/i);
+throws('malformed XML throws', () => parseMusicXml('<score-partwise><part id="P1"></score-partwise>'), /not valid XML/i);
+throws('non-score XML throws', () => parseMusicXml('<?xml version="1.0"?><html><body/></html>'), /score-partwise/i);
+throws('score with no parts throws', () => parseMusicXml('<?xml version="1.0"?><score-partwise><part-list/></score-partwise>'), /no <part>/i);
+
+/* ======================================================== 14. sanity values */
+section('14. required arithmetic sanity');
+{
+  const scoreOf = (noteXml, divisions = 6, beats = 4, beatType = 4) => wrap(
+    partList([{ id: 'P1', name: 'P' }]) +
+    `<part id="P1"><measure number="1"><attributes><divisions>${divisions}</divisions><time><beats>${beats}</beats><beat-type>${beatType}</beat-type></time></attributes>${noteXml}</measure></part>`);
+
+  const fourQuarters = parseMusicXml(scoreOf(Array.from({ length: 4 },
+    () => '<note><pitch><step>C</step><octave>4</octave></pitch><duration>6</duration><type>quarter</type></note>').join('')));
+  near('4 quarter notes fill a 4/4 bar (4.0)', fourQuarters.totalQuarters, 4);
+  eq('4 quarter notes sounded', fourQuarters.parts[0].notes.length, 4);
+
+  const first = (xml) => parseMusicXml(xml).parts[0].notes[0].durationQuarters;
+  near('a half note is 2.0', first(scoreOf('<note><pitch><step>C</step><octave>4</octave></pitch><duration>12</duration><type>half</type></note>')), 2);
+  near('a dotted quarter is 1.5', first(scoreOf('<note><pitch><step>C</step><octave>4</octave></pitch><duration>9</duration><type>quarter</type><dot/></note>')), 1.5);
+  near('an eighth-triplet is 1/3', first(scoreOf('<note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><type>eighth</type><time-modification><actual-notes>3</actual-notes><normal-notes>2</normal-notes></time-modification></note>')), 1 / 3);
+
+  const sixEight = parseMusicXml(scoreOf(
+    Array.from({ length: 6 }, () => '<note><pitch><step>E</step><octave>4</octave></pitch><duration>3</duration><type>eighth</type></note>').join(''),
+    6, 6, 8));
+  near('six eighths = 3.0 quarters', sixEight.totalQuarters, 3);
+}
+
+/* ============================================================= 15. performance */
+section('15. performance: 3000-bar piano score');
+{
+  const BARS = 3000;
+  const ATTRS = '<attributes><divisions>1</divisions><key><fifths>0</fifths></key><time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves></attributes>';
+  const bars = [];
+  for (let i = 1; i <= BARS; i++) {
+    const upper = ['C', 'D', 'E', 'G'].map(st =>
+      `<note><pitch><step>${st}</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><type>quarter</type><staff>1</staff></note>`).join('');
+    const lower = '<note><pitch><step>C</step><octave>3</octave></pitch><duration>2</duration><voice>2</voice><type>half</type><staff>2</staff></note>'
+      + '<note><pitch><step>G</step><octave>2</octave></pitch><duration>2</duration><voice>2</voice><type>half</type><staff>2</staff></note>';
+    bars.push(`<measure number="${i}">${i === 1 ? ATTRS : ''}${upper}<backup><duration>4</duration></backup>${lower}</measure>`);
+  }
+  const body = bars.join('');
+  const xml = wrap(partList([{ id: 'P1', name: 'Piano' }, { id: 'P2', name: 'Piano 2' }]) +
+    `<part id="P1">${body}</part><part id="P2">${body}</part>`);
+
+  const t0 = performance.now();
+  const s = parseMusicXml(xml);
+  const ms = performance.now() - t0;
+  lines.push(`      parsed ${(xml.length / 1048576).toFixed(1)} MiB / ${s.parts[0].notes.length + s.parts[1].notes.length} notes in ${ms.toFixed(0)} ms`);
+  eq('3000 bars x 6 notes', s.parts[0].notes.length, 6 * BARS);
+  eq('both parts present', s.parts.length, 2);
+  eq('measureCount', s.measureCount, BARS);
+  near('totalQuarters', s.totalQuarters, BARS * 4);
+  near('last note at the end of the piece', s.parts[0].notes[s.parts[0].notes.length - 1].quarter, (BARS - 1) * 4 + 3);
+  assert(`parsed well under 1s (${ms.toFixed(0)} ms)`, ms < 1000, ms + 'ms');
+  eq('no warnings on the big score', s.warnings.length, 0);
+}
+
+} catch (err) {
+  fatal = (err && err.stack) || String(err);
+}
+
+lines.unshift('RESULT: ' + pass + ' passed, ' + fail + ' failed');
+if (fatal) lines.push('\nFATAL: ' + fatal);
+document.getElementById('out').textContent = lines.join('\n');
+window.__DONE__ = true;
+</script>
+</body>
+</html>

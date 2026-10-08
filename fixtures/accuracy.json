@@ -1,0 +1,1494 @@
+{
+ "generatedBy": "tools/score_omr.py",
+ "engine": "homr 0.7.0",
+ "device": "cpu",
+ "method": "Known MusicXML is engraved to PNG, read back through optical music recognition, then compared note for note against what was printed.",
+ "caveat": "Measured on printed test scores, including synthetically degraded ones. Handwriting, curved book pages and very low contrast photographs are harder and are not represented here.",
+ "modes": {
+  "none": {
+   "label": "printed score",
+   "fixtures": 5,
+   "notes": 75,
+   "tp": 75,
+   "fp": 0,
+   "fn": 0,
+   "precision": 100.0,
+   "recall": 100.0,
+   "f1": 100.0,
+   "durationAccuracy": 100.0,
+   "secondsPerPage": 0.94
+  },
+  "photo": {
+   "label": "phone photo",
+   "fixtures": 5,
+   "notes": 75,
+   "tp": 75,
+   "fp": 0,
+   "fn": 0,
+   "precision": 100.0,
+   "recall": 100.0,
+   "f1": 100.0,
+   "durationAccuracy": 100.0,
+   "secondsPerPage": 0.89
+  },
+  "scan": {
+   "label": "photocopy scan",
+   "fixtures": 5,
+   "notes": 75,
+   "tp": 75,
+   "fp": 0,
+   "fn": 0,
+   "precision": 100.0,
+   "recall": 100.0,
+   "f1": 100.0,
+   "durationAccuracy": 92.0,
+   "secondsPerPage": 0.83
+  }
+ },
+ "summary": {
+  "label": "printed score",
+  "fixtures": 5,
+  "notes": 75,
+  "tp": 75,
+  "fp": 0,
+  "fn": 0,
+  "precision": 100.0,
+  "recall": 100.0,
+  "f1": 100.0,
+  "durationAccuracy": 100.0,
+  "secondsPerPage": 0.94
+ },
+ "rows": [
+  {
+   "ref_notes": 8,
+   "hyp_notes": 8,
+   "tp": 8,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 8,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Melody",
+     "index": 1,
+     "ref_notes": 8,
+     "hyp_notes": 8,
+     "tp": 8,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "simple",
+   "mode": "none",
+   "seconds": 1.1847890999633819
+  },
+  {
+   "ref_notes": 29,
+   "hyp_notes": 29,
+   "tp": 29,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 29,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Melody",
+     "index": 1,
+     "ref_notes": 29,
+     "hyp_notes": 29,
+     "tp": 29,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ],
+      [
+       8,
+       8
+      ],
+      [
+       9,
+       9
+      ],
+      [
+       10,
+       10
+      ],
+      [
+       11,
+       11
+      ],
+      [
+       12,
+       12
+      ],
+      [
+       13,
+       13
+      ],
+      [
+       14,
+       14
+      ],
+      [
+       15,
+       15
+      ],
+      [
+       16,
+       16
+      ],
+      [
+       17,
+       17
+      ],
+      [
+       18,
+       18
+      ],
+      [
+       19,
+       19
+      ],
+      [
+       20,
+       20
+      ],
+      [
+       21,
+       21
+      ],
+      [
+       22,
+       22
+      ],
+      [
+       23,
+       23
+      ],
+      [
+       24,
+       24
+      ],
+      [
+       25,
+       25
+      ],
+      [
+       26,
+       26
+      ],
+      [
+       27,
+       27
+      ],
+      [
+       28,
+       28
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "ode",
+   "mode": "none",
+   "seconds": 1.0359032000415027
+  },
+  {
+   "ref_notes": 18,
+   "hyp_notes": 18,
+   "tp": 18,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 18,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Rhythm",
+     "index": 1,
+     "ref_notes": 18,
+     "hyp_notes": 18,
+     "tp": 18,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       null,
+       3
+      ],
+      [
+       3,
+       4
+      ],
+      [
+       4,
+       5
+      ],
+      [
+       5,
+       6
+      ],
+      [
+       null,
+       7
+      ],
+      [
+       6,
+       8
+      ],
+      [
+       7,
+       9
+      ],
+      [
+       8,
+       10
+      ],
+      [
+       9,
+       11
+      ],
+      [
+       10,
+       12
+      ],
+      [
+       11,
+       13
+      ],
+      [
+       null,
+       14
+      ],
+      [
+       12,
+       15
+      ],
+      [
+       13,
+       16
+      ],
+      [
+       14,
+       17
+      ],
+      [
+       null,
+       18
+      ],
+      [
+       15,
+       19
+      ],
+      [
+       16,
+       20
+      ],
+      [
+       17,
+       21
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "rhythm",
+   "mode": "none",
+   "seconds": 0.7520444000256248
+  },
+  {
+   "ref_notes": 12,
+   "hyp_notes": 12,
+   "tp": 12,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 12,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Upper",
+     "index": 1,
+     "ref_notes": 8,
+     "hyp_notes": 8,
+     "tp": 8,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ]
+     ]
+    },
+    {
+     "name": "Lower",
+     "index": 2,
+     "ref_notes": 4,
+     "hyp_notes": 4,
+     "tp": 4,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "grand",
+   "mode": "none",
+   "seconds": 1.0415442999801598
+  },
+  {
+   "ref_notes": 8,
+   "hyp_notes": 8,
+   "tp": 8,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 8,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Melody",
+     "index": 1,
+     "ref_notes": 8,
+     "hyp_notes": 8,
+     "tp": 8,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "sharps",
+   "mode": "none",
+   "seconds": 0.709395699959714
+  },
+  {
+   "ref_notes": 8,
+   "hyp_notes": 8,
+   "tp": 8,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 8,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Melody",
+     "index": 1,
+     "ref_notes": 8,
+     "hyp_notes": 8,
+     "tp": 8,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "simple",
+   "mode": "photo",
+   "seconds": 0.8797038000193425
+  },
+  {
+   "ref_notes": 29,
+   "hyp_notes": 29,
+   "tp": 29,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 29,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Melody",
+     "index": 1,
+     "ref_notes": 29,
+     "hyp_notes": 29,
+     "tp": 29,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ],
+      [
+       8,
+       8
+      ],
+      [
+       9,
+       9
+      ],
+      [
+       10,
+       10
+      ],
+      [
+       11,
+       11
+      ],
+      [
+       12,
+       12
+      ],
+      [
+       13,
+       13
+      ],
+      [
+       14,
+       14
+      ],
+      [
+       15,
+       15
+      ],
+      [
+       16,
+       16
+      ],
+      [
+       17,
+       17
+      ],
+      [
+       18,
+       18
+      ],
+      [
+       19,
+       19
+      ],
+      [
+       20,
+       20
+      ],
+      [
+       21,
+       21
+      ],
+      [
+       22,
+       22
+      ],
+      [
+       23,
+       23
+      ],
+      [
+       24,
+       24
+      ],
+      [
+       25,
+       25
+      ],
+      [
+       26,
+       26
+      ],
+      [
+       27,
+       27
+      ],
+      [
+       28,
+       28
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "ode",
+   "mode": "photo",
+   "seconds": 0.9215986999915913
+  },
+  {
+   "ref_notes": 18,
+   "hyp_notes": 18,
+   "tp": 18,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 18,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Rhythm",
+     "index": 1,
+     "ref_notes": 18,
+     "hyp_notes": 18,
+     "tp": 18,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       null,
+       3
+      ],
+      [
+       3,
+       4
+      ],
+      [
+       4,
+       5
+      ],
+      [
+       5,
+       6
+      ],
+      [
+       null,
+       7
+      ],
+      [
+       6,
+       8
+      ],
+      [
+       7,
+       9
+      ],
+      [
+       8,
+       10
+      ],
+      [
+       9,
+       11
+      ],
+      [
+       10,
+       12
+      ],
+      [
+       11,
+       13
+      ],
+      [
+       null,
+       14
+      ],
+      [
+       12,
+       15
+      ],
+      [
+       13,
+       16
+      ],
+      [
+       14,
+       17
+      ],
+      [
+       null,
+       18
+      ],
+      [
+       15,
+       19
+      ],
+      [
+       16,
+       20
+      ],
+      [
+       17,
+       21
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "rhythm",
+   "mode": "photo",
+   "seconds": 0.8272558000171557
+  },
+  {
+   "ref_notes": 12,
+   "hyp_notes": 12,
+   "tp": 12,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 12,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Upper",
+     "index": 1,
+     "ref_notes": 8,
+     "hyp_notes": 8,
+     "tp": 8,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ]
+     ]
+    },
+    {
+     "name": "Lower",
+     "index": 2,
+     "ref_notes": 4,
+     "hyp_notes": 4,
+     "tp": 4,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "grand",
+   "mode": "photo",
+   "seconds": 1.0451764999888837
+  },
+  {
+   "ref_notes": 8,
+   "hyp_notes": 8,
+   "tp": 8,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 8,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Melody",
+     "index": 1,
+     "ref_notes": 8,
+     "hyp_notes": 8,
+     "tp": 8,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "sharps",
+   "mode": "photo",
+   "seconds": 0.7610021000145935
+  },
+  {
+   "ref_notes": 8,
+   "hyp_notes": 8,
+   "tp": 8,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 6,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Melody",
+     "index": 1,
+     "ref_notes": 8,
+     "hyp_notes": 8,
+     "tp": 8,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 0.75,
+   "mean_pitch_err": 0.0,
+   "piece": "simple",
+   "mode": "scan",
+   "seconds": 0.7183248000219464
+  },
+  {
+   "ref_notes": 29,
+   "hyp_notes": 29,
+   "tp": 29,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 29,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Melody",
+     "index": 1,
+     "ref_notes": 29,
+     "hyp_notes": 29,
+     "tp": 29,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ],
+      [
+       8,
+       8
+      ],
+      [
+       9,
+       9
+      ],
+      [
+       10,
+       10
+      ],
+      [
+       11,
+       11
+      ],
+      [
+       12,
+       12
+      ],
+      [
+       13,
+       13
+      ],
+      [
+       14,
+       14
+      ],
+      [
+       15,
+       15
+      ],
+      [
+       16,
+       16
+      ],
+      [
+       17,
+       17
+      ],
+      [
+       18,
+       18
+      ],
+      [
+       19,
+       19
+      ],
+      [
+       20,
+       20
+      ],
+      [
+       21,
+       21
+      ],
+      [
+       22,
+       22
+      ],
+      [
+       23,
+       23
+      ],
+      [
+       24,
+       24
+      ],
+      [
+       25,
+       25
+      ],
+      [
+       26,
+       26
+      ],
+      [
+       27,
+       27
+      ],
+      [
+       28,
+       28
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "ode",
+   "mode": "scan",
+   "seconds": 0.8735846999916248
+  },
+  {
+   "ref_notes": 18,
+   "hyp_notes": 18,
+   "tp": 18,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 18,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Rhythm",
+     "index": 1,
+     "ref_notes": 18,
+     "hyp_notes": 18,
+     "tp": 18,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       null,
+       3
+      ],
+      [
+       3,
+       4
+      ],
+      [
+       4,
+       5
+      ],
+      [
+       5,
+       6
+      ],
+      [
+       null,
+       7
+      ],
+      [
+       6,
+       8
+      ],
+      [
+       7,
+       9
+      ],
+      [
+       8,
+       10
+      ],
+      [
+       9,
+       11
+      ],
+      [
+       10,
+       12
+      ],
+      [
+       11,
+       13
+      ],
+      [
+       null,
+       14
+      ],
+      [
+       12,
+       15
+      ],
+      [
+       13,
+       16
+      ],
+      [
+       14,
+       17
+      ],
+      [
+       null,
+       18
+      ],
+      [
+       15,
+       19
+      ],
+      [
+       16,
+       20
+      ],
+      [
+       17,
+       21
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "rhythm",
+   "mode": "scan",
+   "seconds": 0.8298663999885321
+  },
+  {
+   "ref_notes": 12,
+   "hyp_notes": 12,
+   "tp": 12,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 12,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Upper",
+     "index": 1,
+     "ref_notes": 8,
+     "hyp_notes": 8,
+     "tp": 8,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ]
+     ]
+    },
+    {
+     "name": "Lower",
+     "index": 2,
+     "ref_notes": 4,
+     "hyp_notes": 4,
+     "tp": 4,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 1.0,
+   "mean_pitch_err": 0.0,
+   "piece": "grand",
+   "mode": "scan",
+   "seconds": 0.9209312000311911
+  },
+  {
+   "ref_notes": 8,
+   "hyp_notes": 8,
+   "tp": 8,
+   "fp": 0,
+   "fn": 0,
+   "duration_hits": 4,
+   "semitone_err": 0,
+   "per_staff": [
+    {
+     "name": "Melody",
+     "index": 1,
+     "ref_notes": 8,
+     "hyp_notes": 8,
+     "tp": 8,
+     "fp": 0,
+     "fn": 0,
+     "pairs": [
+      [
+       0,
+       0
+      ],
+      [
+       1,
+       1
+      ],
+      [
+       2,
+       2
+      ],
+      [
+       3,
+       3
+      ],
+      [
+       4,
+       4
+      ],
+      [
+       5,
+       5
+      ],
+      [
+       6,
+       6
+      ],
+      [
+       7,
+       7
+      ]
+     ]
+    }
+   ],
+   "precision": 1.0,
+   "recall": 1.0,
+   "f1": 1.0,
+   "duration_acc": 0.5,
+   "mean_pitch_err": 0.0,
+   "piece": "sharps",
+   "mode": "scan",
+   "seconds": 0.7998525999719277
+  }
+ ]
+}
