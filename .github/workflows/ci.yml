@@ -1,0 +1,74 @@
+name: CI
+
+# Two jobs, because they fail for unrelated reasons and one should not hide
+# the other:
+#   build  -- no browser needed, catches bundling and syntax errors in ~5s
+#   verify -- runs the real self-test in a headless browser against the BUILT
+#             single-file HTML, i.e. exactly the artifact that ships
+#
+# The Python recognition backend is deliberately not exercised here: it needs
+# ONNX weights (a ~37 MB download) and the GPU-free ONNX Runtime stack, which
+# is slow on a shared runner. Its accuracy is measured separately and
+# reproducibly via tools/score_omr.py -- see the README.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Artifact exists and is self-contained
+        run: |
+          test -f ScoreForge.html
+          size=$(stat -c%s ScoreForge.html)
+          echo "built ScoreForge.html: $size bytes"
+          # The whole point is one file with no external requests.
+          grep -q 'src="http' ScoreForge.html && { echo "external script reference found"; exit 1; } || true
+          [ "$size" -gt 500000 ] || { echo "suspiciously small build"; exit 1; }
+
+  verify:
+    name: Self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+      - run: npm ci
+      - run: npm run build
+      # tools/cdp.mjs finds Chrome on Linux via /usr/bin/google-chrome-stable,
+      # which is where setup-chrome installs it. SCOREFORGE_BROWSER overrides
+      # the search if that ever stops being true.
+      - name: Self-test the built page
+        run: npm test
+      - name: Module test suites
+        run: node tools/run-suites.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-screenshot
+          path: tools/screenshot-app.png
+          if-no-files-found: ignore

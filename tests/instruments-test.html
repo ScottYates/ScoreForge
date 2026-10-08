@@ -354,6 +354,9 @@ async function run() {
     checks: checks.length,
     failed: failed.length,
     failures: failed.map((f) => f.name + ' ' + JSON.stringify(f.info)),
+    // Uniform verdict for CI: every suite publishes {passed, failed, fatal}.
+    passed: checks.length - failed.length,
+    fatal: null,
     table,
     grand: { inharmonic: { bass, treble, bassCents: r3(bassC), trebleCents: r3(trebleC) },
              decay: { trebleHeldT40: r3(mHeld.t40), releasedT40: r3(mRel.t40), pedalT40: r3(mPed.t40) } },
@@ -365,7 +368,13 @@ async function run() {
 }
 
 run().catch((e) => {
-  out.textContent = JSON.stringify({ pass: false, fatal: String(e && e.stack || e), checks: checks.length, failures: checks.filter(c=>!c.ok).map(f=>f.name), log }, null, 1);
+  const failed = checks.filter((c) => !c.ok);
+  window.__RESULT__ = {
+    pass: false, passed: checks.length - failed.length, failed: failed.length + 1,
+    checks: checks.length, failures: checks.filter(c=>!c.ok).map(f=>f.name),
+    fatal: String(e && e.stack || e), log,
+  };
+  out.textContent = JSON.stringify(window.__RESULT__, null, 1);
   window.__DONE__ = true;
 });
 </script>

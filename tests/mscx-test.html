@@ -675,6 +675,8 @@ const out = document.getElementById('out');
 out.textContent = lines.join('\n');
 out.className = fail === 0 ? '' : 'fail';
 window.__SUMMARY__ = { pass, fail };
+// Uniform verdict for CI: every suite publishes {passed, failed, fatal}.
+window.__RESULT__ = { passed: pass, failed: fail, fatal: null };
 window.__DONE__ = true;
 </script>
 </body>

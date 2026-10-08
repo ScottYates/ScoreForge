@@ -437,7 +437,7 @@ head('10. large file');
 const summary = `${pass} passed, ${fail} failed`;
 lines.unshift(`<span class="${fail ? 'fail' : 'pass'}">SMF PARSER TESTS: ${summary}</span>`);
 out.innerHTML = lines.join('\n');
-window.__RESULT__ = { pass, fail, summary };
+window.__RESULT__ = { passed: pass, failed: fail, summary, fatal: null };
 window.__DONE__ = true;
 document.title = `SMF ${summary}`;
 </script>

@@ -667,6 +667,8 @@ section('15. performance: 3000-bar piano score');
 lines.unshift('RESULT: ' + pass + ' passed, ' + fail + ' failed');
 if (fatal) lines.push('\nFATAL: ' + fatal);
 document.getElementById('out').textContent = lines.join('\n');
+// Uniform verdict for CI: every suite publishes {passed, failed, fatal}.
+window.__RESULT__ = { passed: pass, failed: fail, fatal: fatal || null };
 window.__DONE__ = true;
 </script>
 </body>

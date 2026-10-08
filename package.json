@@ -9,6 +9,7 @@
     "build": "node tools/build.mjs",
     "dev": "node tools/build.mjs --dev",
     "test": "node tools/verify.mjs",
+    "test:suites": "node tools/run-suites.mjs",
     "serve": "backend\\.venv\\Scripts\\python.exe backend/app.py",
     "fixtures": "node tools/make-fixtures.mjs",
     "test:omr": "backend\\.venv\\Scripts\\python.exe tools/score_omr.py"
