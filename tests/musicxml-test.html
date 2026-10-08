@@ -656,7 +656,12 @@ section('15. performance: 3000-bar piano score');
   eq('measureCount', s.measureCount, BARS);
   near('totalQuarters', s.totalQuarters, BARS * 4);
   near('last note at the end of the piece', s.parts[0].notes[s.parts[0].notes.length - 1].quarter, (BARS - 1) * 4 + 3);
-  assert(`parsed well under 1s (${ms.toFixed(0)} ms)`, ms < 1000, ms + 'ms');
+  // A guard against the parse becoming accidentally quadratic, NOT a benchmark.
+  // This fixture takes ~360 ms on a developer laptop and over a second on a
+  // shared CI runner, so a tight threshold here produces flaky failures that
+  // have nothing to do with correctness. 10 s still catches a real blow-up
+  // (that would be 100x+, not 3x) while tolerating slow shared hardware.
+  assert(`parse is not pathologically slow (${ms.toFixed(0)} ms)`, ms < 10000, ms + 'ms');
   eq('no warnings on the big score', s.warnings.length, 0);
 }
 
