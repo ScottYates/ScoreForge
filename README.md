@@ -281,4 +281,4 @@ webfont is downloaded at runtime.
 - No MIDI-from-audio, no audio-to-score.
 - Playback and export use the same code path, but `OfflineAudioContext` output is
   bit-identical only because "humanise" is forced off for renders.
-- Very long scores render in the notation view progressively as you scroll.
+- Very long scores render in the notation view progressively as you scroll.probe
