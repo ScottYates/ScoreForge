@@ -160,7 +160,7 @@ fi
 HOMR_SPEC="$(grep -E '^[[:space:]]*homr([=<>~! ]|$)' "$REQ" | sed 's/[[:space:]]*#.*//; s/[[:space:]]//g')"
 [ -n "$HOMR_SPEC" ] || die "no homr entry in $REQ"
 
-"${PIP[@]}" install --only-binary=:all: -r "$REQ_REST" \
+"${PIP[@]}" install --prefer-binary -r "$REQ_REST" \
     || die "dependency install failed (numpy==2.5.3 requires Python >= $PY_MIN; this venv is $("$VPY" -V 2>&1))"
 # homr's other runtime deps that are not in requirements.txt (read from its metadata).
 "${PIP[@]}" install --no-deps "$HOMR_SPEC"
@@ -175,6 +175,15 @@ for r in requires("homr") or []:
 PY
 if [ -s "$REQ_REST.homr" ]; then "${PIP[@]}" install -r "$REQ_REST.homr"; fi
 rm -f "$REQ_REST.homr"
+
+# rapidocr needs omegaconf >= 2.2 (pathlib.Path support). omegaconf 2.1+ depends on
+# an sdist-only package (antlr4-python3-runtime 4.9.*); with --only-binary pip
+# silently falls back to omegaconf 2.0.0, which breaks OCR weight download.
+"$VPY" - <<'PY' || die "omegaconf is too old; the antlr4 runtime source build probably failed (is build tooling available?)"
+from importlib.metadata import version
+v = tuple(int(x) for x in version("omegaconf").split(".")[:2])
+raise SystemExit(0 if v >= (2, 2) else 1)
+PY
 
 say "Verifying the environment"
 "$VPY" - <<'PY'
@@ -242,4 +251,8 @@ healthy=0
 for _ in $(seq 1 60); do
     if curl -fsS "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then healthy=1; break; fi
     systemctl is-failed --quiet scoreforge.service && break
-   
+    sleep 1
+done
+if [ "$healthy" -ne 1 ]; then
+    systemctl --no-pager --lines 40 status scoreforge.service || true
+    journalctl -u scoreforge --n
