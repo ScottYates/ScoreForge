@@ -255,4 +255,20 @@ for _ in $(seq 1 60); do
 done
 if [ "$healthy" -ne 1 ]; then
     systemctl --no-pager --lines 40 status scoreforge.service || true
-    journalctl -u scoreforge --n
+    journalctl -u scoreforge --no-pager -n 40 || true
+    die "service did not become healthy"
+fi
+curl -fsS "http://127.0.0.1:$port/api/health"; echo
+
+cat <<MSG
+
+$(printf '\033[1m')ScoreForge installed.$(printf '\033[0m')
+  page      http://127.0.0.1:$port/
+  API docs  http://127.0.0.1:$port/api/docs
+  install   $PREFIX
+  python    $PYTHON_REAL
+  config    $ETC_DIR/scoreforge.env
+  systemctl status scoreforge
+  journalctl -u scoreforge -f
+$(printf '\033[33m')The service binds loopback and has no authentication.$(printf '\033[0m')
+MSG
