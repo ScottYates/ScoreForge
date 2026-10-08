@@ -146,6 +146,17 @@ REQ="$PREFIX/backend/requirements.txt"
 # with --no-deps; its remaining dependencies are already pinned in the file.
 REQ_REST="$(mktemp)"; trap 'rm -f "$REQ_REST"' EXIT
 grep -Ev '^[[:space:]]*homr([=<>~! ]|$)' "$REQ" > "$REQ_REST"
+# NumPy >= 2.4 wheels need x86-64-v2 (SSE4.2/POPCNT). Virtual CPUs such as QEMU's
+# default "qemu64"/"kvm64" lack them and numpy fails at import. Fall back to the
+# last 2.3 release (no such baseline). Force either way with NUMPY_SPEC=...
+if [ -z "${NUMPY_SPEC:-}" ] && [ "$(uname -m)" = x86_64 ] && ! grep -qw sse4_2 /proc/cpuinfo; then
+    NUMPY_SPEC="numpy==2.3.5"
+    warn "CPU lacks SSE4.2 (x86-64-v2); using $NUMPY_SPEC instead of the pinned numpy"
+fi
+if [ -n "${NUMPY_SPEC:-}" ]; then
+    sed -i -E "s/^[[:space:]]*numpy[=<>~! ].*/$NUMPY_SPEC/" "$REQ_REST"
+    grep -qx "$NUMPY_SPEC" "$REQ_REST" || die "could not apply NUMPY_SPEC=$NUMPY_SPEC"
+fi
 HOMR_SPEC="$(grep -E '^[[:space:]]*homr([=<>~! ]|$)' "$REQ" | sed 's/[[:space:]]*#.*//; s/[[:space:]]//g')"
 [ -n "$HOMR_SPEC" ] || die "no homr entry in $REQ"
 
@@ -231,24 +242,4 @@ healthy=0
 for _ in $(seq 1 60); do
     if curl -fsS "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then healthy=1; break; fi
     systemctl is-failed --quiet scoreforge.service && break
-    sleep 1
-done
-if [ "$healthy" -ne 1 ]; then
-    systemctl --no-pager --lines 40 status scoreforge.service || true
-    journalctl -u scoreforge --no-pager -n 40 || true
-    die "service did not become healthy"
-fi
-curl -fsS "http://127.0.0.1:$port/api/health"; echo
-
-cat <<MSG
-
-$(printf '\033[1m')ScoreForge installed.$(printf '\033[0m')
-  page      http://127.0.0.1:$port/
-  API docs  http://127.0.0.1:$port/api/docs
-  install   $PREFIX
-  python    $PYTHON_REAL
-  config    $ETC_DIR/scoreforge.env
-  systemctl status scoreforge
-  journalctl -u scoreforge -f
-$(printf '\033[33m')The service binds loopback and has no authentication.$(printf '\033[0m')
-MSG
+   
