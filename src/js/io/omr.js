@@ -13,13 +13,29 @@ import { parseMusicXml } from './musicxml.js';
 
 const DEFAULT_BASE = 'http://127.0.0.1:8000';
 
-/** Where the backend is. Same-origin wins when the page is served by it. */
-export function resolveBase() {
+/**
+ * Where the backend might be, most likely first.
+ *
+ * Over http we try same-origin first, because that is the case where the
+ * backend serves the page too. If the page came from somewhere else -- a plain
+ * `python -m http.server`, say -- we fall back to the loopback port the backend
+ * listens on. Under file:// there is only the loopback option.
+ */
+function candidateBases() {
   const configured = localStorage.getItem('scoreforge.omrBase');
-  if (configured) return configured.replace(/\/+$/, '');
-  // Served by the backend itself -> same origin, no CORS round trip.
-  if (location.protocol === 'http:' || location.protocol === 'https:') return '';
-  return DEFAULT_BASE;
+  if (configured) return [configured.replace(/\/+$/, '')];
+  const bases = [];
+  if (location.protocol === 'http:' || location.protocol === 'https:') bases.push('');
+  bases.push(DEFAULT_BASE);
+  return bases;
+}
+
+// The base that last answered, so uploads and preview URLs agree with it.
+let activeBase = null;
+
+/** The base in use: whatever responded last, else the best guess. */
+export function resolveBase() {
+  return activeBase !== null ? activeBase : candidateBases()[0];
 }
 
 export function setBase(url) {
@@ -27,6 +43,7 @@ export function setBase(url) {
   if (clean) localStorage.setItem('scoreforge.omrBase', clean);
   else localStorage.removeItem('scoreforge.omrBase');
   healthCache = null;
+  activeBase = null;
   probeHealth(true);
 }
 
@@ -39,18 +56,28 @@ let healthPromise = null;
 export async function backendHealth() {
   if (healthCache) return healthCache;
   if (!healthPromise) {
-    const base = resolveBase();
-    healthPromise = fetch(`${base}/api/health`, { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((j) => {
-        healthCache = { ...j, base, reachable: true };
-        return healthCache;
-      })
-      .catch((e) => {
-        healthCache = { reachable: false, error: e && e.message ? e.message : String(e), base };
-        return healthCache;
-      })
-      .finally(() => { healthPromise = null; });
+    healthPromise = (async () => {
+      const tried = [];
+      for (const base of candidateBases()) {
+        try {
+          const res = await fetch(`${base}/api/health`, { cache: 'no-store' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const body = await res.json();
+          activeBase = base;
+          healthCache = { ...body, base, reachable: true, tried };
+          return healthCache;
+        } catch (e) {
+          tried.push({ base: base || location.origin, error: e && e.message ? e.message : String(e) });
+        }
+      }
+      healthCache = {
+        reachable: false,
+        error: tried.map((t) => `${t.base}: ${t.error}`).join('; '),
+        base: candidateBases()[0],
+        tried,
+      };
+      return healthCache;
+    })().finally(() => { healthPromise = null; });
   }
   return healthPromise;
 }

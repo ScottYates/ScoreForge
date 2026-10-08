@@ -6,9 +6,14 @@
 // Usage:
 //   node tools/cdp.mjs --url <url> [--wait "<js expr, truthy = ready>"] [--timeout ms]
 //                      [--start "<js expr run once before waiting>"]
+//                      [--startFile <path>]  read --start from a file
 //                      [--eval "<js expr returning JSON-able value>"]
 //                      [--shot <out.png>] [--width n] [--height n] [--headful]
 //                      [--browser <path>]
+//
+// To drive a file upload, build a File in the page and dispatch `change` on
+// the input. Note that fetch() of a data: URL hangs in headless Chrome, so
+// decode the bytes with atob() rather than fetching them.
 //
 // Browser selection: --browser, else $SCOREFORGE_BROWSER, else the first
 // Chrome/Edge/Chromium found on this platform.
@@ -195,12 +200,27 @@ const delay = parseInt(arg('delay', '0'), 10);
       }
     }, 100);
 
+    // Navigation is async, so the document is usually not parsed yet. Wait for
+    // it before running anything against the DOM.
+    const domReadyAt = Date.now();
+    while (Date.now() - domReadyAt < Math.min(timeout, 30000)) {
+      try {
+        const r = await cdp.send('Runtime.evaluate',
+          { expression: "document.readyState === 'complete' && !!document.body", returnByValue: true }, sessionId);
+        if (r.result && r.result.value) break;
+      } catch {}
+      await sleep(120);
+    }
+
     const t0 = Date.now();
     let ready = false;
     // Optional kick-off: run once before waiting. Needed when the thing being
     // waited on is *started* by the test itself (uploading a file, for
-    // instance) rather than by page load.
-    const startExpr = arg('start', null);
+    // instance) rather than by page load. --startFile reads it from disk, for
+    // scripts too big to pass on the command line.
+    const startFile = arg('startFile', null);
+    const startExpr = arg('start', null)
+      || (startFile ? fs.readFileSync(startFile, 'utf8') : null);
     if (startExpr) {
       // The navigation above is async, so the page's own script has usually
       // not run yet -- evaluating immediately hits "undefined is not a

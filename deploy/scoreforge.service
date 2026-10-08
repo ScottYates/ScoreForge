@@ -1,0 +1,47 @@
+[Unit]
+Description=ScoreForge optical music recognition backend
+Documentation=https://github.com/ScottYates/ScoreForge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=scoreforge
+Group=scoreforge
+WorkingDirectory=/opt/scoreforge
+
+# Host/port and the browser origins allowed to call the API. Keeping this in an
+# EnvironmentFile means changing it does not mean editing this unit.
+EnvironmentFile=/etc/scoreforge/scoreforge.env
+
+ExecStart=/opt/scoreforge/.venv/bin/python /opt/scoreforge/backend/app.py
+
+Restart=on-failure
+RestartSec=5s
+
+# The recogniser is CPU only and single-threaded per request, but two page
+# transcriptions may overlap, so allow a couple of cores' worth.
+CPUQuota=200%
+MemoryMax=4G
+
+# Scratch space. process_image writes its .musicxml and teaser next to the image
+# it is given, and the upload handler uses a temp directory per request.
+PrivateTmp=true
+
+# The install tree is read-only at runtime: the model weights are downloaded
+# during install (see deploy/install.sh), so nothing needs to write here.
+ProtectSystem=strict
+ProtectHome=true
+
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
