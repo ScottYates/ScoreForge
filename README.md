@@ -129,6 +129,93 @@ Karplus–Strong-style excitation for plucked strings, formant shaping with vibr
 that ramps in for bowed and vocal sounds, breath noise for the winds, and
 drawbar-style additive synthesis for the organ.
 
+## Installing on Linux
+
+Needs Python 3.11 to 3.15. Everything else comes from pip. No GPU, no CUDA.
+
+```bash
+git clone https://github.com/ScottYates/ScoreForge.git
+cd ScoreForge
+npm install && npm run build     # writes ScoreForge.html
+sudo ./deploy/install.sh
+```
+
+That installs to `/opt/scoreforge`, creates an unprivileged `scoreforge` system
+user, installs the Python dependencies, downloads the ONNX weights, and starts a
+systemd unit. `ScoreForge.html` is copied there too, so it works straight off
+disk with no server at all.
+
+```bash
+systemctl status scoreforge
+curl -s http://127.0.0.1:8000/api/health
+```
+
+Then open <http://127.0.0.1:8000/>.
+
+`deploy/install.sh` is also the upgrade path: pull, rebuild, run it again. It
+leaves `/etc/scoreforge/scoreforge.env` alone (backing it up to `.bak`).
+
+### systemd
+
+The unit is `deploy/scoreforge.service`.
+
+```bash
+systemctl restart scoreforge
+journalctl -u scoreforge -f
+```
+
+Config lives in `/etc/scoreforge/scoreforge.env`, copied there from
+`deploy/scoreforge.env.example`. The defaults are right for a local install.
+
+The service runs as `scoreforge` with a read-only filesystem. The weights are
+fetched during install so it never needs to write anywhere at runtime.
+
+### Serving the page separately
+
+The backend already serves the page at `/`. To serve it with Python instead:
+
+```bash
+python3 -m http.server 8080 --directory /opt/scoreforge --bind 127.0.0.1
+```
+
+Open <http://127.0.0.1:8080/ScoreForge.html>. The page tries its own origin first
+and falls back to `127.0.0.1:8000` for the API, so scans still work.
+
+On a machine without Node, skip the build entirely: copy `ScoreForge.html` to the
+server and open it from disk.
+
+### Behind a reverse proxy
+
+The service binds loopback and has no authentication. That is deliberate, and it
+is why nothing should be pointed at it directly. To reach it over a network, put
+TLS and an access check in front:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name music.example.com;
+
+    client_max_body_size 40m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+Add `music.example.com` to both `SCOREFORGE_ALLOWED_HOSTS` and
+`SCOREFORGE_ALLOWED_ORIGINS` in the env file, or the browser will refuse the
+page's API calls.
+
+### What the service exposes
+
+Only the page at `/` and the `/api/` routes. The project directory is not served,
+so the source tree, `.git/` and any scores you keep alongside it are not
+reachable. Requests are checked against an allow-list of origins and host
+headers, so a website you visit cannot drive your local backend, and a DNS
+rebind cannot either.
+
 ## Development
 
 ```bash

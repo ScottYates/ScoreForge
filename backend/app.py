@@ -24,11 +24,14 @@ BACKEND_DIR = Path(__file__).resolve().parent
 ROOT = BACKEND_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
+import os
+from typing import Optional
+
 import cv2  # noqa: E402
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse, Response  # noqa: E402
-from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 import omr_engine  # noqa: E402
 import preprocess  # noqa: E402
@@ -36,19 +39,68 @@ import preprocess  # noqa: E402
 MAX_UPLOAD_BYTES = 40 * 1024 * 1024  # 40 MB
 MAX_PDF_PAGES = 20
 
+HOST = os.environ.get("SCOREFORGE_HOST", "127.0.0.1")
+PORT = int(os.environ.get("SCOREFORGE_PORT", "8000"))
+
+
+def _split_env(name: str) -> list[str]:
+    return [v.strip() for v in os.environ.get(name, "").split(",") if v.strip()]
+
+
+def _origins() -> list[str]:
+    """Origins allowed to call this API from a browser.
+
+    Chrome reports a page opened off disk as origin "file://" (and "null" for
+    other opaque origins). Both are needed: ScoreForge is meant to be
+    double-clicked, and without them the page cannot reach the backend at all.
+
+    The extra ports are for serving the page from a plain static server instead
+    of from this service -- `python -m http.server 8080` puts the page on a
+    different origin, and it still has to be able to reach the API. These are
+    loopback only: no page can claim one of these origins unless something on
+    this machine is already listening there.
+
+    Anything else has to be named explicitly. An allow-list of "*" would let
+    every website you visit read whatever this service exposes, which is the
+    reason this is a list rather than a wildcard.
+    """
+    ports = [PORT, 8080, 8081]
+    base = ["null", "file://"]
+    for p in ports:
+        base += [f"http://127.0.0.1:{p}", f"http://localhost:{p}"]
+    return base + [o for o in _split_env("SCOREFORGE_ALLOWED_ORIGINS") if o not in base]
+
+
+def _hosts() -> list[str]:
+    """Host header values we answer to.
+
+    Validating this is what stops DNS rebinding: without it, a page whose domain
+    is pointed at 127.0.0.1 looks same-origin to the browser, and no CORS rule
+    applies at all.
+    """
+    if os.environ.get("SCOREFORGE_ALLOW_ANY_HOST"):
+        return ["*"]
+    hosts = ["127.0.0.1", "localhost", "[::1]"]
+    bound = HOST.strip()
+    if bound not in ("0.0.0.0", "::", "*", ""):
+        hosts.append(bound)
+    return hosts + [h for h in _split_env("SCOREFORGE_ALLOWED_HOSTS") if h not in hosts]
+
+
+ALLOWED_ORIGINS = _origins()
+ALLOWED_HOSTS = _hosts()
+
 app = FastAPI(title="ScoreForge OMR", version="2.0.0", docs_url="/api/docs")
 
-# The page is normally opened straight off disk (file://), where the browser
-# sends a null origin. MusicXML and MIDI stay fully offline; only the scan
-# upload needs this origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
 _previews: dict[str, bytes] = {}
 _PREVIEW_LIMIT = 24
@@ -187,12 +239,17 @@ def preview(key: str) -> Response:
                     headers={"Cache-Control": "public, max-age=600"})
 
 
-# The built page is served from the same origin so the fetch is same-origin and
-# the app works as one unit. Opening ScoreForge.html directly off disk still
-# works; it just needs the backend URL pointed at this service.
+# Serve the built page and nothing else. Mounting the project directory would
+# publish the source tree, .git/ and any scores dropped alongside it.
 _INDEX = ROOT / "ScoreForge.html"
-if _INDEX.exists():
-    app.mount("/", StaticFiles(directory=str(ROOT), html=True), name="app")
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    if not _INDEX.exists():
+        raise HTTPException(404, "ScoreForge.html is not built - run `npm run build`")
+    return FileResponse(_INDEX, media_type="text/html",
+                        headers={"Cache-Control": "no-cache"})
 
 
 def main() -> None:
@@ -201,13 +258,20 @@ def main() -> None:
     import uvicorn
 
     ap = argparse.ArgumentParser(description="ScoreForge OMR backend (CPU only)")
-    ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--host", default=HOST,
+                    help="loopback by default; anything else exposes the service on the network")
+    ap.add_argument("--port", type=int, default=PORT)
     ap.add_argument("--reload", action="store_true")
     args = ap.parse_args()
 
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        print(f"\n  WARNING: binding to {args.host} exposes this service to your network.\n"
+              "  It has no authentication and will transcribe anything sent to it.\n",
+              file=sys.stderr)
+
     print(f"ScoreForge OMR  engine={omr_engine.ENGINE_NAME} {omr_engine.ENGINE_VERSION} "
           f"device={omr_engine.DEVICE}  ->  http://{args.host}:{args.port}/")
+    print(f"allowed origins: {', '.join(ALLOWED_ORIGINS)}")
     uvicorn.run("app:app" if args.reload else app, host=args.host, port=args.port,
                 reload=args.reload, log_level="info")
 
