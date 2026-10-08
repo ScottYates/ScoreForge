@@ -19,15 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-NOTE ON THE OPTIONAL PYTHON BACKEND
-
-The bundled web page (ScoreForge.html and src/) is MIT, as above.
-
-The optional recognition service in backend/ is also MIT source, but it
-installs and depends on homr, which is licensed AGPL-3.0. Running homr as a
-separate process and talking to it over HTTP keeps this repository's own code
-under MIT; if you modify homr or combine it into your own program, the AGPL
-terms apply to that combined work. See the licence note in README.md.
