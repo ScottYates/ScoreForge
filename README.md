@@ -1,60 +1,53 @@
 # ScoreForge
 
-Turn sheet music into an MP3, in the browser, in one file.
+Sheet music to MP3, in the browser, in one file.
 
-Drop in a **MusicXML**, **MuseScore** or **MIDI** file, pick a key, a tempo and an
-instrument, listen to it play with the notation following along, then export an
-MP3 you can play anywhere.
+Open `ScoreForge.html` and drop in a MusicXML, MuseScore or MIDI file. Pick a key,
+tempo and instrument, press space, and it plays. Exporting gives you an MP3 that
+you can listen to in the page before you download it.
 
-Drop in a **photo or PDF of sheet music** and a local Python service reads the
-notes off it with optical music recognition — on the CPU, no graphics card — and
-hands back a score you can edit, transpose and export like any other.
+Photos and PDFs work too. A local Python service reads the notes off them with
+optical music recognition and hands back a score you can edit, transpose and
+export like any other. It runs on the CPU, so there is no graphics card
+requirement.
 
-The build output is **`ScoreForge.html`** - a single self-contained file. Double-click
-it and it works. No server, no install, no network, no accounts. Everything it needs
-(notation engine, MP3 encoder, zip reader, 21 synthesised instruments) is inlined.
+`ScoreForge.html` is the build output: 1.7 MB with the notation engine, MP3
+encoder, zip reader and 21 instruments inlined. It runs from `file://`.
 
 ![ScoreForge with a score loaded](docs/screenshots/app.png)
 
-A photo in, a score out - the panel shows the image the recogniser was given next
-to what it read, so the result can be checked rather than trusted:
+The Transcription panel puts the image the recogniser was given next to what it
+read, so you can check it against the original.
 
 ![Transcription panel](docs/screenshots/transcription.png)
 
----
+## Running it
 
-## Using it
+Chrome, Edge, Firefox or Safari.
 
-Open `ScoreForge.html` in Chrome, Edge, Firefox or Safari.
-
-1. **Drop a score on the page** (or click *Choose files*).
-2. Choose a **key** and a **tempo** in the inspector.
-3. Choose an **instrument** — per part, if the score has more than one.
-4. Press **Space** to play. The notation cursor follows the music.
-5. Click **Export MP3**, wait for the render, **listen to the result in the page**,
-   then download it.
-
-The export dialog renders the audio, plays it back through a blob URL so you can
-hear it before committing to a download, and checks the resulting MPEG frames
-before calling the file valid:
+1. Drop a score on the page, or use **Choose files**.
+2. Set key and tempo in the inspector.
+3. Pick an instrument. Per part, if there is more than one.
+4. Space plays.
+5. **Export MP3** renders the audio, plays it back through the page, and unlocks
+   the download when it is done.
 
 ![Export dialog with preview and validity badge](docs/screenshots/export.png)
 
-### What it accepts
+### File formats
 
 | Format | Extensions | Notes |
 |---|---|---|
-| MusicXML | `.musicxml` `.xml` `.mxl` | MuseScore, Sibelius, Dorico, Finale, Noteflight. `.mxl` (zipped) is unpacked automatically. |
-| MuseScore | `.mscz` `.mscx` | Native project files. No notation view - shown on the piano roll instead. |
+| MusicXML | `.musicxml` `.xml` `.mxl` | MuseScore, Sibelius, Dorico, Finale, Noteflight. Zipped `.mxl` is unpacked automatically. |
+| MuseScore | `.mscz` `.mscx` | Native project files. |
 | MIDI | `.mid` `.midi` `.kar` `.rmi` | Format 0/1/2, running status, SMPTE division, tempo and key meta events. |
-| Scan | `.png` `.jpg` `.jpeg` `.webp` `.gif` `.bmp` `.pdf` | Transcribed into notes by the **local Python service** (see below). Each PDF page becomes its own score. |
+| Scan | `.png` `.jpg` `.jpeg` `.webp` `.gif` `.bmp` `.pdf` | Read by the Python service (see below). Each PDF page becomes its own score. |
 
-Scans need the recognition backend running. Without it the page still works
-exactly as before - MusicXML and MIDI parse locally and a scan is kept as
-reference material only, with the panel saying so.
+Scans need that service running. Without it the page still works: MusicXML and
+MIDI parse locally, and a scan is kept as a reference image with the panel saying
+why.
 
-Parts without a notation source — MuseScore projects, MIDI — are shown as a
-piano roll, which is often easier to check timing against than notation:
+MuseScore projects and MIDI have no notation source, so they show as a piano roll.
 
 ![Piano roll view](docs/screenshots/piano-roll.png)
 
@@ -67,43 +60,85 @@ piano roll, which is often easier to check timing against than notation:
 | `Home` | Back to start |
 | `E` | Export MP3 |
 
----
+## Reading scans
 
-## The instruments
+The recogniser lives in `backend/`. Start it with:
 
-There are no audio samples. Shipping a convincing grand piano as samples costs tens
-of megabytes, which would defeat "one file". Instead each instrument is **physically
-modelled synthesis** written directly against the Web Audio API.
+```powershell
+python backend/app.py
+```
 
-The **Concert Grand** is the flagship and is built from the physics of a real piano:
-inharmonic partials `f_n = n·f₀·√(1+B·n²)` with a stiffness coefficient that rises in
-the bass, per-partial decay times so upper partials die before the fundamental,
-three detuned unison strings per note for slow beating, a filtered-noise hammer
-transient scaled by velocity, pitch- and velocity-dependent brightness, a body
-resonance that glues chords into one instrument, and dampers that lift under the
-sustain pedal.
+It listens on http://127.0.0.1:8000 and also serves `ScoreForge.html`, so
+http://127.0.0.1:8000/ is the easiest place to work. Opening the HTML file
+directly works too; the page points at 127.0.0.1:8000 only when it needs to
+transcribe something.
 
-The rest follow the same idea: tuned-bar inharmonic ratios for the bells and mallets,
-Karplus–Strong-style excitation for the plucked strings, formant-shaped bowed and
-vocal sounds with vibrato that ramps in, breath noise for the winds, and drawbar-style
-additive synthesis for the organ.
+The first run downloads about 37 MB of ONNX weights.
 
-### Why synthesise instead of sample?
+Given a scan, the service decodes it (respecting EXIF rotation) or rasterises
+each PDF page, builds four renderings of the page (as-is, contrast lifted,
+deskewed, and both), reads each one, and keeps whichever produced the most notes.
+The result is MusicXML, which is what the page already parses, so a scan enters
+the same notation, playback and export path as a file exported from MuseScore.
 
-- it keeps the whole app in one file that works offline;
-- no licensing questions, no multi-megabyte download;
-- and every note can be genuinely velocity-responsive, which sampled instruments
-  only are if you ship dozens of velocity layers.
+### What it gets wrong
 
----
+The accuracy figures come from engraving known MusicXML to PNG, reading it back,
+and comparing note by note against what was actually printed.
+
+| Condition | Notes | Precision | Recall | F1 |
+|---|---|---|---|---|
+| Printed score | 75 | 100.0% | 100.0% | 100.0% |
+| Phone photo (1.4° tilt, uneven lighting, noise, JPEG 62) | 75 | 100.0% | 100.0% | 100.0% |
+| Photocopy scan (low contrast, blur, adaptive threshold) | 75 | 100.0% | 100.0% | 100.0% |
+
+About 0.9 s per page on the CPU. Duration accuracy is 100% on printed and
+photographed scores, 92% on photocopies. To reproduce:
+
+```powershell
+python tools/score_omr.py --write fixtures/accuracy.json
+```
+
+The page fetches those numbers from the service and shows them in the
+Transcription panel.
+
+The fixtures are engraved music, some of them synthetically degraded. Handwriting,
+curved book pages, very low contrast and dense polyphony are not in the set and
+are harder. Read the result against your scan rather than trusting it.
+
+The time signature is taken from whatever bar lines the recogniser can see, so a
+page engraved without interior barlines can come back as one long bar instead of
+4/4. Durations are unaffected.
+
+## Instruments
+
+There are no audio samples. A convincing grand piano as samples runs to tens of
+megabytes, which would break the one-file idea. Each instrument is synthesis
+written directly against the Web Audio API instead.
+
+Concert Grand follows the physics of a real piano: inharmonic partials
+`f_n = n·f₀·√(1+B·n²)` with a stiffness coefficient that rises in the bass,
+per-partial decay times so the upper partials die before the fundamental, three
+detuned unison strings per note for the slow beating, a filtered-noise hammer
+transient scaled by velocity, brightness that tracks pitch and velocity, body
+resonance that glues a chord into one instrument, and dampers that lift under
+the sustain pedal.
+
+The others use the same idea: tuned-bar inharmonic ratios for bells and mallets,
+Karplus–Strong-style excitation for plucked strings, formant shaping with vibrato
+that ramps in for bowed and vocal sounds, breath noise for the winds, and
+drawbar-style additive synthesis for the organ.
 
 ## Development
 
 ```bash
 npm install
 npm run build      # -> ScoreForge.html (minified)
-npm run dev        # -> ScoreForge.html (readable, for debugging)
+npm run dev        # -> ScoreForge.html (readable)
 npm test           # build + headless self-test + screenshot
+npm run test:suites   # the four module suites
+npm run serve      # start the recognition backend
+npm run test:omr   # recogniser accuracy, all three conditions
 ```
 
 ### Layout
@@ -119,7 +154,7 @@ src/
     io/smf.js           Standard MIDI File -> score
     io/mscx.js          MuseScore project -> score
     io/files.js         file intake, zip, type sniffing
-    io/omr.js           recognition backend client (health, upload, -> scores)
+    io/omr.js           recognition backend client
     audio/instruments.js the 21 voices
     audio/engine.js     lookahead scheduler (live) + scheduleAll (offline)
     audio/fx.js         procedural convolution reverb, EQ, compressor
@@ -128,39 +163,36 @@ src/
     render/notation.js  OpenSheetMusicDisplay wrapper + playback cursor
     render/roll.js      piano roll canvas
     ui/                 controller, DOM helpers
-tools/
-  build.mjs             esbuild bundle -> single HTML
-  cdp.mjs               headless-Chrome harness (no npm deps, uses Node's WebSocket)
-  verify.mjs            build + self-test + screenshot
-  make-fixtures.mjs     render ground-truth score images + gt.json
-  score-render.html     engraves one known fixture for make-fixtures
 backend/
   app.py                FastAPI: /api/omr, /api/health, /api/accuracy, static
   omr_engine.py         homr wrapper: CPU config, variants, MusicXML summary
   preprocess.py         decode / PDF rasterise / deskew / contrast / resize
-  .venv/                Python environment (see above)
+  requirements.txt
+tools/
+  build.mjs             esbuild bundle -> single HTML
+  cdp.mjs               headless-Chrome harness (no npm deps)
+  verify.mjs            build + self-test + screenshot
+  run-suites.mjs        the four module suites, one verdict
+  make-fixtures.mjs     render ground-truth score images + gt.json
+  score-render.html     engraves one known fixture for make-fixtures
+  score_omr.py          recogniser accuracy suite
 fixtures/               ground-truth images + accuracy.json
 tests/                  per-module test pages, all runnable headless
+docs/screenshots/
 ```
 
 ### Testing
 
-`npm test` builds the single file and then opens it in headless Edge with
-`?selftest`, which:
+`npm test` builds the single file and opens it in a headless browser with
+`?selftest`, which parses a known score, parses a hand-built MIDI byte fixture
+(running status, tempo, key, note pairs), checks the timing arithmetic and
+transposition, renders a chord on all 21 instruments and asserts none is silent
+or clipping, renders the demo score offline and asserts it beats real time,
+encodes MP3 and walks the MPEG frame headers to confirm the file really is
+MPEG-1 Layer III at the requested bitrate, and renders real notation and counts
+the glyph paths.
 
-- parses a known score and checks note counts, barlines, tempo and key;
-- parses a hand-built MIDI byte fixture (running status, tempo, key, note pairs);
-- checks the timing arithmetic (tempo changes, half-speed, quarter↔seconds round trip);
-- checks transposition;
-- renders a chord on **all 21 instruments** and asserts none is silent, clipping or
-  producing non-finite samples;
-- renders the demo score offline and asserts it is faster than real time;
-- encodes MP3 and **walks the MPEG frame headers** to confirm the file really is
-  MPEG-1 Layer III at the requested bitrate, with a duration matching the score;
-- renders real notation and counts the SVG glyph paths.
-
-Individual module tests run the same way — pass an absolute `file://` URL to the
-test page:
+A module suite runs the same way, given an absolute `file://` URL:
 
 ```bash
 node tools/cdp.mjs --url "file:///$(pwd)/tests/musicxml-test.html" \
@@ -168,79 +200,17 @@ node tools/cdp.mjs --url "file:///$(pwd)/tests/musicxml-test.html" \
   --eval "document.getElementById('out').textContent"
 ```
 
-In PowerShell use `file:///$PWD/tests/musicxml-test.html`. The four suites are
-`musicxml-test.html` (179 assertions), `smf-test.html` (97),
-`instruments-test.html` (194 checks) and `mscx-test.html`.
+In PowerShell use `file:///$PWD/tests/musicxml-test.html`. `npm run test:suites`
+runs all four at once: `musicxml-test.html` (179 assertions), `smf-test.html`
+(97), `instruments-test.html` (194 checks) and `mscx-test.html` (125). Each
+publishes a `{passed, failed, fatal}` verdict; a suite that publishes none is
+treated as a failure rather than a pass.
 
-The recogniser has its own suite, which needs the Python environment:
+The recogniser suite is separate because it needs the Python environment. It
+rejects any fixture whose declared notes disagree with what was rendered, so a
+broken fixture cannot be blamed on the recogniser.
 
-```bash
-npm run test:omr                                     # all three conditions
-python tools/score_omr.py --write fixtures/accuracy.json   # publish to /api/accuracy
-```
-
-It engraves the fixtures in `fixtures/` to PNG, reads them back, and scores the
-result note for note. A fixture whose declared notes disagree with what was
-actually rendered is rejected rather than scored — the check refuses to blame
-the recogniser for a fixture bug.
-
----
-
-## Reading scans and PDFs (optical music recognition)
-
-Photos and PDFs are transcribed by a small Python service in `backend/`. It runs
-**entirely on the CPU** — ONNX Runtime with every GPU and CoreML execution
-provider switched off — so it needs no graphics card and no CUDA.
-
-```powershell
-python backend/app.py            # http://127.0.0.1:8000
-```
-
-The first run downloads ~37 MB of ONNX model weights. The service also serves
-`ScoreForge.html`, so the simplest workflow is to open
-<http://127.0.0.1:8000/> and work there. Opening `ScoreForge.html` straight off
-disk works too; it just points at `http://127.0.0.1:8000` for scans.
-
-Dropping a scan on the page:
-
-1. decodes it (honouring EXIF rotation) or rasterises each PDF page,
-2. builds several candidate renderings — plain, contrast-lifted, deskewed, and
-   both — and reads each one,
-3. keeps the version that produced the most notes, and
-4. parses the resulting MusicXML into an ordinary score.
-
-The **Transcription** panel shows the page the recogniser was given next to what
-it read, which page was best, and how long each attempt took, so the result is
-checkable against the original rather than something to take on faith.
-
-### Measured accuracy
-
-`tools/score_omr.py` engraves known MusicXML to PNG, reads it back through the
-recogniser, and compares note for note against what was printed:
-
-| Condition | Notes | Precision | Recall | F1 |
-|---|---|---|---|---|
-| Printed score | 75 | 100.0% | 100.0% | **100.0%** |
-| Phone photo (1.4° tilt, uneven lighting, noise, JPEG 62) | 75 | 100.0% | 100.0% | **100.0%** |
-| Photocopy scan (low contrast, blur, adaptive threshold) | 75 | 100.0% | 100.0% | **100.0%** |
-
-Roughly **0.9 s per page** on the CPU. Duration accuracy is 100% on printed and
-photographed scores, and 96% on photocopies. Reproduce it with:
-
-```powershell
-python tools/score_omr.py --write fixtures/accuracy.json
-```
-
-The page displays these numbers, read back from the service.
-
-**What this does not cover.** The fixtures are engraved music, including
-synthetically degraded images. Handwriting, curved book pages, very low contrast
-and dense polyphony are harder and are not represented. Read the result against
-your scan. The recogniser also reports a time signature from the bar lines it
-can see, so a page engraved without interior barlines may come back as one long
-bar rather than the usual 4/4.
-
----
+CI runs the build and both test layers on every push and pull request.
 
 ## Third-party components
 
@@ -252,33 +222,28 @@ Bundled into `ScoreForge.html`:
 | lamejs 1.2.1 (MP3 encoder) | LGPL-3.0 |
 | fflate 0.8 (zip) | MIT |
 
-Installed into `backend/.venv`, **not** bundled into the page:
+Installed into `backend/.venv`, not bundled into the page:
 
 | Component | Licence |
 |---|---|
-| [homr](https://github.com/liebharc/homr) 0.7.0 (recognition) | **AGPL-3.0** |
+| [homr](https://github.com/liebharc/homr) 0.7.0 | AGPL-3.0 |
 | onnxruntime 1.30 | MIT |
 | rapidocr (title detection) | Apache-2.0 |
 | opencv-python-headless 5.0 | Apache-2.0 |
 | pypdfium2 5.14 | Apache-2.0 / PDFium (BSD-3) |
 
-> **Licence note.** homr is AGPL-3.0, unlike the MIT-licensed alternative
-> `oemer`. That is fine for a service you run yourself on your own machine, but
-> if you ever expose this backend to other users over a network, AGPL obligations
-> attach to the service. The bundled page itself stays MIT/LGPL as above.
+homr is AGPL-3.0. That is fine for a service you run on your own machine. If you
+expose the backend to other users over a network, the AGPL terms reach it. The
+page itself stays MIT/LGPL either way, since it never links against homr.
 
-Music glyphs are drawn as vector paths from VexFlow's built-in font data, so no
-webfont is downloaded at runtime.
-
----
+Music glyphs are vector paths from VexFlow's built-in font data, so no webfont
+is fetched at runtime.
 
 ## Limitations
 
-- **Scans need the Python backend.** Without it they are reference-only. MusicXML,
-  MuseScore and MIDI never need it.
-- Optical music recognition reads engraved music well; see *Measured accuracy*
-  for what that does and does not cover. It is not a handwriting reader.
-- No MIDI-from-audio, no audio-to-score.
-- Playback and export use the same code path, but `OfflineAudioContext` output is
+- Scans need the Python service. MusicXML, MuseScore and MIDI never do.
+- The recogniser reads engraved music. It is not a handwriting reader.
+- No MIDI from audio.
+- Playback and export share a code path, but `OfflineAudioContext` output is
   bit-identical only because "humanise" is forced off for renders.
-- Very long scores render in the notation view progressively as you scroll.
+- Very long scores render the notation view progressively as you scroll.
