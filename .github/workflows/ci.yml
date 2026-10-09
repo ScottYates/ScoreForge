@@ -36,6 +36,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # Build again on the oldest Node we claim to support. The build only used
+      # to work on 20.11+ (import.meta.dirname) and CI never noticed, because CI
+      # only ever ran one version. Engines says >=18, so prove it here.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - name: Build on the oldest supported Node (18)
+        run: npm run build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - name: Artifact exists and is self-contained
         run: |
           test -f ScoreForge.html

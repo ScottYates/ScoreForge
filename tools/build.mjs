@@ -10,8 +10,10 @@
 import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(import.meta.dirname, '..');
+// import.meta.dirname needs Node 20.11; from the module URL it works on 18 too.
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dev = process.argv.includes('--dev');
 const outFile = path.join(root, 'ScoreForge.html');
 

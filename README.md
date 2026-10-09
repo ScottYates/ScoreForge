@@ -135,6 +135,12 @@ Needs Python 3.12 to 3.15. Everything else comes from pip. No GPU, no CUDA.
 See [Python](#python) below for the version this needs and what the installer
 does about it.
 
+Node is needed only to build the single file, and any Node from 18 works. The
+browser-driven checks (`npm test`, `npm run test:suites`) additionally need
+Node 22, because the harness talks to Chrome over the global `WebSocket` — if you
+are on 18, the build succeeds and the tests explain themselves rather than
+throwing.
+
 ```bash
 git clone https://github.com/ScottYates/ScoreForge.git
 cd ScoreForge

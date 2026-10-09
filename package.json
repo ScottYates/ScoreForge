@@ -5,14 +5,17 @@
   "type": "module",
   "description": "Turn uploaded sheet music (MusicXML / MIDI / MuseScore / scanned photos and PDFs) into a rendered MP3. Scoring and audio run in the browser; optical music recognition runs in a local Python service on the CPU.",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "node tools/build.mjs",
     "dev": "node tools/build.mjs --dev",
     "test": "node tools/verify.mjs",
     "test:suites": "node tools/run-suites.mjs",
-    "serve": "backend\\.venv\\Scripts\\python.exe backend/app.py",
+    "serve": "python backend/app.py",
     "fixtures": "node tools/make-fixtures.mjs",
-    "test:omr": "backend\\.venv\\Scripts\\python.exe tools/score_omr.py"
+    "test:omr": "python tools/score_omr.py"
   },
   "dependencies": {
     "fflate": "^0.8.3",

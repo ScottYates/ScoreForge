@@ -8,8 +8,10 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(import.meta.dirname, '..');
+// import.meta.dirname needs Node 20.11; from the module URL it works on 18 too.
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const file = path.join(root, 'ScoreForge.html');
 const url = 'file:///' + file.replace(/\\/g, '/');
 

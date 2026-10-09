@@ -23,6 +23,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
+// Talking to Chrome uses the global WebSocket, which Node only gained in 22.
+// The build runs on Node 18; these browser-driven checks do not.
+if (typeof WebSocket === 'undefined') {
+  console.error(
+    'tools/cdp.mjs needs Node 22 or newer: the global WebSocket it uses to reach\n' +
+    'Chrome is not defined here. Building with `npm run build` works on Node 18.'
+  );
+  process.exit(2);
+}
+
 function arg(name, def = null) {
   const i = process.argv.indexOf('--' + name);
   return i === -1 ? def : (process.argv[i + 1] ?? true);
