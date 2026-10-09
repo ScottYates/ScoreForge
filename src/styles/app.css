@@ -449,15 +449,36 @@ button, input, select, textarea { font: inherit; color: inherit; }
   padding: 22px;
   max-width: 1180px;
 }
+/*
+ * OSMD paints onto a transparent SVG, so both the page colour and the ink are
+ * ours to set -- it inherits neither from the dark UI around it. VexFlow emits
+ * noteheads, stems, staff lines and glyph text across a handful of elements
+ * with their own fills, so the override is deliberately broad and relies on
+ * currentColor rather than naming each shape. The playback cursor is put back
+ * afterwards: it is the one element that has to stay visible on white.
+ */
 .paper {
-  background: var(--paper);
+  --paper-ink: #14161c;
+  background: #ffffff;
+  color: var(--paper-ink);
   border-radius: var(--r);
-  box-shadow: var(--shadow-3), 0 0 0 1px rgba(255,255,255,.06);
+  box-shadow: var(--shadow-3), 0 0 0 1px var(--line);
   padding: 6px 10px 18px;
   min-height: 60vh;
 }
-.paper svg { display: block; width: 100%; height: auto; overflow: visible; }
+.paper svg { display: block; width: 100%; height: auto; overflow: visible; color: var(--paper-ink); }
 .paper .vf-* { shape-rendering: geometricPrecision; }
+.paper svg path,
+.paper svg circle,
+.paper svg ellipse,
+.paper svg text,
+.paper svg tspan,
+.paper svg use { fill: currentColor; stroke: currentColor; }
+.paper svg rect { fill: currentColor; }
+/* The cursor is a filled bar drawn over the staff; darkening it would hide
+   the one thing that shows where playback is. */
+.paper svg #vf-autoGen path,
+.paper svg #vf-autoGen rect { fill: #2f6df6; stroke: #2f6df6; }
 
 /* placeholder */
 .stage-empty {
