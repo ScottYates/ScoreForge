@@ -30,25 +30,37 @@ function explicitBase() {
 }
 
 /**
+ * The base the user has pinned, or null when discovery is automatic.
+ *
+ * This is what the settings panel edits. Reading it through here rather than
+ * from localStorage keeps the storage key in one place.
+ */
+export function configuredBase() {
+  try {
+    const saved = localStorage.getItem('scoreforge.omrBase');
+    return saved ? saved.replace(/\/+$/, '') : null;
+  } catch {
+    /* storage can be blocked entirely; automatic discovery still works */
+    return null;
+  }
+}
+
+/**
  * Where the backend might be, most likely first.
  *
- * `?api=` wins outright. Otherwise, over http we try same-origin, because that
- * is the case where the backend serves the page too. If the page came from
- * somewhere else -- a plain `python -m http.server`, say -- we fall back to the
- * loopback port the backend listens on. Under file:// there is only the
- * loopback option.
+ * `?api=` wins outright -- it is the per-URL override. Then a base pinned in
+ * the settings panel. Then, over http, same-origin, because that is the case
+ * where the backend serves the page too. If the page came from somewhere else
+ * -- a plain `python -m http.server`, say -- we fall back to the loopback port
+ * the backend listens on. Under file:// there is only the loopback option.
  */
 function candidateBases() {
   const explicit = explicitBase();
   if (explicit) return [explicit];
+  const pinned = configuredBase();
+  if (pinned) return [pinned];
   const bases = [];
   if (location.protocol === 'http:' || location.protocol === 'https:') bases.push('');
-  try {
-    const saved = localStorage.getItem('scoreforge.omrBase');
-    if (saved) bases.push(saved.replace(/\/+$/, ''));
-  } catch {
-    /* storage can be blocked entirely; the defaults below still work */
-  }
   bases.push(DEFAULT_BASE);
   return bases;
 }
@@ -61,13 +73,20 @@ export function resolveBase() {
   return activeBase !== null ? activeBase : candidateBases()[0];
 }
 
+/**
+ * Pin the backend the settings panel edits, or clear the pin to go back to
+ * automatic discovery. An empty or blank value clears it.
+ *
+ * The cached status is dropped and the new address probed immediately, so the
+ * caller gets the health of what was just set rather than the previous answer.
+ */
 export function setBase(url) {
   const clean = String(url || '').trim().replace(/\/+$/, '');
   if (clean) localStorage.setItem('scoreforge.omrBase', clean);
   else localStorage.removeItem('scoreforge.omrBase');
   healthCache = null;
   activeBase = null;
-  probeHealth(true);
+  return probeHealth(true);
 }
 
 /* ------------------------------------------------------------------ status */

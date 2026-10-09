@@ -10,7 +10,7 @@
 
 import { resolveScore, describeScore, keyNameFromFifths } from '../score/model.js';
 import { readScoreFiles } from '../io/files.js';
-import { backendHealth, describePage, resolveBase, probeHealth } from '../io/omr.js';
+import { backendHealth, describePage, resolveBase, probeHealth, setBase, configuredBase } from '../io/omr.js';
 import { INSTRUMENTS } from '../audio/instruments.js';
 import { instrumentForProgram, instrumentForName } from '../audio/gm.js';
 import { Engine } from '../audio/engine.js';
@@ -77,6 +77,8 @@ export class App {
       libList: $('#libList'), fileInput: $('#fileInput'),
       refSec: $('#refSec'), refCard: $('#refCard'), refHint: $('#refHint'),
       omrSec: $('#omrSec'), omrCard: $('#omrCard'), omrBadge: $('#omrBadge'),
+      inpOmrBase: $('#inpOmrBase'), btnOmrUse: $('#btnOmrUse'), btnOmrAuto: $('#btnOmrAuto'),
+      omrStatus: $('#omrStatus'), omrBaseHint: $('#omrBaseHint'),
       busyBar: $('#busyBar'), dropHint: $('#dropHint'), fmtScan: $('#fmtScan'),
       paper: $('#paper'), paperWrap: $('#paperWrap'), rollWrap: $('#rollWrap'),
       rollCanvas: $('#rollCanvas'), stageEmpty: $('#stageEmpty'), stageBody: $('#stageBody'),
@@ -130,6 +132,17 @@ export class App {
 
   _wire() {
     const d = this.dom;
+
+    if (d.inpOmrBase) {
+      d.inpOmrBase.value = configuredBase() || '';
+      d.inpOmrBase.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        this._applyBase(d.inpOmrBase.value);
+      });
+    }
+    if (d.btnOmrUse) d.btnOmrUse.addEventListener('click', () => this._applyBase(d.inpOmrBase.value));
+    if (d.btnOmrAuto) d.btnOmrAuto.addEventListener('click', () => this._applyBase(''));
 
     this._probeBackend();
 
@@ -338,7 +351,25 @@ export class App {
    * reference. Probing is one request and never blocks startup.
    */
   async _probeBackend() {
-    const health = await probeHealth(true);
+    this._paintBackend(await probeHealth(true));
+  }
+
+  /**
+   * Pin the recognition backend, or clear the pin and go back to discovery.
+   * The input is updated here rather than in the paint, so a probe that lands
+   * mid-edit cannot overwrite what the user is typing.
+   */
+  async _applyBase(value) {
+    const clean = String(value || '').trim().replace(/\/+$/, '');
+    if (this.dom.inpOmrBase) this.dom.inpOmrBase.value = clean;
+    this._paintBackend(await setBase(clean));
+  }
+
+  /**
+   * Repaint everything that depends on the backend's state: the header badge,
+   * the file-type help, and the recognition service panel.
+   */
+  _paintBackend(health) {
     const badge = this.dom.omrBadge;
     const fmt = this.dom.fmtScan;
     const hint = this.dom.dropHint;
@@ -367,7 +398,68 @@ export class App {
           'Photos and PDFs are attached as reference images, because no recognition service is running.';
       }
     }
+    this._paintBasePanel(health);
     this._loadAccuracy(health);
+  }
+
+  /**
+   * The settings panel's own status line and hint.
+   *
+   * The mode matters as much as the reachability: a base pinned in the panel
+   * and a base forced by `?api=` behave identically to everything downstream,
+   * but the user needs to know which one they are looking at before changing
+   * the field has any effect.
+   */
+  _paintBasePanel(health) {
+    const status = this.dom.omrStatus;
+    const note = this.dom.omrBaseHint;
+    if (!status && !note) return;
+
+    const pinned = configuredBase();
+    let link = null;
+    try {
+      link = new URLSearchParams(location.search).get('api');
+    } catch { /* the field still works without it */ }
+
+    // Same precedence as candidateBases(): the link override wins over the pin,
+    // so the label must lead with the link or it names the wrong source.
+    const mode = link
+      ? `Set by this link (${link.replace(/\/+$/, '')})`
+      : pinned
+        ? `Pinned to ${pinned}`
+        : 'Automatic';
+
+    const answering = health.base || location.origin;
+    let label;
+    let detail;
+    let tone;
+
+    if (health.reachable && health.ok) {
+      label = 'ready';
+      detail = `${mode} · answering at ${answering}`;
+      tone = 'ok';
+    } else if (health.reachable) {
+      label = 'not ready';
+      detail = `${mode} · ${answering} is up but the engine is still warming up` +
+        (health.error ? `: ${health.error}` : '');
+      tone = 'bad';
+    } else {
+      label = 'not running';
+      const tried = (health.tried || []).map((t) => t.base).filter(Boolean);
+      detail = `${mode} · nothing answered at ${tried.length ? tried.join(' or ') : answering}`;
+      tone = 'bad';
+    }
+
+    if (status) {
+      status.textContent = label;
+      status.title = health.reachable && health.ok
+        ? `${health.engine} ${health.version} — ${health.notes}`
+        : health.error || detail;
+    }
+    if (note) {
+      note.textContent = detail;
+      note.className = `hint ${tone}`;
+    }
   }
 
   async _loadAccuracy(health) {

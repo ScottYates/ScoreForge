@@ -202,6 +202,19 @@
       </div>
       <label class="check"><input type="checkbox" id="chkNormalize" checked><span class="box"><svg><use href="#i-check"/></svg></span>Normalise to −1 dBFS</label>
     </section>
+
+    <section class="sec">
+      <div class="sec-head"><span class="sec-title">Recognition service</span></div>
+      <div class="field">
+        <label>Backend <span class="v" id="omrStatus">checking…</span></label>
+        <input type="text" id="inpOmrBase" placeholder="http://127.0.0.1:8000" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="btn-row">
+        <button class="btn sm" id="btnOmrUse">Use this</button>
+        <button class="btn sm ghost" id="btnOmrAuto">Automatic</button>
+      </div>
+      <p class="hint" id="omrBaseHint">Automatic tries this page first, then 127.0.0.1:8000.</p>
+    </section>
   </aside>
 
   <!-- -------------------------------------------------------- transport -->

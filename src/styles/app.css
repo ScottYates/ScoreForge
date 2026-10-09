@@ -855,6 +855,20 @@ input[type="range"]::-moz-range-thumb {
 }
 .fmt b { color: var(--ink); font-weight: 600; }
 
+/* --- recognition service panel (inspector) --- */
+.btn-row { display: flex; gap: 6px; }
+.btn-row .btn { flex: 1; justify-content: center; }
+.hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-3);
+  word-break: break-word;
+}
+.hint.on { color: var(--ink-2); }
+.hint.ok  { color: var(--green); }
+.hint.bad { color: var(--amber); }
+
 /* ---------------------------------------------------------------- toasts */
 
 .toasts {
