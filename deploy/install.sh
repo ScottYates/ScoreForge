@@ -184,6 +184,24 @@ install -m 0644 "$REPO/index.html" "$PREFIX/index.html"
 # The web service's document root. Only the built page goes in here, so serving
 # this directory cannot leak the backend source or the fixtures.
 install -m 0644 "$REPO/index.html" "$WEB_ROOT/index.html"
+# The recorded-instrument pack. Both roots need it: the backend serves it from
+# its own /pack route, and if the page is served by the web service instead then
+# same-origin pack/ has to exist there. Skipped with a warning when absent, so a
+# source checkout without the pack still installs -- the sampled instruments
+# then fall back to their modelled equivalents.
+if [ -d "$REPO/pack" ] && [ -f "$REPO/pack/manifest.json" ]; then
+    install -d -m 0755 "$PREFIX/pack" "$WEB_ROOT/pack"
+    # Copy the tree, do not flatten it: manifest.json names each sample by its
+    # subdirectory ("gpiano/060-0.mp3"), so a flat copy would fetch 404 for
+    # every one of them.
+    cp -R "$REPO/pack/." "$PREFIX/pack/"
+    cp -R "$REPO/pack/." "$WEB_ROOT/pack/"
+    find "$PREFIX/pack" "$WEB_ROOT/pack" -type f -exec chmod 0644 {} +
+    find "$PREFIX/pack" "$WEB_ROOT/pack" -type d -exec chmod 0755 {} +
+    say "Installed the recorded-instrument pack ($(find "$REPO/pack" -type f | wc -l | tr -d ' ') files)"
+else
+    warn "no pack/ directory -- the recorded instruments will fall back to the synthesiser"
+fi
 for f in app.py omr_engine.py preprocess.py requirements.txt; do
     install -m 0644 "$REPO/backend/$f" "$PREFIX/backend/$f"
 done

@@ -12,6 +12,7 @@ import { resolveScore, describeScore, keyNameFromFifths } from '../score/model.j
 import { readScoreFiles } from '../io/files.js';
 import { backendHealth, describePage, resolveBase, probeHealth, setBase, configuredBase } from '../io/omr.js';
 import { INSTRUMENTS, createInstrument } from '../audio/instruments.js';
+import { packState } from '../audio/sampler.js';
 import { instrumentForProgram, instrumentForName } from '../audio/gm.js';
 import { Engine } from '../audio/engine.js';
 import { AudioBus, Meter, ROOMS, linToDb } from '../audio/fx.js';
@@ -79,7 +80,7 @@ export class App {
       refSec: $('#refSec'), refCard: $('#refCard'), refHint: $('#refHint'),
       omrSec: $('#omrSec'), omrCard: $('#omrCard'), omrBadge: $('#omrBadge'),
       inpOmrBase: $('#inpOmrBase'), btnOmrUse: $('#btnOmrUse'), btnOmrAuto: $('#btnOmrAuto'),
-      omrStatus: $('#omrStatus'), omrBaseHint: $('#omrBaseHint'),
+      omrStatus: $('#omrStatus'), omrBaseHint: $('#omrBaseHint'), packStatus: $('#packStatus'),
       busyBar: $('#busyBar'), dropHint: $('#dropHint'), fmtScan: $('#fmtScan'),
       paper: $('#paper'), paperWrap: $('#paperWrap'), rollWrap: $('#rollWrap'),
       rollCanvas: $('#rollCanvas'), stageEmpty: $('#stageEmpty'), stageBody: $('#stageBody'),
@@ -409,6 +410,41 @@ export class App {
     }
     this._paintBasePanel(health);
     this._loadAccuracy(health);
+  }
+
+  /**
+   * Where the recorded-instrument pack has got to.
+   *
+   * This is worth showing because the two states look identical from the
+   * instrument list: a recorded instrument chosen before its pack is ready
+   * quietly plays the modelled one instead, and without this the user would
+   * pick "Concert Grand (recorded)" and hear the synthesiser.
+   */
+  _paintPackProgress(p) {
+    const el = this.dom.packStatus;
+    if (!el) return;
+    const s = packState();
+    const pct = p ? Math.round((p.done / Math.max(1, p.total)) * 100) : Math.round(s.progress * 100);
+
+    let text, tone;
+    if (s.state === 'ready') {
+      text = `recorded instruments ready — ${s.loaded.length} instruments`;
+      tone = 'ok';
+    } else if (s.state === 'loading') {
+      text = `loading recorded instruments — ${pct}%`;
+      tone = '';
+    } else if (s.state === 'unavailable') {
+      text = 'recorded instruments need this page to be served over http, not opened as a file';
+      tone = 'warn';
+    } else if (s.state === 'failed') {
+      text = `recorded instruments unavailable — ${s.error || 'the pack could not be fetched'}`;
+      tone = 'bad';
+    } else {
+      text = 'recorded instruments not loaded';
+      tone = '';
+    }
+    el.textContent = text;
+    el.className = `hint ${tone}`.trim();
   }
 
   /**

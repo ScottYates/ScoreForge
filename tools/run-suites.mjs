@@ -29,7 +29,7 @@ if (typeof WebSocket === 'undefined') {
   process.exit(2);
 }
 
-const ALL = ['musicxml-test', 'smf-test', 'instruments-test', 'mscx-test', 'omr-test'];
+const ALL = ['musicxml-test', 'smf-test', 'instruments-test', 'mscx-test', 'omr-test', 'sampler-test'];
 const suites = process.argv.slice(2).length ? process.argv.slice(2) : ALL;
 
 function fileUrl(abs) {

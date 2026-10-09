@@ -15,6 +15,8 @@
     "test:suites": "node tools/run-suites.mjs",
     "serve": "python backend/app.py",
     "fixtures": "node tools/make-fixtures.mjs",
+    "pack": "node tools/make-pack.mjs",
+    "pack:check": "node tools/check-sampler-audio.mjs",
     "test:omr": "python tools/score_omr.py"
   },
   "dependencies": {

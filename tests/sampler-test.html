@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sampler tests</title>
+<style>
+  body { background:#111; color:#ddd; font:12px ui-monospace,Consolas,monospace; margin:0; padding:12px; }
+  #out { white-space:pre-wrap; }
+  .pass { color:#7fd18a; }
+  .fail { color:#ff6b6b; font-weight:bold; }
+  h2 { color:#8ab4f8; font-size:13px; margin:14px 0 4px; }
+</style>
+</head>
+<body>
+<div id="out">running.</div>
+
+<!--
+  The assertion that matters here is "a single note produces audible output".
+
+  An earlier attempt at recorded instruments fetched each sample inside noteOn
+  and started the source from the decode callback. Every fetch returned 200,
+  every decode succeeded, the transport advanced -- and nothing was audible,
+  because the note's start time had passed before the source node existed.
+
+  This suite is mutation-checked against exactly that: deleting the
+  `v.start(when)` call in sampler.js turns it red. It may surface as an
+  InvalidStateError from Web Audio rather than as a zero peak, because the
+  platform refuses `stop()` on a source that was never started. Either way the
+  run fails; the point is that silence cannot pass here.
+-->
+<script type="module">
+import {
+  createSampledInstrument, findOnset, __setPack, __clearPacks, hasPack,
+} from '../src/js/audio/sampler.js';
+
+/* ===================================================== assertion harness === */
+
+const lines = [];
+let pass = 0, fail = 0;
+const failures = [];
+const out = document.getElementById('out');
+
+function head(t) { lines.push('', '== ' + t + ' ' + '='.repeat(Math.max(0, 56 - t.length))); }
+function line(text, cls) { lines.push(cls ? `<span class="${cls}">${text}</span>` : text); }
+function ok(name, cond, detail = '') {
+  if (cond) { pass++; line(`  PASS  ${name}`); }
+  else { fail++; failures.push(name); line(`  FAIL  ${name}${detail ? '  - ' + detail : ''}`, 'fail'); }
+}
+function near(name, actual, expected, tol) {
+  const good = Number.isFinite(actual) && Math.abs(actual - expected) <= tol;
+  ok(name, good, `expected ${expected} +/- ${tol}, got ${actual}`);
+}
+
+/* ================================================================= fixtures */
+
+/**
+ * A buffer shaped like a real pack file: MARKER samples of digital silence,
+ * then a decaying tone -- and then, deliberately, MORE silence at the front to
+ * stand in for a codec that did not strip its encoder delay. findOnset has to
+ * find the sound past both.
+ */
+const SR = 44100;
+const MARKER = 1024;
+const FAKE_DELAY = 1105;
+
+function fakeBuffer(ctx, { freq = 440, seconds = 0.5, decay = 6, markerDelay = FAKE_DELAY } = {}) {
+  const n = markerDelay + MARKER + Math.round(seconds * SR);
+  const buf = ctx.createBuffer(1, n, SR);
+  const d = buf.getChannelData(0);
+  const start = markerDelay + MARKER;
+  for (let i = start; i < n; i++) {
+    const t = (i - start) / SR;
+    d[i] = Math.sin(2 * Math.PI * freq * t) * Math.exp(-decay * t);
+  }
+  return buf;
+}
+
+/** A one-instrument pack with two round-robin takes per key. */
+function installPack(ctx, opts = {}) {
+  const buffers = {};
+  const notes = {};
+  const markerDelay = opts.markerDelay ?? FAKE_DELAY;
+  for (const midi of [60, 64, 67, 72]) {
+    notes[midi] = {
+      rate: 1,
+      hits: [0, 1].map((v) => {
+        const file = `t/${midi}-${v}.mp3`;
+        buffers[file] = fakeBuffer(ctx, {
+          freq: 440 * Math.pow(2, (midi - 69) / 12) * (v ? 1.002 : 1),
+          markerDelay,
+          ...opts.hit,
+        });
+        return { f: file, g: 1, dur: opts.dur ?? 0.5, loop: opts.loop || null };
+      }),
+    };
+  }
+  return __setPack({
+    id: 'testkit', name: 'Test Kit', lo: 60, hi: 72,
+    sustains: !!opts.loop, notes, buffers,
+  });
+}
+
+/** Render offline and hand back the peak plus where the sound actually began. */
+async function render(ctx, seconds, play) {
+  const off = new OfflineAudioContext(1, Math.ceil(ctx.sampleRate * seconds), ctx.sampleRate);
+  const inst = createSampledInstrument('testkit', off, off.destination);
+  play(inst, off);
+  const buf = await off.startRendering();
+  const d = buf.getChannelData(0);
+
+  let peak = 0;
+  let onset = -1;
+  const win = Math.max(1, Math.round(buf.sampleRate * 0.0015));
+  for (let i = 0; i < d.length; i++) {
+    const a = Math.abs(d[i]);
+    if (a > peak) peak = a;
+  }
+  // Onset by the same 1.5 ms window rule the pack uses, so the test measures
+  // the property the sampler actually depends on.
+  const thr = peak * 0.02;
+  for (let w = 0; w + win <= d.length; w += win) {
+    let s = 0;
+    for (let i = w; i < w + win; i++) s += d[i] * d[i];
+    if (Math.sqrt(s / win) > thr) { onset = w / buf.sampleRate; break; }
+  }
+  return { peak, onset, buf, d, inst };
+}
+
+const ctx = new OfflineAudioContext(1, 128, SR);
+
+/* =============================================== the guard against silence == */
+
+try {
+  __clearPacks();
+
+  head('an unloaded pack must be refused, not faked');
+
+  let threw = null;
+  try { createSampledInstrument('testkit', ctx, ctx.destination); } catch (e) { threw = e; }
+  ok('createSampledInstrument throws when the pack is not loaded', !!threw, String(threw && threw.message));
+  ok('the refusal names the pack and its state',
+    !!threw && /testkit/.test(threw.message) && /not loaded/.test(threw.message),
+    threw && threw.message);
+  ok('hasPack is false before loading', !hasPack('testkit'));
+
+  /* ================================================================ onset == */
+
+  head('measuring where the sound really starts');
+
+  {
+    const buf = fakeBuffer(ctx, { markerDelay: 1105 });
+    const at = findOnset(buf);
+    near('onset skips the marker and the codec delay', at, (1105 + MARKER) / SR, 0.004);
+    ok('a silent buffer reports no offset rather than a wrong one', findOnset(ctx.createBuffer(1, 4096, SR)) === 0);
+
+    const delayed = fakeBuffer(ctx, { markerDelay: 4000 });
+    near('a bigger codec delay is found too', findOnset(delayed), (4000 + MARKER) / SR, 0.004);
+  }
+
+  /* =============================================== it actually makes a sound */
+
+  head('the note makes sound -- and at the right time');
+
+  installPack(ctx);
+  ok('hasPack is true once installed', hasPack('testkit'));
+
+  {
+    const WHEN = 0.25;
+    const r = await render(ctx, 1.0, (inst, off) => {
+      inst.noteOn({ midi: 60, velocity: 0.9, when: WHEN, duration: 0.4 });
+    });
+    // This is the assertion the first attempt at this feature would have
+    // failed: everything reported success and the output was silence.
+    ok('a single note produces audible output', r.peak > 0.02, `peak ${r.peak.toFixed(5)}`);
+    near('the attack starts when it was scheduled', r.onset, WHEN, 0.006);
+    ok('nothing sounds before the note', r.d[Math.floor(WHEN * SR * 0.5)] === 0);
+  }
+
+  {
+    const WHEN = 0.1;
+    const r = await render(ctx, 1.2, (inst) => {
+      [60, 64, 67].forEach((m, i) => inst.noteOn({ midi: m, velocity: 0.8, when: WHEN + i * 0.01, duration: 0.6 }));
+    });
+    ok('a triad renders louder than a single note would', r.peak > 0.05, `peak ${r.peak.toFixed(5)}`);
+  }
+
+  /* ============================================================== velocity */
+
+  head('velocity and pitch');
+
+  {
+    const soft = await render(ctx, 0.8, (inst) => inst.noteOn({ midi: 60, velocity: 0.2, when: 0.05, duration: 0.4 }));
+    const hard = await render(ctx, 0.8, (inst) => inst.noteOn({ midi: 60, velocity: 1.0, when: 0.05, duration: 0.4 }));
+    ok('a harder note is louder', hard.peak > soft.peak * 1.5,
+      `${hard.peak.toFixed(4)} vs ${soft.peak.toFixed(4)}`);
+  }
+
+  {
+    // Zero-crossing count over the tail gives the dominant frequency without
+    // needing an FFT, and a wrong playbackRate is exactly what would break it.
+    const freqOf = (d, sr, fromSec = 0.1, toSec = 0.35) => {
+      let crossings = 0;
+      let prev = 0;
+      const a = Math.floor(fromSec * sr), b = Math.min(d.length, Math.floor(toSec * sr));
+      for (let i = a; i < b; i++) {
+        if ((d[i - 1] <= 0 && d[i] > 0) || (d[i - 1] >= 0 && d[i] < 0)) { if (i - 1 > a) crossings++; }
+        prev = d[i];
+      }
+      void prev;
+      return crossings / 2 / (toSec - fromSec);
+    };
+    installPack(ctx);
+    const a = await render(ctx, 0.8, (inst) => inst.noteOn({ midi: 60, velocity: 0.9, when: 0.02, duration: 0.5 }));
+    // MIDI 60 is middle C, 261.6 Hz. Getting this wrong once already: a
+    // fixture that "should" be A4 would pass while the pitch shift was broken.
+    near('midi 60 sounds at middle C', freqOf(a.d, SR), 261.63, 12);
+
+    // midi 63 is not in the pack; it must fall back to the nearest key rather
+    // than going quiet or throwing.
+    const b = await render(ctx, 0.8, (inst) => inst.noteOn({ midi: 63, velocity: 0.9, when: 0.02, duration: 0.5 }));
+    ok('a pitch with no sample falls back to a neighbour instead of silence',
+      b.peak > 0.02, `peak ${b.peak.toFixed(5)}`);
+  }
+
+  /* ========================================================== round robin == */
+
+  head('round robin');
+
+  {
+    let first = null, second = null;
+    const seen = [];
+    const r = await render(ctx, 1.0, (inst) => {
+      for (let i = 0; i < 4; i++) {
+        const h = inst.noteOn({ midi: 72, velocity: 0.7, when: 0.02 + i * 0.1, duration: 0.05 });
+        seen.push(h && h.generation);
+        first = h; second = h;
+      }
+    });
+    ok('four strikes on one key all produce a handle', seen.every((g) => g != null), JSON.stringify(seen));
+    ok('each strike is a fresh voice', new Set(seen).size === 4, JSON.stringify(seen));
+    ok('and the repeat still makes sound', r.peak > 0.02, `peak ${r.peak.toFixed(5)}`);
+  }
+
+  /* =============================================================== release == */
+
+  head('note off');
+
+  {
+    const WHEN = 0.05, OFF = 0.15;
+    const r = await render(ctx, 0.6, (inst, off2) => {
+      const h = inst.noteOn({ midi: 60, velocity: 0.9, when: WHEN, duration: 2 });
+      inst.noteOff(h, OFF);
+    });
+    const sr = r.buf.sampleRate;
+    let after = 0;
+    for (let i = Math.floor((OFF + 0.2) * sr); i < r.d.length; i++) after = Math.max(after, Math.abs(r.d[i]));
+    ok('the tail is silent after the key is up', after < 1e-4, `residual ${after.toFixed(6)}`);
+  }
+
+  {
+    const r = await render(ctx, 0.6, (inst) => {
+      const h = inst.noteOn({ midi: 60, velocity: 0.9, when: 0.05, duration: 2 });
+      inst.noteOff(h, 0.02); // a release *before* the note began
+    });
+    ok('a release earlier than the note does not silence it', r.peak > 0.02, `peak ${r.peak.toFixed(5)}`);
+  }
+
+  /* ================================================================= looping */
+
+  head('holding a note longer than the sample');
+
+  {
+    // 0.5 s of sample, held for 1.5 s. Without looping the note would be gone
+    // after half a second; the tail proves whether it kept going.
+    installPack(ctx, { loop: [0.2, 0.45], hit: { seconds: 0.5 } });
+    const dur = 0.5;
+    const r = await render(ctx, 2.0, (inst) => {
+      inst.noteOn({ midi: 60, velocity: 0.9, when: 0.02, duration: 1.5 });
+    });
+    const sr = r.buf.sampleRate;
+    const tailPeak = (from, to) => {
+      let p = 0;
+      for (let i = Math.floor(from * sr); i < Math.floor(to * sr); i++) p = Math.max(p, Math.abs(r.d[i]));
+      return p;
+    };
+    const early = tailPeak(0.05, 0.2);
+    const late = tailPeak(dur + 0.3, dur + 0.9);
+    ok('a held note is still sounding after the sample has passed', late > 0.01,
+      `late peak ${late.toFixed(5)} vs early ${early.toFixed(5)}`);
+  }
+
+  {
+    // The same note, released: the loop must stop with the key.
+    const dur = 0.5;
+    const r = await render(ctx, 2.0, (inst) => {
+      const h = inst.noteOn({ midi: 60, velocity: 0.9, when: 0.02, duration: 3 });
+      inst.noteOff(h, 0.2);
+    });
+    const sr = r.buf.sampleRate;
+    let after = 0;
+    for (let i = Math.floor(0.5 * sr); i < r.d.length; i++) after = Math.max(after, Math.abs(r.d[i]));
+    ok('releasing a looping note actually stops it', after < 1e-4, `residual ${after.toFixed(6)}`);
+  }
+
+  {
+    // noteOff scheduled *before* the note sounds, which is what the transport
+    // does every time it runs ahead of the clock. Clearing src.loop at that
+    // point applies from the first sample and the note never sustains.
+    const dur = 0.5;
+    let handle = null;
+    const r = await render(ctx, 2.0, (inst) => {
+      handle = inst.noteOn({ midi: 60, velocity: 0.9, when: 0.05, duration: 2 });
+      inst.noteOff(handle, 1.2); // far in the future, called before any audio renders
+    });
+    ok('a release scheduled ahead of the note leaves it looping', handle.voice.looping === true,
+      `looping=${handle.voice.looping}`);
+    const sr = r.buf.sampleRate;
+    const beforeEnd = (() => {
+      let p = 0;
+      for (let i = Math.floor((dur + 0.05) * sr); i < Math.floor((dur + 0.3) * sr); i++) {
+        p = Math.max(p, Math.abs(r.d[i]));
+      }
+      return p;
+    })();
+    ok('and it really does keep sounding past the end of the take', beforeEnd > 0.01,
+      `peak after the take ended: ${beforeEnd.toFixed(5)}`);
+    let after = 0;
+    for (let i = Math.floor(1.6 * sr); i < r.d.length; i++) after = Math.max(after, Math.abs(r.d[i]));
+    ok('and the note still ends when the key comes up', after < 1e-4, `residual ${after.toFixed(6)}`);
+  }
+
+  /* ================================================================= housekeeping */
+
+  head('housekeeping');
+
+  {
+    installPack(ctx);
+    const r = await render(ctx, 1.0, (inst) => {
+      for (let i = 0; i < 10; i++) inst.noteOn({ midi: 60 + (i % 4) * 4, velocity: 0.6, when: 0.02 + i * 0.01, duration: 0.1 });
+      inst.allNotesOff(0.5);
+    });
+    const sr = r.buf.sampleRate;
+    let after = 0;
+    // After the release fade (KEY_RELEASE 0.12 s) has finished, not merely
+    // after the call: allNotesOff is meant to ring down, not cut.
+    for (let i = Math.floor(0.8 * sr); i < r.d.length; i++) after = Math.max(after, Math.abs(r.d[i]));
+    ok('allNotesOff silences everything', after < 1e-4, `residual ${after.toFixed(6)}`);
+    ok('it did make sound first', r.peak > 0.02, `peak ${r.peak.toFixed(5)}`);
+  }
+
+  {
+    // The failure this catches: disconnecting on allNotesOff silences a note
+    // that had not finished sounding, which reads as "the sampler is dead".
+    installPack(ctx);
+    const r = await render(ctx, 1.0, (inst) => {
+      inst.noteOn({ midi: 60, velocity: 0.9, when: 0.02, duration: 3 });
+      inst.allNotesOff(0.4);
+    });
+    const sr = r.buf.sampleRate;
+    let justAfter = 0;
+    for (let i = Math.floor(0.42 * sr); i < Math.floor(0.50 * sr); i++) justAfter = Math.max(justAfter, Math.abs(r.d[i]));
+    ok('a note released by allNotesOff is still heard ringing down', justAfter > 1e-4,
+      `peak just after ${justAfter.toFixed(6)}`);
+  }
+
+  {
+    installPack(ctx);
+    const stats = await render(ctx, 0.4, (inst) => {
+      inst.noteOn({ midi: 60, velocity: 0.8, when: 0.02, duration: 0.2 });
+      inst.dispose(0.3);
+    });
+    ok('dispose leaves the instrument marked disposed', stats.inst.debugStats().disposed === true);
+    ok('and frees its voices', stats.inst.debugStats().voices === 0);
+  }
+
+  {
+    installPack(ctx);
+    const r = await render(ctx, 0.5, (inst) => {
+      inst.setParam('brightness', 0.5);
+      inst.noteOn({ midi: 60, velocity: 0.8, when: 0.02, duration: 0.2 });
+    });
+    ok('an unknown parameter warns instead of throwing', r.inst.warnings.length === 1,
+      JSON.stringify(r.inst.warnings));
+    ok('and it still plays', r.peak > 0.02, `peak ${r.peak.toFixed(5)}`);
+  }
+
+  __clearPacks();
+} catch (e) {
+  fail++;
+  failures.push('EXCEPTION');
+  lines.push('', `<span class="fail">EXCEPTION ${(e && e.stack) || e}</span>`);
+  console.error(e);
+}
+
+/* =============================================================== summary === */
+const summary = `${pass} passed, ${fail} failed`;
+lines.unshift(`<span class="${fail ? 'fail' : 'pass'}">SAMPLER TESTS: ${summary}</span>`);
+out.innerHTML = lines.join('\n');
+window.__RESULT__ = { passed: pass, failed: fail, summary, fatal: null, failures };
+window.__DONE__ = true;
+document.title = `sampler ${summary}`;
+</script>
+</body>
+</html>

@@ -482,6 +482,7 @@ def preview(key: str) -> Response:
 # Serve the built page and nothing else. Mounting the project directory would
 # publish the source tree, .git/ and any scores dropped alongside it.
 _INDEX = ROOT / "index.html"
+_PACK = ROOT / "pack"
 
 
 @app.get("/", include_in_schema=False)
@@ -490,6 +491,24 @@ def index() -> FileResponse:
         raise HTTPException(404, "index.html is not built - run `npm run build`")
     return FileResponse(_INDEX, media_type="text/html",
                         headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/pack/{path:path}", include_in_schema=False)
+def pack(path: str) -> FileResponse:
+    """The recorded-instrument sample pack.
+
+    Served from the same origin as the page so the browser can fetch it without
+    CORS. The sample names are generated, but resolve and check the result
+    anyway: `..` in the path must not escape the pack directory.
+    """
+    target = (_PACK / path).resolve()
+    if not str(target).startswith(str(_PACK.resolve())) or not target.is_file():
+        raise HTTPException(404, "no such sample")
+    media = "application/json" if target.name == "manifest.json" else "audio/mpeg"
+    # Immutable: every rebuild of the pack changes the filenames, so a cached
+    # copy is never stale in a way that matters.
+    return FileResponse(target, media_type=media,
+                        headers={"Cache-Control": "public, max-age=604800"})
 
 
 def main() -> None:

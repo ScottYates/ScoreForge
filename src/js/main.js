@@ -17,11 +17,29 @@ import { INSTRUMENTS, createInstrument } from './audio/instruments.js';
 import { AudioBus } from './audio/fx.js';
 import { NotationView } from './render/notation.js';
 import { closeModal } from './ui/dom.js';
+import { loadPack, packState } from './audio/sampler.js';
 
 const params = new URLSearchParams(location.search);
 const app = new App();
 app.init();
 window.ScoreForge = app;
+
+/* -------------------------------------------------------------- sample pack */
+
+// Fetch and decode the recorded instruments in the background. Nothing waits on
+// this: every synthesised instrument already works, and a recorded one that is
+// picked before its pack is ready falls back to its modelled equivalent. It only
+// has to be finished before the user chooses one, which is why it starts here
+// rather than on first use.
+if (!params.has('selftest')) {
+  loadPack((p) => app._paintPackProgress(p))
+    // Repaint once it settles: the progress callback fires on the last file and
+    // says "100%", but only this knows whether that ended in ready or in an
+    // error, and leaving it reading "loading" forever would be a lie.
+    .then(() => app._paintPackProgress())
+    .catch(() => app._paintPackProgress());
+  app._paintPackProgress();
+}
 
 /* ------------------------------------------------------------ demo score */
 

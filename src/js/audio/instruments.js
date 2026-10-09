@@ -1,9 +1,9 @@
 /**
- * audio/instruments.js — the synthesised instrument roster.
+ * audio/instruments.js — the synthesised instrument roster, and the way the
+ * recorded ones are reached.
  *
- * There are no samples anywhere in this app, so every sound here is built from
- * oscillators, noise and biquads — but built from *physics*, not from a bank of
- * sine tones:
+ * Every sound the *synthesiser* makes here is built from oscillators, noise and
+ * biquads — but built from *physics*, not from a bank of sine tones:
  *
  *   strings   f_n = n·f0·√(1 + B·n²)   (stiff-string inharmonicity)
  *   decay     T60_n = T60_1 / (1 + k·(n-1))   (high partials die first)
@@ -18,10 +18,18 @@
  * and a realtime playback of the same score are identical, and repeated renders
  * are bit-identical.
  *
+ * The recorded instruments are a separate thing and live in audio/sampler.js.
+ * They answer the same interface, so `createInstrument` hands back whichever
+ * kind was asked for and nothing downstream can tell the difference: a roster
+ * entry with `engine: 'sampled'` is served from pack/ once that has loaded,
+ * and falls back to its modelled equivalent until it has — so choosing one
+ * from a page opened as a file still makes music instead of silence.
+ *
  * Contract: CONTRACT.md §2.
  */
 
 import { midiToName } from '../score/model.js';
+import { createSampledInstrument, hasPack } from './sampler.js';
 
 /* ==================================================================== misc */
 
@@ -1071,6 +1079,42 @@ const ROSTER = [
   { id: 'analog-lead', name: 'Analog Lead', group: 'Synth', engine: 'tonal', cap: 10,
     description: 'Sawtooth through a resonant ladder filter with a fast, musical sweep.',
     defaults: { level: 0.85, brightness: 0.65, detune: 0, vibrato: 0.6, spread: 0.4, noise: 0.4 } },
+
+  /* ------------------------------------------------------------- recorded --- */
+  //
+  // Real recordings from the Versilian Community Edition (CC0), built into
+  // pack/ by tools/make-pack.mjs. They sit beside the modelled instruments
+  // rather than replacing them: the synthesiser is always available offline,
+  // and these need the pack fetched once.
+  //
+  // `fallback` is the modelled instrument to use if the pack is not loaded --
+  // picking one of these from a file:// page still makes music instead of
+  // silence. `pack` is the id in pack/manifest.json.
+
+  { id: 'rec-grand', name: 'Concert Grand (recorded)', group: 'Recorded', engine: 'sampled',
+    pack: 'gpiano', fallback: 'grand', cap: 48,
+    description: 'A sampled 9-foot grand from the Versilian collection — real hammer, real strings, real room.' },
+  { id: 'rec-harpsichord', name: 'Harpsichord (recorded)', group: 'Recorded', engine: 'sampled',
+    pack: 'harpsichord', fallback: 'harpsichord', cap: 48,
+    description: 'A sampled harpsichord: the quill rasp and the dry, fast release are in the recording.' },
+  { id: 'rec-koto', name: 'Koto (recorded)', group: 'Recorded', engine: 'sampled',
+    pack: 'koto', fallback: 'harp', cap: 48,
+    description: 'A sampled Japanese koto, plucked hard enough to hear the string speak.' },
+  { id: 'rec-viola', name: 'Viola da gamba (recorded)', group: 'Recorded', engine: 'sampled',
+    pack: 'viola', fallback: 'strings', cap: 48,
+    description: 'A sampled bowed gamba. Holds a note as long as you keep the key down.' },
+  { id: 'rec-marimba', name: 'Marimba (recorded)', group: 'Recorded', engine: 'sampled',
+    pack: 'marimba', fallback: 'marimba', cap: 48,
+    description: 'A sampled marimba: rosewood bars and a yarn-wrapped mallet, close-miked.' },
+  { id: 'rec-vibraphone', name: 'Vibraphone (recorded)', group: 'Recorded', engine: 'sampled',
+    pack: 'vibraphone', fallback: 'vibraphone', cap: 48,
+    description: 'A sampled vibraphone, motor off. The long shimmering tail is the recording.' },
+  { id: 'rec-xylophone', name: 'Xylophone (recorded)', group: 'Recorded', engine: 'sampled',
+    pack: 'xylophone', fallback: 'celesta', cap: 48,
+    description: 'A sampled xylophone with a hard mallet and a short, bright ring.' },
+  { id: 'rec-glockenspiel', name: 'Glockenspiel (recorded)', group: 'Recorded', engine: 'sampled',
+    pack: 'glockenspiel', fallback: 'glockenspiel', cap: 48,
+    description: 'A sampled glockenspiel: steel bars struck hard, high and glassy.' },
 ];
 
 /** The list the UI renders. `defaults` are the live parameter set. */
@@ -1079,7 +1123,8 @@ export const INSTRUMENTS = ROSTER.map((r) => ({
   name: r.name,
   group: r.group,
   description: r.description,
-  defaults: { ...r.defaults },
+  sampled: r.engine === 'sampled',
+  defaults: { ...(r.defaults || {}) },
 }));
 
 const BY_ID = new Map(ROSTER.map((r) => [r.id, r]));
@@ -1103,6 +1148,22 @@ export function createInstrument(id, ctx, outputNode) {
   if (!ctx || typeof ctx.createGain !== 'function') {
     throw new TypeError('createInstrument needs an AudioContext or OfflineAudioContext');
   }
+
+  // A recorded instrument is a thin wrapper over the same interface, so nothing
+  // downstream has to know which kind it got. If the pack has not been loaded
+  // -- offline, or on a page opened from file:// -- fall back to the modelled
+  // equivalent rather than to nothing.
+  if (entry.engine === 'sampled') {
+    if (hasPack(entry.pack)) {
+      try {
+        return createSampledInstrument(entry.pack, ctx, outputNode);
+      } catch (e) {
+        console.warn(`recorded instrument "${entry.pack}" failed, using ${entry.fallback}:`, e);
+      }
+    }
+    return createInstrument(entry.fallback, ctx, outputNode);
+  }
+
   const out = outputNode || ctx.destination;
   const cfg = TUNING[id];
   const cap = entry.cap;

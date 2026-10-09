@@ -92,10 +92,15 @@
       <section class="sec">
         <div class="sec-head"><span class="sec-title">About the sound</span></div>
         <p style="color:var(--ink-3);font-size:11.5px;line-height:1.55;margin:0">
-          Every instrument is <b style="color:var(--ink-2);font-weight:600">physically modelled
+          Most instruments are <b style="color:var(--ink-2);font-weight:600">physically modelled
           synthesis</b> built in Web&nbsp;Audio — inharmonic piano strings, hammer transients,
-          bowed vibrato, wind breath. Nothing is streamed or downloaded, which is why the whole app
-          fits in one file and works offline.
+          bowed vibrato, wind breath. Nothing is streamed or downloaded for those, which is why the
+          whole app fits in one file and works offline.
+        </p>
+        <p style="color:var(--ink-3);font-size:11.5px;line-height:1.55;margin:8px 0 0">
+          The <b style="color:var(--ink-2);font-weight:600">Recorded</b> group is the exception: eight
+          real sampled instruments from the CC0 Versilian collection, downloaded once as a small pack.
+          Their status is in Settings. Everything else works without them.
         </p>
       </section>
     </div>
@@ -214,6 +219,16 @@
         <button class="btn sm ghost" id="btnOmrAuto">Automatic</button>
       </div>
       <p class="hint" id="omrBaseHint">Automatic tries this page first, then 127.0.0.1:8000.</p>
+    </section>
+
+    <section class="sec">
+      <div class="sec-head"><span class="sec-title">Recorded instruments</span></div>
+      <p class="hint" id="packStatus">recorded instruments not loaded</p>
+      <p class="hint">
+        The <em>Recorded</em> group in each part's instrument list plays real sampled
+        instruments, built from the CC0 Versilian collection. Everything else is
+        synthesised and works with no download at all.
+      </p>
     </section>
   </aside>
 

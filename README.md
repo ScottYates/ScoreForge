@@ -112,9 +112,11 @@ page engraved without interior barlines can come back as one long bar instead of
 
 ## Instruments
 
-There are no audio samples. A convincing grand piano as samples runs to tens of
-megabytes, which would break the one-file idea. Each instrument is synthesis
-written directly against the Web Audio API instead.
+There are two kinds, and both are in the same per-part list.
+
+**Synthesised** (22 instruments, the default). No audio samples. A convincing grand
+piano as samples runs to tens of megabytes, which would break the one-file idea.
+Each instrument is synthesis written directly against the Web Audio API instead.
 
 Concert Grand follows the physics of a real piano: inharmonic partials
 `f_n = n·f₀·√(1+B·n²)` with a stiffness coefficient that rises in the bass,
@@ -127,7 +129,35 @@ the sustain pedal.
 The others use the same idea: tuned-bar inharmonic ratios for bells and mallets,
 Karplus–Strong-style excitation for plucked strings, formant shaping with vibrato
 that ramps in for bowed and vocal sounds, breath noise for the winds, and
-drawbar-style additive synthesis for the organ.
+drawbar-style additive synthesis for the organ. None of these needs a network
+connection, and the whole app still fits in one file.
+
+**Recorded** (8 instruments, a `pack/` directory of 4.6 MB). Real sampled
+instruments from the [Versilian Community Edition][versilian] (CC0 — public
+domain, no attribution owed): concert grand, harpsichord, koto, viola da gamba,
+marimba, vibraphone, xylophone and glockenspiel. Between them they cover 466
+keys; the families sample every third semitone or wider, so a key with no take
+of its own plays the nearest one resampled by at most three semitones rather than
+going silent.
+
+These need the pack fetched once, so they are **not** available from a page
+opened as a `file://` URL — pick one there and it falls back to the modelled
+instrument of the same family, and Settings says so. Over http the backend
+serves `pack/` from its own origin.
+
+Rebuild the pack with `npm run pack` (see [Development](#development)). Two
+things about it are worth knowing before changing the encoder settings:
+
+- **Chrome does not strip LAME's encoder delay.** An encoded note arrives about
+  1105 samples (25 ms) late — and 1524 for stereo at 96 kbps, so it is not a
+  constant. Every file therefore carries 1024 samples of digital silence at the
+  front, and the sampler finds the real onset in each decoded buffer at load.
+  `node tools/check-codec-delay.mjs` measures it.
+- **The recordings are not recorded at comparable levels** — the piano sits 30 dB
+  under the xylophone. Each take is normalised to a per-family target at build
+  time, and that target is the playing level.
+
+[versilian]: https://github.com/sgossner/versilian-studios (Community Edition samples, CC0)
 
 ## Installing on Linux
 
@@ -401,12 +431,19 @@ tools/
   cdp.mjs               headless-Chrome harness (no npm deps)
   verify.mjs            build + self-test + screenshot
   run-suites.mjs        the module suites, one verdict
+  make-pack.mjs         build pack/ from the Versilian sample cache
+  check-codec-delay.mjs measure MP3 encode+decode latency
+  check-sampler-audio.mjs  render the real pack and measure it
   drive-omr.mjs         drives the built page against a live backend
   check-omr-jobs.py     the job API against a live backend
+  survey-samples.mjs    what is actually in the sample cache
+  lib/wav.mjs           RIFF/WAVE reader for the pack builder
+  lib/lame.mjs          the app's own lamejs, loaded into Node
   make-fixtures.mjs     render ground-truth score images + gt.json
   score-render.html     engraves one known fixture for make-fixtures
   score_omr.py          recogniser accuracy suite
 fixtures/               ground-truth images + accuracy.json
+pack/                   recorded-instrument samples + manifest.json
 tests/                  per-module test pages, all runnable headless
 docs/screenshots/
 ```
@@ -431,30 +468,42 @@ node tools/cdp.mjs --url "file:///$(pwd)/tests/musicxml-test.html" \
 ```
 
 In PowerShell use `file:///$PWD/tests/musicxml-test.html`. `npm run test:suites`
-runs all five at once: `musicxml-test.html` (179 assertions), `smf-test.html`
-(97), `instruments-test.html` (194 checks), `mscx-test.html` (125) and
-`omr-test.html` (33). Each publishes a `{passed, failed, fatal}` verdict; a suite
-that publishes none is treated as a failure rather than a pass.
+runs all six at once: `musicxml-test.html` (179 assertions), `smf-test.html`
+(97), `instruments-test.html` (250 checks), `mscx-test.html` (125),
+`omr-test.html` (33) and `sampler-test.html` (31). Each publishes a
+`{passed, failed, fatal}` verdict; a suite that publishes none is treated as a
+failure rather than a pass.
 
-`omr-test.html` stubs `fetch` and drives the job client: it watches that progress
-actually advances, that cancelling reaches the *server* rather than just closing
-the poll, and that a job the user stopped rejects with `err.cancelled` instead of
-resolving as if it had been read.
+`sampler-test.html` covers the recorded instruments with synthetic buffers: that
+a note makes sound, that its attack lands at the time it was scheduled, that a
+pitch with no sample falls back instead of going quiet, that a release scheduled
+*ahead* of the note still lets it sustain, and that an unloaded pack is refused
+rather than returning a voice that cannot sound. It is mutation-checked —
+deleting the `src.start()` in `noteOn` turns it red, and restoring the old
+`src.loop = false` on release turns it red.
 
-Two checks need a running backend (`python backend/app.py`) because they exercise
-real CPU inference and a real worker thread — a mocked engine would pass while the
-job still never finished:
+Two checks need something the fast suites do not:
 
 ```bash
+node tools/check-sampler-audio.mjs   # the real pack, in a browser, measured
+node tools/check-codec-delay.mjs     # how late an encoded note arrives
 python tools/check-omr-jobs.py fixtures/tiny.png fixtures/ode.pdf
-node tools/drive-omr.mjs run   fixtures/tiny.png <base64 of the png>
-node tools/drive-omr.mjs abort fixtures/ode.pdf  <base64 of the pdf>
+node tools/drive-omr.mjs run   fixtures/tiny.png
+node tools/drive-omr.mjs abort fixtures/ode.pdf
 ```
 
-The second pair drives the built page in a headless browser: it watches the
-progress card the way a person would, saves the MusicXML and reads the bytes back,
-and on abort checks what the *backend* says the job became — a UI that merely
-stopped watching scores the same as one that actually freed the CPU.
+`check-sampler-audio.mjs` serves the repository over http, loads the actual
+4.6 MB pack, renders every instrument offline and reports its peak, how late its
+attack lands and whether a held note outlives its sample — then renders the same
+chord through the app's own `renderToBuffer` export path. The fast suite uses
+synthetic buffers and cannot tell you whether the encoded pack is audible; this
+can, and it is what found the two facts above about codec delay and levels.
+
+`drive-omr` needs the backend running (`python backend/app.py`) and drives the
+built page in a headless browser. It watches the progress card the way a person
+would, saves the MusicXML and reads the bytes back, and on abort checks what the
+*backend* says the job became — a UI that merely stopped watching scores the same
+as one that actually freed the CPU.
 
 The recogniser suite is separate because it needs the Python environment. It
 rejects any fixture whose declared notes disagree with what was rendered, so a
@@ -497,3 +546,14 @@ is fetched at runtime.
 - Playback and export share a code path, but `OfflineAudioContext` output is
   bit-identical only because "humanise" is forced off for renders.
 - Very long scores render the notation view progressively as you scroll.
+- The recorded instruments need the page to be served over http. From a `file://`
+  page the pack cannot be fetched and the `Recorded` instruments fall back to
+  their modelled equivalents.
+- The recorded pack has one dynamic layer per instrument, so dynamics come from
+  the sampler's gain curve rather than from velocity-layered samples.
+- The piano, harpsichord and koto loop their quietest sustain region, so a held
+  note is markedly quieter than the attack. That is honest to the recording; it
+  is not what a sampled piano usually does.
+- A key with no recording of its own is played by resampling its nearest
+  neighbour, up to three semitones. Marimba and xylophone have gaps wide enough
+  to need the full three, so those keys are a resample rather than a real take.
