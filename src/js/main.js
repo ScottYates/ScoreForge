@@ -305,7 +305,11 @@ async function selfTest() {
     if (score) {
       try {
         const host = document.createElement('div');
-        host.style.cssText = 'position:fixed;left:-9999px;top:0;width:900px;background:#fff';
+        // --paper and --cursor inherit from :root, so this host resolves the
+        // same values the real score panel does. Spelling the hex out here made
+        // a second copy to forget: dim the paper and the self-test would keep
+        // rendering on the old colour without failing.
+        host.style.cssText = 'position:fixed;left:-9999px;top:0;width:900px;background:var(--paper)';
         document.body.appendChild(host);
         const nv = new NotationView(host);
         await nv.load(score);

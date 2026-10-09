@@ -12,7 +12,19 @@
   --panel:         #141821;
   --panel-2:       #1a1f2a;
   --panel-hi:      #212736;
-  --paper:         #fbfaf7;
+  /* The sheet itself. Not white: a full-width white panel next to a #0a0c11 app
+     is the brightest thing on the screen by a wide margin and reads as glare
+     rather than as paper. This is warm and low-glare, and still gives the ink
+     about 10:1, so staff lines and hair rests stay crisp. */
+  --paper:         #c6c3ba;
+  /* The playback cursor. It reads against the paper rather than the panels, and
+     the paper is dimmed, so it is darker than the accent: #2f6df6 at OSMD's
+     half alpha composites to 1.15:1 on --paper. This one composites to 3.95:1.
+     Measured as painted, not as a raw hex — OSMD lays the bar over the page, and
+     comparing the hex to the paper overstates every reading by the alpha.
+     notation.js reads this same property and hands it to OSMD as
+     cursorsOptions, so the cursor has exactly one colour in the codebase. */
+  --cursor:        #1f4fc9;
 
   /* ink */
   --ink:           #e9ecf3;
@@ -512,12 +524,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
  * ours to set -- it inherits neither from the dark UI around it. VexFlow emits
  * noteheads, stems, staff lines and glyph text across a handful of elements
  * with their own fills, so the override is deliberately broad and relies on
- * currentColor rather than naming each shape. The playback cursor is put back
- * afterwards: it is the one element that has to stay visible on white.
+ * currentColor rather than naming each shape.
  */
 .paper {
   --paper-ink: #14161c;
-  background: #ffffff;
+  background: var(--paper);
   color: var(--paper-ink);
   border-radius: var(--r);
   box-shadow: var(--shadow-3), 0 0 0 1px var(--line);
@@ -533,10 +544,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .paper svg tspan,
 .paper svg use { fill: currentColor; stroke: currentColor; }
 .paper svg rect { fill: currentColor; }
-/* The cursor is a filled bar drawn over the staff; darkening it would hide
-   the one thing that shows where playback is. */
-.paper svg #vf-autoGen path,
-.paper svg #vf-autoGen rect { fill: #2f6df6; stroke: #2f6df6; }
+
+/* The playback cursor needs no rule here. OSMD draws it as an <img> holding a
+   canvas-generated gradient, not as SVG, so a fill/stroke override cannot reach
+   it -- an earlier rule targeting #vf-autoGen matched nothing in the bundle and
+   looked like it worked. Its colour is set through cursorsOptions instead, from
+   the same --cursor property below. */
 
 /* placeholder */
 .stage-empty {

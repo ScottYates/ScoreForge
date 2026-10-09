@@ -92,6 +92,22 @@ else if (report.fail > 0 || report.result !== 'OK') {
 }
 if (appState && !appState.notes) failures.push('demo score produced no notes');
 
+// The playback cursor was silently the wrong colour for a long time -- OSMD reads
+// cursor options at construction, so assigning them after load() threw and the
+// error was swallowed. Reading the app's own config would not catch that; this
+// decodes the pixels OSMD actually painted. Needs Node 22 like the checks above.
+const cursor = await new Promise((res) => {
+  const p = spawn(process.execPath, [path.join(root, 'tools/check-cursor.mjs')], { cwd: root, stdio: 'pipe' });
+  let out = '', err = '';
+  p.stdout.on('data', (d) => { out += d; });
+  p.stderr.on('data', (d) => { err += d; });
+  p.on('close', (code) => res({ code, out, err }));
+});
+console.log(cursor.out.trim());
+if (cursor.code !== 0) {
+  failures.push('cursor check: ' + (cursor.out.trim().split('\n').pop() || cursor.err.trim()));
+}
+
 if (report) console.log(`self-test: ${report.result} — ${report.pass} passed, ${report.fail} failed`);
 
 if (failures.length) {

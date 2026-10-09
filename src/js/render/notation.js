@@ -33,6 +33,51 @@ const OSMD_CTOR_OPTIONS = {
 
 const MAX_CURSOR_STEPS = 300000;
 
+/**
+ * The playback cursor colour, read from the stylesheet.
+ *
+ * `--cursor` is the single source of truth, so the cursor cannot be legible on
+ * paper in one place and invisible in the other. The fallback is for the
+ * offscreen host the self-test renders into, which has no stylesheet attached.
+ */
+function cursorColour(container) {
+  try {
+    const v = getComputedStyle(container).getPropertyValue('--cursor').trim();
+    if (v) return v;
+  } catch { /* no window, or the host is detached */ }
+  return '#1f4fc9';
+}
+
+/**
+ * Build the `cursorsOptions` array OSMD reads once, when it is constructed.
+ *
+ * The array is indexed per cursor, so a single cursor means a one-entry array —
+ * `{color, type, alpha}` hung directly off it is silently ignored, which is how
+ * this went wrong before. OSMD defaults every field it wants, so an entry only
+ * has to carry what we actually want to differ.
+ *
+ * `type` is OSMD's ShortThinTopLeft: a small bar on the note's top-left corner.
+ * The default Standard is a wide band drawn *behind* the staff, and a wide
+ * translucent band on the dimmed paper reads as a smudge rather than a position.
+ * OSMD treats this type as a solid colour and scales one pixel up, so there is no
+ * gradient to soften it.
+ *
+ * `alpha` is 1, not OSMD's 0.5. OSMD composites the bar over the paper, so the
+ * colour you see is a blend: at half strength this bar measures 1.96:1 against
+ * --paper, under the 3:1 a position marker needs. Opaque, it measures 3.95:1.
+ * (Comparing the raw hex to the paper overstates every reading by the alpha —
+ * which is how this was first judged fine at "3.9:1" while drawing at half
+ * strength. tools/check-cursor.mjs measures the painted pixels.)
+ */
+function cursorOptions(container) {
+  return [{
+    type: 2,                                   // CursorType.ShortThinTopLeft
+    color: cursorColour(container),
+    alpha: 1,
+    follow: true,
+  }];
+}
+
 export class NotationView {
   /** @param {HTMLElement} container */
   constructor(container) {
@@ -58,17 +103,25 @@ export class NotationView {
     if (!OSMD) { this.notAvailable = 'Notation engine failed to load.'; return false; }
 
     this.notAvailable = null;
-    const osmd = new OSMD.OpenSheetMusicDisplay(this.container, { ...OSMD_CTOR_OPTIONS });
+    // cursorsOptions has to be passed here, not assigned after load(): OSMD reads
+    // it once while applying options and hands each Cursor one entry when the
+    // first page renders. There is no cursor object to mutate until then --
+    // osmd.cursor is osmd.cursors[0], still undefined at this point -- so a
+    // post-load assignment threw a TypeError that the catch below swallowed, and
+    // the cursor stayed OSMD's default green no matter what we set.
+    const osmd = new OSMD.OpenSheetMusicDisplay(this.container, {
+      ...OSMD_CTOR_OPTIONS,
+      cursorsOptions: cursorOptions(this.container),
+    });
     this.osmd = osmd;
     await osmd.load(score.rawMusicXml, score.title);
     osmd.zoom = this.zoom;
 
-    try {
-      osmd.cursor.CursorOptions.color = '#2f6df6';
-      osmd.cursor.CursorOptions.type = 2;      // gradient bar
-      osmd.cursor.CursorOptions.alpha = 0.55;
-      osmd.cursor.SkipInvisibleNotes = true;
-    } catch { /* older/newer cursor API — defaults are fine */ }
+    // Nothing else to configure here. OSMD's Cursor constructor already defaults
+    // SkipInvisibleNotes to true, and its CursorOptions getter hands back the
+    // entry we passed above, so the two lines that used to sit here (setting a
+    // colour and a type on osmd.cursor) were not configurable state at all --
+    // there was no cursor to configure until the first page rendered.
 
     this._startRender();
     return true;
@@ -131,6 +184,11 @@ export class NotationView {
       }
       this.steps = steps;
       this.stepIndex = -1;
+      // The walk above runs the iterator to the end of the score. Leave it back
+      // at the start so "the cursor sits before step 0" is the state the seek
+      // below assumes, rather than something it has to remember to undo.
+      cursor.reset();
+      cursor.hide();
     } catch (e) {
       console.error('cursor table failed', e);
       this.steps = null;
@@ -151,7 +209,14 @@ export class NotationView {
       // Stepping forward from where we are is the common case during playback
       // and costs nothing. A seek (or a long jump) resets and walks, which is
       // O(n) but only happens on an explicit user action.
-      const needReset = target < this.stepIndex || target - this.stepIndex > 240;
+      //
+      // stepIndex < 0 means the cursor has never been placed, so there is no
+      // position to step from and the walk has to start at the reset point.
+      // Reading it as a forward step instead walked the iterator one past the
+      // requested step from wherever it was left, which -- because the table
+      // build finishes at the end of the score -- pinned the cursor to the last
+      // measure for the whole piece.
+      const needReset = this.stepIndex < 0 || target < this.stepIndex || target - this.stepIndex > 240;
       if (needReset) {
         cursor.reset();
         for (let k = 0; k < target; k++) cursor.iterator.moveToNext();
