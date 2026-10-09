@@ -1,0 +1,54 @@
+[Unit]
+Description=ScoreForge web page (static)
+Documentation=https://github.com/ScottYates/ScoreForge
+After=network-online.target
+Wants=network-online.target
+
+# Deliberately no dependency on scoreforge.service. The page is a self-contained
+# file: MusicXML, MuseScore and MIDI are read in the browser, and a scan without
+# the backend is still kept as a reference image. The backend serving the page
+# too is a convenience, not a requirement, so the web service must survive it.
+
+[Service]
+Type=exec
+User=scoreforge
+Group=scoreforge
+WorkingDirectory=/opt/scoreforge/www
+
+# The port to serve on. The default below is used unless the env file sets
+# SCOREFORGE_WEB_PORT, and EnvironmentFile is read afterwards so it wins. The
+# backend allows this port as a browser origin, which is what lets a page here
+# call the API.
+Environment=SCOREFORGE_WEB_PORT=8080
+EnvironmentFile=/etc/scoreforge/scoreforge.env
+
+# --directory is the $PREFIX/www directory, NOT $PREFIX itself: that one also
+# holds backend/*.py, requirements.txt and the fixtures, and serving it would
+# publish the source tree over HTTP. Only ScoreForge.html lives here.
+ExecStart=/opt/scoreforge/.venv/bin/python -m http.server ${SCOREFORGE_WEB_PORT} --directory /opt/scoreforge/www --bind 127.0.0.1
+
+Restart=on-failure
+RestartSec=5s
+
+# It only ever hands out one static file, so it needs neither scratch space nor
+# a meaningful slice of the machine.
+PrivateTmp=true
+CPUQuota=50%
+MemoryMax=256M
+
+# Nothing is written here: install.sh copies the built page in.
+ProtectSystem=strict
+ProtectHome=true
+
+NoNewPrivileges=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

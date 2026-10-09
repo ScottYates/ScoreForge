@@ -22,9 +22,15 @@ export UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR:-/opt/python}"
 export UV_PYTHON_BIN_DIR="${UV_PYTHON_BIN_DIR:-$UV_PYTHON_INSTALL_DIR/bin}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UNIT_SRC="$REPO/deploy/scoreforge.service"
+WEB_UNIT_SRC="$REPO/deploy/scoreforge-web.service"
 ENV_SRC="$REPO/deploy/scoreforge.env.example"
 ETC_DIR="/etc/scoreforge"
 VENV="$PREFIX/.venv"
+# The page is served from its own directory, never from $PREFIX, which also holds
+# backend/*.py and the fixtures.
+WEB_ROOT="$PREFIX/www"
+DEFAULT_WEB_PORT=8080
+SKIP_WEB="${SKIP_WEB:-0}"   # SKIP_WEB=1 installs the backend only
 # requirements.txt pins numpy==2.5.3, which needs Python >= 3.12 (homr itself
 # allows 3.11-3.15, so 3.11 passes homr's check but cannot install numpy).
 PY_MIN="3.12"; PY_MAX="3.15"
@@ -42,6 +48,7 @@ for f in app.py omr_engine.py preprocess.py requirements.txt; do
     [ -f "$REPO/backend/$f" ] || die "missing $REPO/backend/$f"
 done
 [ -f "$UNIT_SRC" ] && [ -f "$ENV_SRC" ] || die "missing deploy/scoreforge.service or scoreforge.env.example"
+[ "$SKIP_WEB" = 1 ] || [ -f "$WEB_UNIT_SRC" ] || die "missing deploy/scoreforge-web.service"
 
 # ---------------------------------------------------------------- interpreter
 py_ok() {   # py_ok <exe>: runs, and is within PY_MIN..PY_MAX
@@ -108,8 +115,11 @@ fi
 
 # ------------------------------------------------------------------- copy tree
 say "Installing to $PREFIX"
-install -d -m 0755 "$PREFIX" "$PREFIX/backend" "$PREFIX/fixtures"
+install -d -m 0755 "$PREFIX" "$PREFIX/backend" "$PREFIX/fixtures" "$WEB_ROOT"
 install -m 0644 "$REPO/ScoreForge.html" "$PREFIX/ScoreForge.html"
+# The web service's document root. Only the built page goes in here, so serving
+# this directory cannot leak the backend source or the fixtures.
+install -m 0644 "$REPO/ScoreForge.html" "$WEB_ROOT/ScoreForge.html"
 for f in app.py omr_engine.py preprocess.py requirements.txt; do
     install -m 0644 "$REPO/backend/$f" "$PREFIX/backend/$f"
 done
@@ -243,9 +253,27 @@ sed -e "s#/opt/scoreforge#$PREFIX#g" \
 mv "$UNIT_DST.tmp" "$UNIT_DST"
 command -v systemd-analyze >/dev/null && systemd-analyze verify "$UNIT_DST" 2>&1 | sed 's/^/    verify: /' || true
 
+if [ "$SKIP_WEB" = 1 ]; then
+    warn "SKIP_WEB=1: not installing the web service; disabling any existing one"
+    systemctl disable --now scoreforge-web.service >/dev/null 2>&1 || true
+else
+    WEB_UNIT_DST="/etc/systemd/system/scoreforge-web.service"
+    sed -e "s#/opt/scoreforge#$PREFIX#g" \
+        -e "s#^User=.*#User=$SVC_USER#" \
+        -e "s#^Group=.*#Group=$SVC_USER#" \
+        -e "s#^EnvironmentFile=.*#EnvironmentFile=$ETC_DIR/scoreforge.env#" \
+        "$WEB_UNIT_SRC" > "$WEB_UNIT_DST.tmp"
+    mv "$WEB_UNIT_DST.tmp" "$WEB_UNIT_DST"
+    command -v systemd-analyze >/dev/null && systemd-analyze verify "$WEB_UNIT_DST" 2>&1 | sed 's/^/    verify: /' || true
+fi
+
 systemctl daemon-reload
 systemctl enable scoreforge.service >/dev/null
 systemctl restart scoreforge.service
+if [ "$SKIP_WEB" != 1 ]; then
+    systemctl enable scoreforge-web.service >/dev/null
+    systemctl restart scoreforge-web.service
+fi
 
 # ------------------------------------------------------------------- health
 say "Waiting for the service"
@@ -253,6 +281,8 @@ port="$(grep -E '^SCOREFORGE_PORT=' "$ETC_DIR/scoreforge.env" 2>/dev/null | tail
 port="${port:-8000}"
 # The page's own port, if it is served by something other than this service.
 webport="$(grep -E '^[[:space:]]*SCOREFORGE_WEB_PORT=' "$ETC_DIR/scoreforge.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+# Same default the web unit falls back to when the env file does not set one.
+webport="${webport:-$DEFAULT_WEB_PORT}"
 healthy=0
 for _ in $(seq 1 60); do
     if curl -fsS "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then healthy=1; break; fi
@@ -315,8 +345,28 @@ else
     echo "    read ${smoke##*/}: $notes notes"
 fi
 
-webline=""
-[ -n "$webport" ] && webline="  page origin  $webport  (SCOREFORGE_WEB_PORT -- also allowed to call the API)"
+if [ "$SKIP_WEB" = 1 ]; then
+    webline="  web page  (skipped -- SKIP_WEB=1)"
+else
+    say "Waiting for the web service on port $webport"
+    webup=0
+    for _ in $(seq 1 30); do
+        if curl -fsS "http://127.0.0.1:$webport/ScoreForge.html" >/dev/null 2>&1; then webup=1; break; fi
+        systemctl is-failed --quiet scoreforge-web.service && break
+        sleep 1
+    done
+    if [ "$webup" -ne 1 ]; then
+        systemctl --no-pager --lines 20 status scoreforge-web.service || true
+        journalctl -u scoreforge-web --no-pager -n 20 || true
+        die "the web service did not come up on port $webport"
+    fi
+    # The document root must stay $WEB_ROOT. If it ever ends up being $PREFIX,
+    # this service would hand out backend/*.py and the fixtures over HTTP.
+    code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$webport/backend/app.py" || true)"
+    [ "$code" = 404 ] || die "the web service is serving $PREFIX itself: /backend/app.py returned ${code:-no response}, expected 404"
+    echo "    page served; /backend/app.py is 404, so only the built file is exposed"
+    webline="  web page  http://127.0.0.1:$webport/ScoreForge.html  (scoreforge-web.service)"
+fi
 apihint="  override     append ?api=http://127.0.0.1:$port to the page URL to point it at this backend"
 
 cat <<MSG

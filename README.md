@@ -141,28 +141,48 @@ sudo ./deploy/install.sh
 ```
 
 That installs to `/opt/scoreforge`, creates an unprivileged `scoreforge` system
-user, installs the Python dependencies, downloads the ONNX weights, and starts a
-systemd unit. `ScoreForge.html` is copied there too, so it works straight off
-disk with no server at all.
+user, installs the Python dependencies, downloads the ONNX weights, and starts
+two systemd services. `ScoreForge.html` is copied there too, so it works
+straight off disk with no server at all.
 
 ```bash
-systemctl status scoreforge
+systemctl status scoreforge scoreforge-web
 curl -s http://127.0.0.1:8000/api/health
 ```
+
+The installer finishes by transcribing a fixture through the running backend and
+printing the note count, so a successful run means recognition was actually
+exercised, not just imported.
 
 Then open <http://127.0.0.1:8000/>.
 
 `deploy/install.sh` is also the upgrade path: pull, rebuild, run it again. It
 leaves `/etc/scoreforge/scoreforge.env` alone (backing it up to `.bak`).
 
-### systemd
+Pass `SKIP_WEB=1` to install the backend only.
 
-The unit is `deploy/scoreforge.service`.
+### The two services
+
+| Unit | Serves | Default port |
+|---|---|---|
+| `scoreforge.service` | The API, and the page at `/` | 8000 |
+| `scoreforge-web.service` | The page alone, as a static file | 8080 |
 
 ```bash
-systemctl restart scoreforge
+systemctl restart scoreforge scoreforge-web
 journalctl -u scoreforge -f
+journalctl -u scoreforge-web -f
 ```
+
+The page does not depend on the backend being up. MusicXML, MuseScore and MIDI
+are read in the browser either way, and a scan with no backend behind it is kept
+as a reference image instead of being transcribed — so the web service is not
+ordered after `scoreforge.service`, and it stays up when the backend is down.
+
+Only `ScoreForge.html` is served. The page lives in `/opt/scoreforge/www`, not in
+`/opt/scoreforge`, so the backend source and the test fixtures are not reachable
+over HTTP. The installer checks this at the end and fails if it ever stops being
+true.
 
 Config lives in `/etc/scoreforge/scoreforge.env`, copied there from
 `deploy/scoreforge.env.example`. The defaults are right for a local install.
@@ -176,29 +196,25 @@ Two settings, both in `/etc/scoreforge/scoreforge.env`:
 
 ```bash
 SCOREFORGE_PORT=9100    # the backend, and the page it serves at /
-SCOREFORGE_WEB_PORT=3000 # the page, when a separate server serves it
+SCOREFORGE_WEB_PORT=3000 # the page, when scoreforge-web serves it separately
 ```
 
-`SCOREFORGE_WEB_PORT` is the one to set when you put the page behind nginx or
-`python -m http.server` on some other port. It does not make the backend listen
-there; it tells the browser which page origins may call the API. Ports 8080 and
-8081 are always allowed, so you only need it for anything else.
+`SCOREFORGE_WEB_PORT` is the port `scoreforge-web.service` listens on, defaulting
+to 8080. It also decides which page origins the backend will accept, so setting
+it once covers both halves. Ports 8080 and 8081 are always allowed regardless.
 
-After editing, `systemctl restart scoreforge`.
-
-### Serving the page separately
-
-The backend already serves the page at `/`. To serve it with Python instead:
+After editing, restart both:
 
 ```bash
-python3 -m http.server 8080 --directory /opt/scoreforge --bind 127.0.0.1
+systemctl restart scoreforge scoreforge-web
 ```
 
-Open <http://127.0.0.1:8080/ScoreForge.html>. The page tries its own origin first
-and falls back to `127.0.0.1:8000` for the API, so scans still work.
+### Serving the page somewhere else entirely
 
-If the page is served from somewhere the backend has never heard of — another
-port, another host — point it at the backend with a query parameter:
+The installer already runs `scoreforge-web.service`, which is a plain static
+file server on `SCOREFORGE_WEB_PORT`. To serve it yourself instead — behind
+nginx, say — stop that unit and point the page at the backend with a query
+parameter:
 
 ```
 http://127.0.0.1:3000/ScoreForge.html?api=http://127.0.0.1:9100
