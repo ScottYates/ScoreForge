@@ -15,6 +15,14 @@
 // the input. Note that fetch() of a data: URL hangs in headless Chrome, so
 // decode the bytes with atob() rather than fetching them.
 //
+// --start and --startFile must be ONE parenthesisable expression -- the harness
+// wraps the text in `(${start})`. Several statements are a parse error in that
+// wrapper and cannot be caught from inside it, so use an IIFE:
+//   (async () => { ... })()
+// A parse failure is reported as "[start failed]" rather than silently doing
+// nothing. For a large payload, prefer having the page fetch() the file over
+// HTTP (see the CORS server used by tools/score_omr.py) rather than inlining it.
+//
 // Browser selection: --browser, else $SCOREFORGE_BROWSER, else the first
 // Chrome/Edge/Chromium found on this platform.
 import { spawn } from 'node:child_process';
@@ -245,9 +253,16 @@ const delay = parseInt(arg('delay', '0'), 10);
         await sleep(120);
       }
       try {
-        await cdp.send('Runtime.evaluate',
+        const r = await cdp.send('Runtime.evaluate',
           { expression: `(() => { try { (${startExpr}); } catch (e) { console.error('start: ' + e); } })()`, returnByValue: true, awaitPromise: false },
           sessionId);
+        // The expression above is wrapped in parentheses, so --start must be a
+        // single expression. A multi-statement one is a *parse* error in this
+        // wrapper, which the inner try/catch cannot see: the run then just
+        // quietly does nothing and the wait times out looking like a failure of
+        // whatever was being tested. Report it instead.
+        const d = r && r.exceptionDetails;
+        if (d) consoleLines.push('[start failed] ' + ((d.exception && d.exception.description) || d.text));
       } catch (e) { consoleLines.push(`[start error] ${e}`); }
     }
     while (Date.now() - t0 < timeout) {
