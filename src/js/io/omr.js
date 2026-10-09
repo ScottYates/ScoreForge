@@ -170,15 +170,14 @@ export async function transcribe(file, opts = {}) {
 }
 
 /**
- * Transcribe and convert each returned page into an app score.
+ * Convert a finished transcription into one score per page.
  *
  * Each page becomes its own score so a multi-page PDF stays navigable rather
  * than being silently flattened into one part.
  */
-export async function transcribeToScores(file, opts = {}) {
-  const result = await transcribe(file, opts);
+export function scoresFromResult(file, result) {
   const scores = [];
-  for (const page of result.pages) {
+  for (const page of result.pages || []) {
     const score = parseMusicXml(page.musicxml, {
       fileName: pageLabel(file, page.page),
     });
@@ -198,7 +197,147 @@ export async function transcribeToScores(file, opts = {}) {
     };
     scores.push(score);
   }
-  return { scores, result };
+  return scores;
+}
+
+/** Transcribe in one blocking call and convert the pages into scores. */
+export async function transcribeToScores(file, opts = {}) {
+  return scoresFromResult(file, await transcribe(file, opts));
+}
+
+/* ------------------------------------------------------------ background jobs */
+
+/** How often to ask the service how a job is doing. */
+const JOB_POLL_MS = 600;
+
+/**
+ * Consecutive failed polls to ride out before giving up on a job.
+ *
+ * A transcription takes tens of seconds on the CPU. Over that span a laptop
+ * will change network, sleep, or restart a proxy in front of the backend. Three
+ * seconds of silence is not a reason to throw away work already done; a
+ * sustained outage is.
+ */
+const JOB_POLL_TOLERANCE = 5;
+
+/**
+ * Start a transcription as a background job and return a handle on it.
+ *
+ * This exists rather than a single blocking call because a page of music takes
+ * long enough on the CPU that the user can see it happening, and long enough
+ * that they may want to stop it.
+ *
+ * `cancel()` asks the *server* to stop, rather than abandoning the poll. That
+ * distinction is the whole point: dropping the connection would leave the
+ * recogniser grinding through a scan the user has already given up on, holding
+ * the CPU for nobody. Cancellation is checked between pages, so one page in
+ * flight always finishes -- `promise` rejects with an `err.cancelled` flag when
+ * it does, rather than pretending the scan was read.
+ *
+ * @param {File} file
+ * @param {object} [opts]
+ * @param {'auto'|'original'|'clean'} [opts.mode] preprocessing strategy
+ * @param {(view:object)=>void} [opts.onProgress] called with every polled view
+ * @param {number} [opts.pollMs]
+ * @returns {{jobId: Promise<string>, promise: Promise<object>, cancel: () => Promise<object|null>}}
+ */
+export function startTranscription(file, opts = {}) {
+  const base = resolveBase();
+  const pollMs = opts.pollMs || JOB_POLL_MS;
+  const emit = opts.onProgress;
+
+  // Lets cancel() cut the sleep between polls short, so "stopping" is shown
+  // when the user asks for it rather than up to pollMs later.
+  let wake = null;
+  const sleep = (ms) => new Promise((resolve) => {
+    let timer = null;
+    const finish = () => { clearTimeout(timer); timer = null; wake = null; resolve(); };
+    timer = setTimeout(finish, ms);
+    wake = finish;
+  });
+
+  async function readJson(url) {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (res.status === 404) {
+      throw new Error('the service no longer knows about this job — it may have restarted');
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    return res.json();
+  }
+
+  const jobId = (async () => {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    form.append('mode', opts.mode || 'auto');
+
+    let res;
+    try {
+      res = await fetch(`${base}/api/omr/jobs`, { method: 'POST', body: form });
+    } catch {
+      throw new Error(
+        `The recognition service is not running at ${base || 'this page’s origin'}.`
+      );
+    }
+    if (!res.ok) {
+      let detail = `${res.status} ${res.statusText}`;
+      try {
+        const body = await res.json();
+        if (body && body.detail) detail = body.detail;
+      } catch { /* non-JSON error body */ }
+      throw new Error(detail);
+    }
+    const body = await res.json();
+    // Say something the moment the job exists. Waiting for the first poll would
+    // leave the panel looking idle for a request that has already been sent.
+    emit && emit({ state: 'running', progress: 0, message: 'Starting', seconds: 0 });
+    return body.jobId;
+  })();
+
+  const promise = jobId.then(async (id) => {
+    let misses = 0;
+    for (;;) {
+      let view = null;
+      try {
+        view = await readJson(`${base}/api/omr/jobs/${id}`);
+        misses = 0;
+      } catch (e) {
+        if (++misses > JOB_POLL_TOLERANCE) throw e;
+      }
+      if (view) {
+        emit && emit(view);
+        if (view.state !== 'running') {
+          if (view.state === 'done') return { ...view.result, base };
+          if (view.state === 'cancelled') {
+            const err = new Error('Stopped before the scan was finished.');
+            err.cancelled = true;
+            throw err;
+          }
+          const err = new Error(view.error || view.message || 'Recognition failed.');
+          err.status = view.status;
+          throw err;
+        }
+      }
+      await sleep(pollMs);
+    }
+  });
+
+  return {
+    jobId,
+    promise,
+    /** Ask the server to stop. Resolves with the server's answer, or null. */
+    async cancel() {
+      let id;
+      try { id = await jobId; } catch { return null; }
+      try {
+        const res = await fetch(`${base}/api/omr/jobs/${id}/cancel`, { method: 'POST' });
+        if (!res.ok) return null;
+        if (wake) wake();
+        return await res.json();
+      } catch {
+        return null;
+      }
+    },
+  };
 }
 
 function pageLabel(file, index) {

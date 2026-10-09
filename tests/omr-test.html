@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OMR job client tests</title>
+<style>
+  body { background:#111; color:#ddd; font:12px ui-monospace,Consolas,monospace; margin:0; padding:12px; }
+  #out { white-space:pre-wrap; }
+  .pass { color:#7fd18a; }
+  .fail { color:#ff6b6b; font-weight:bold; }
+  h2 { color:#8ab4f8; font-size:13px; margin:14px 0 4px; }
+</style>
+</head>
+<body>
+<div id="out">running.</div>
+
+<script type="module">
+import { startTranscription, scoresFromResult, transcribe } from '../src/js/io/omr.js';
+
+/* ===================================================== assertion harness === */
+
+const lines = [];
+let pass = 0, fail = 0;
+const failures = [];
+const out = document.getElementById('out');
+
+function head(t) { lines.push('', '== ' + t + ' ' + '='.repeat(Math.max(0, 56 - t.length))); }
+function line(text, cls) { lines.push(cls ? `<span class="${cls}">${text}</span>` : text); }
+function ok(name, cond, detail = '') {
+  if (cond) { pass++; line(`  PASS  ${name}`); }
+  else { fail++; failures.push(name); line(`  FAIL  ${name}${detail ? '  - ' + detail : ''}`, 'fail'); }
+}
+function eq(name, actual, expected) {
+  const a = JSON.stringify(actual), b = JSON.stringify(expected);
+  ok(name, a === b, `expected ${b}, got ${a}`);
+}
+async function rejects(name, promise, re) {
+  try {
+    const v = await promise;
+    ok(name, false, `resolved with ${JSON.stringify(v).slice(0, 80)} instead of throwing`);
+    return null;
+  } catch (e) {
+    ok(name, re.test(e.message), `message ${JSON.stringify(e.message)} does not match ${re}`);
+    return e;
+  }
+}
+
+/* ========================================================== fake backend === */
+
+/**
+ * A stand-in for the recognition service.
+ *
+ * `route(url, method, body)` returns `{status, json}`. Every request is
+ * recorded so a test can assert on what was actually asked of the server --
+ * which is the only way to tell "cancel reached the engine" from "the browser
+ * stopped caring".
+ */
+let requests = [];
+let route = null;
+
+const realFetch = window.fetch.bind(window);
+window.fetch = async (url, init = {}) => {
+  const method = (init.method || 'GET').toUpperCase();
+  requests.push({ url: String(url), method });
+  const r = await route(String(url), method, init);
+  const status = r.status || 200;
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: r.statusText || '',
+    json: async () => { if (r.throwJson) throw new Error('not json'); return r.json; },
+  };
+};
+
+function calls(matcher) { return requests.filter((r) => matcher(r.url, r.method)); }
+
+/** A scan file, as the browser would hand one to FormData. */
+function scanFile(name = 'scan.png') {
+  return new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])], name, { type: 'image/png' });
+}
+
+const DONE_VIEW = {
+  state: 'done', progress: 1, message: 'Done', seconds: 3.2,
+  result: { ok: true, engine: 'homr', version: '0.7.0', device: 'cpu', totalNotes: 4, pages: [] },
+};
+
+const JOB_ID = 'a1b2c3d4e5f60718';
+
+/**
+ * A working stand-in for the recognition service.
+ *
+ * Answering the submit with a progress view is the mistake this replaces: the
+ * client reads `jobId` off that response, so a fake that hands back a view
+ * makes every later poll ask about `/jobs/undefined` and quietly tests the
+ * wrong thing.
+ *
+ * @param {object} [opts]
+ * @param {object[]} [opts.views] polled in order, then `final`
+ * @param {object} [opts.final] what every later poll says
+ * @param {object} [opts.submit] override the submit response (to test failures)
+ * @param {(url,method)=>(void|object)} [opts.on] last word per request
+ */
+function serving(opts = {}) {
+  const views = opts.views || [];
+  const final = opts.final || DONE_VIEW;
+  let i = 0;
+  route = (url, method) => {
+    if (opts.on) {
+      const override = opts.on(url, method);
+      if (override) return override;
+    }
+    if (method === 'POST' && url.endsWith('/api/omr/jobs')) {
+      return opts.submit || { json: { jobId: JOB_ID, state: 'running' } };
+    }
+    if (method === 'POST' && url.endsWith('/cancel')) {
+      return { json: { jobId: JOB_ID, state: 'stopping' } };
+    }
+    return { json: i < views.length ? views[i++] : final };
+  };
+  requests = [];
+}
+
+/* -------------------------------------------------------------------------- */
+
+try {
+  const BASE = 'http://127.0.0.1:8000';
+
+  /* ===================================================== submit and follow == */
+
+  head('submit, poll, resolve');
+
+  serving({
+    views: [
+      { state: 'running', progress: 0.1, message: 'Rasterising', seconds: 0.1 },
+      { state: 'running', progress: 0.5, message: 'Reading page 1 of 2', seconds: 1.4 },
+      { state: 'running', progress: 0.9, message: 'Reading page 2 of 2', seconds: 3.0 },
+    ],
+    final: DONE_VIEW,
+  });
+
+  const seen = [];
+  let result = null;
+  const job = startTranscription(scanFile(), { pollMs: 5, onProgress: (v) => seen.push(v) });
+  result = await job.promise;
+
+  const post = requests.find((r) => r.method === 'POST' && r.url.endsWith('/api/omr/jobs'));
+  ok('submits to the jobs endpoint', !!post, `requests: ${JSON.stringify(requests.map((r) => r.method + ' ' + r.url))}`);
+  const gets = requests.filter((r) => r.method === 'GET');
+  ok('polls the job until it finishes', gets.length === 4, `${gets.length} polls`);
+  ok('every poll carries the job id the submit returned',
+    gets.length > 0 && gets.every((r) => r.url.endsWith(`/api/omr/jobs/${JOB_ID}`)),
+    gets.map((r) => r.url).join(' '));
+
+  ok('progress is reported before the first poll', seen.length > 0 && seen[0].message === 'Starting',
+    `first view ${JSON.stringify(seen[0])}`);
+  ok('progress messages reach the caller in order',
+    JSON.stringify(seen.slice(1).map((v) => v.message)) ===
+    JSON.stringify(['Rasterising', 'Reading page 1 of 2', 'Reading page 2 of 2', 'Done']),
+    JSON.stringify(seen.map((v) => v.message)));
+  ok('progress never goes backwards', seen.every((v, i) => i === 0 || v.progress >= seen[i - 1].progress),
+    JSON.stringify(seen.map((v) => v.progress)));
+
+  ok('a finished job resolves with the transcription', result && result.totalNotes === 4,
+    JSON.stringify(result));
+  ok('the result carries the backend it came from',
+    result.engine === 'homr' && result.version === '0.7.0' && result.device === 'cpu',
+    JSON.stringify({ e: result.engine, v: result.version, d: result.device }));
+  eq('the base the result came from is attached', result.base, BASE);
+
+  /* ================================================================ cancel == */
+
+  head('cancel');
+
+  serving({ final: { state: 'running', progress: 0.4, message: 'Reading page 1 of 3', seconds: 2 } });
+
+  const job2 = startTranscription(scanFile('big.png'), { pollMs: 5 });
+  await job2.jobId;
+  // Let it settle into polling before asking it to stop.
+  await new Promise((r) => setTimeout(r, 20));
+  const answer = await job2.cancel();
+
+  ok('cancel posts to the cancel endpoint',
+    !!calls((u) => u.endsWith('/cancel')).length,
+    JSON.stringify(requests.map((r) => r.method + ' ' + r.url)));
+  eq('cancel returns the server\'s answer', answer && answer.state, 'stopping');
+
+  // The server keeps reporting "running" here, because in reality it finishes
+  // the page in flight first. Resolving early would tell the user their scan
+  // was abandoned while the CPU is still working on it.
+  const afterCancel = await Promise.race([
+    job2.promise.then(() => 'resolved').catch(() => 'rejected'),
+    new Promise((r) => setTimeout(() => r('still running'), 60)),
+  ]);
+  eq('cancelling does not pretend the job has already finished', afterCancel, 'still running');
+
+  /* ================================== cancel races the job id, as a user does == */
+
+  head('cancel before the job id is known');
+
+  let holdSubmit;
+  serving({
+    on: (url, method) => {
+      if (method === 'POST' && url.endsWith('/api/omr/jobs')) {
+        return new Promise((resolve) => { holdSubmit = () => resolve({ json: { jobId: JOB_ID, state: 'running' } }); });
+      }
+      return null;
+    },
+    final: { state: 'cancelled', progress: 0.4, message: 'Stopped', seconds: 1 },
+  });
+
+  const job3 = startTranscription(scanFile('racy.png'), { pollMs: 5 });
+  // Cancel immediately, before the submit has even come back.
+  const cancelPromise = job3.cancel();
+  holdSubmit();
+  const raceAnswer = await cancelPromise;
+
+  eq('cancelling before the id is known still reaches the server', raceAnswer && raceAnswer.state, 'stopping');
+  const err3 = await rejects('a cancelled job rejects rather than resolving empty', job3.promise, /Stopped before/);
+  ok('a cancelled job is distinguishable from a failed one', !!(err3 && err3.cancelled === true),
+    JSON.stringify(err3 && { msg: err3.message, cancelled: err3.cancelled }));
+
+  /* ============================================================== failures == */
+
+  head('failures');
+
+  serving({ final: { state: 'error', progress: 0.2, message: 'Could not read the file', seconds: 0.4, error: 'unsupported or corrupt file', status: 400 } });
+  const e4 = await rejects('a failed job rejects with the server\'s reason',
+    startTranscription(scanFile(), { pollMs: 5 }).promise, /unsupported or corrupt file/);
+  eq('the HTTP status is carried through', e4 && e4.status, 400);
+
+  serving({
+    on: (url, method) => (method === 'GET' ? { status: 404, json: { detail: 'no such job' } } : null),
+  });
+  await rejects('an expired job says so in plain words',
+    startTranscription(scanFile(), { pollMs: 5 }).promise, /no longer knows about this job/);
+
+  serving({
+    on: (url, method) => {
+      if (method === 'POST' && url.endsWith('/api/omr/jobs')) throw new TypeError('Failed to fetch');
+      return null;
+    },
+  });
+  await rejects('a backend that is not running is named as such',
+    startTranscription(scanFile(), { pollMs: 5 }).promise, /not running at http:\/\/127\.0\.0\.1:8000/);
+
+  serving({
+    submit: { status: 400, statusText: 'Bad Request', json: { detail: 'unknown preprocessing mode' } },
+  });
+  await rejects('a rejected upload surfaces the detail, not the status line',
+    startTranscription(scanFile(), { pollMs: 5 }).promise, /unknown preprocessing mode/);
+
+  /* ============================================================ resilience == */
+
+  head('a poll that fails in transit');
+
+  let polls = 0;
+  serving({
+    on: (url, method) => {
+      if (method === 'POST') return null;
+      polls++;
+      // Two dropped polls in the middle of a long transcription, then it lands.
+      if (polls === 2 || polls === 3) throw new TypeError('Failed to fetch');
+      if (polls < 6) return { json: { state: 'running', progress: 0.2, message: 'Reading page 1 of 1', seconds: 1 } };
+      return null;
+    },
+  });
+  const flaky = await startTranscription(scanFile(), { pollMs: 5 }).promise;
+  ok('two dropped polls do not abandon a transcription', flaky && flaky.totalNotes === 4,
+    JSON.stringify(flaky && flaky.totalNotes));
+
+  serving({
+    on: (url, method) => {
+      if (method === 'POST') return null;
+      throw new TypeError('Failed to fetch');
+    },
+  });
+  await rejects('a backend that stays unreachable eventually gives up',
+    startTranscription(scanFile(), { pollMs: 2 }).promise, /Failed to fetch|not running|fetch/);
+
+  /* ================================================= the synchronous path === */
+
+  head('the one-shot synchronous call');
+
+  serving({
+    on: () => ({ json: { ok: true, engine: 'homr', version: '0.7.0', device: 'cpu', totalNotes: 9, seconds: 2.1, pages: [] } }),
+  });
+  const oneShot = await transcribe(scanFile());
+  ok('transcribe() still returns the body with its base',
+    oneShot.totalNotes === 9 && oneShot.base === BASE,
+    JSON.stringify(oneShot));
+
+  /* ==================================================== pages into scores === */
+
+  head('one score per page');
+
+  const xml = (title) => `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <work><work-title>${title}</work-title></work>
+  <part-list><score-part id="P1"><part-name>Music</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>0</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef></attributes>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration><type>whole</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+  const scores = scoresFromResult(scanFile('sonata.png'), {
+    engine: 'homr', version: '0.7.0', device: 'cpu',
+    pages: [
+      // A title the recogniser did read must survive -- the fallback is for
+      // pages it could not read, not an override on every page.
+      { page: 0, variant: 'clean', seconds: 2.1, stats: { notes: 1 }, musicxml: xml('Sonata') },
+      // And a page it could not name falls back to the file name.
+      { page: 1, variant: 'auto', seconds: 2.4, stats: { notes: 1 }, musicxml: xml('') },
+    ],
+  });
+
+  eq('a two-page scan becomes two scores', scores.length, 2);
+  ok('each score keeps the page number and what the recogniser did',
+    scores[0].omr.page === 0 && scores[0].omr.variant === 'clean' && scores[0].omr.seconds === 2.1,
+    JSON.stringify(scores[0].omr));
+  ok('the engine that read it is recorded on the score',
+    scores[0].omr.engine.name === 'homr' && scores[0].omr.engine.device === 'cpu',
+    JSON.stringify(scores[0].omr.engine));
+  eq('a title the recogniser read is kept', scores[0].title, 'Sonata');
+  eq('a page with no title is named after the file', scores[1].title, 'sonata — page 2');
+  ok('the notes really parsed', scores[0].parts[0].notes.length === 1,
+    JSON.stringify(scores[0].parts[0].notes.length));
+
+  eq('a result with no pages produces no scores', scoresFromResult(scanFile(), {}).length, 0);
+
+  /* ================================================ the MusicXML is kept === */
+
+  head('the MusicXML the button saves is still there afterwards');
+
+  // Save MusicXML reads pages[i].musicxml off the report. That only works if
+  // converting a result into scores leaves the result intact -- a parse that
+  // rebuilt or stripped the pages would leave the button with nothing to save.
+  const raw = {
+    engine: 'homr', version: '0.7.0', device: 'cpu',
+    pages: [
+      { page: 0, variant: 'clean', seconds: 2.1, musicxml: xml('Alpha') },
+      { page: 1, variant: 'auto', seconds: 2.4, musicxml: xml('Beta') },
+    ],
+  };
+  const built = scoresFromResult(scanFile('kept.png'), raw);
+  eq('every page still carries its MusicXML after conversion', raw.pages.filter((p) => p.musicxml).length, 2);
+  ok('the page objects themselves are untouched, not rebuilt',
+    raw.pages[0].musicxml.includes('<work-title>Alpha</work-title>'),
+    raw.pages[0].musicxml.slice(0, 60));
+  eq('the preview key is read from the page, not invented', built[0].omr.preview, null);
+
+  window.fetch = realFetch;
+} catch (e) {
+  fail++;
+  failures.push('EXCEPTION');
+  lines.push('', `<span class="fail">EXCEPTION ${(e && e.stack) || e}</span>`);
+}
+
+/* =============================================================== summary === */
+const summary = `${pass} passed, ${fail} failed`;
+lines.unshift(`<span class="${fail ? 'fail' : 'pass'}">OMR JOB CLIENT TESTS: ${summary}</span>`);
+out.innerHTML = lines.join('\n');
+window.__RESULT__ = { passed: pass, failed: fail, summary, fatal: null, failures };
+window.__DONE__ = true;
+document.title = `OMR ${summary}`;
+</script>
+</body>
+</html>

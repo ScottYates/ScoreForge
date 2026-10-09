@@ -400,7 +400,9 @@ tools/
   build.mjs             esbuild bundle -> single HTML
   cdp.mjs               headless-Chrome harness (no npm deps)
   verify.mjs            build + self-test + screenshot
-  run-suites.mjs        the four module suites, one verdict
+  run-suites.mjs        the module suites, one verdict
+  drive-omr.mjs         drives the built page against a live backend
+  check-omr-jobs.py     the job API against a live backend
   make-fixtures.mjs     render ground-truth score images + gt.json
   score-render.html     engraves one known fixture for make-fixtures
   score_omr.py          recogniser accuracy suite
@@ -429,10 +431,30 @@ node tools/cdp.mjs --url "file:///$(pwd)/tests/musicxml-test.html" \
 ```
 
 In PowerShell use `file:///$PWD/tests/musicxml-test.html`. `npm run test:suites`
-runs all four at once: `musicxml-test.html` (179 assertions), `smf-test.html`
-(97), `instruments-test.html` (194 checks) and `mscx-test.html` (125). Each
-publishes a `{passed, failed, fatal}` verdict; a suite that publishes none is
-treated as a failure rather than a pass.
+runs all five at once: `musicxml-test.html` (179 assertions), `smf-test.html`
+(97), `instruments-test.html` (194 checks), `mscx-test.html` (125) and
+`omr-test.html` (33). Each publishes a `{passed, failed, fatal}` verdict; a suite
+that publishes none is treated as a failure rather than a pass.
+
+`omr-test.html` stubs `fetch` and drives the job client: it watches that progress
+actually advances, that cancelling reaches the *server* rather than just closing
+the poll, and that a job the user stopped rejects with `err.cancelled` instead of
+resolving as if it had been read.
+
+Two checks need a running backend (`python backend/app.py`) because they exercise
+real CPU inference and a real worker thread — a mocked engine would pass while the
+job still never finished:
+
+```bash
+python tools/check-omr-jobs.py fixtures/tiny.png fixtures/ode.pdf
+node tools/drive-omr.mjs run   fixtures/tiny.png <base64 of the png>
+node tools/drive-omr.mjs abort fixtures/ode.pdf  <base64 of the pdf>
+```
+
+The second pair drives the built page in a headless browser: it watches the
+progress card the way a person would, saves the MusicXML and reads the bytes back,
+and on abort checks what the *backend* says the job became — a UI that merely
+stopped watching scores the same as one that actually freed the CPU.
 
 The recogniser suite is separate because it needs the Python environment. It
 rejects any fixture whose declared notes disagree with what was rendered, so a

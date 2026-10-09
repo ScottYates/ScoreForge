@@ -15,6 +15,7 @@ from __future__ import annotations
 import io
 import json
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -38,6 +39,27 @@ import preprocess  # noqa: E402
 
 MAX_UPLOAD_BYTES = 40 * 1024 * 1024  # 40 MB
 MAX_PDF_PAGES = 20
+
+
+class JobCancelled(Exception):
+    """The user asked to stop. Not an error; reported as its own state."""
+
+
+class EngineUnavailable(Exception):
+    pass
+
+
+class NoMusicFound(Exception):
+    pass
+
+
+def _validate_upload(data: bytes, filename: Optional[str]) -> None:
+    if not data:
+        raise HTTPException(400, "the uploaded file was empty")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            413, f"file is {len(data) / 1e6:.1f} MB; the limit is {MAX_UPLOAD_BYTES / 1e6:.0f} MB"
+        )
 
 HOST = os.environ.get("SCOREFORGE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SCOREFORGE_PORT", "8000"))
@@ -143,66 +165,85 @@ def accuracy() -> dict:
     return {"available": True, **report}
 
 
-@app.post("/api/omr")
-async def omr(
-    file: UploadFile = File(...),
-    mode: str = Form("auto"),
-    pages: Optional[str] = Form(None),
-    pdf_dpi: int = Form(300),
-    debug: bool = Form(False),
-) -> JSONResponse:
-    """Transcribe sheet music from a photo, scan or PDF.
+def _transcribe(
+    data: bytes,
+    filename: str,
+    mode: str = "auto",
+    pages: Optional[str] = None,
+    pdf_dpi: int = 300,
+    debug: bool = False,
+    progress=None,
+    cancelled=None,
+) -> dict:
+    """Rasterise and recognise. Raises ValueError with a user-facing message.
 
-    `mode` selects the preprocessing variant set:
-        original -- size-normalise only
-        auto     -- try several renderings, keep the one that reads most notes
-        clean    -- deskew + contrast + denoise, for faint photocopies
+    Shared by the synchronous endpoint and the background job so the two cannot
+    drift apart -- a job that reported different notes from the request the
+    installer smoke-tests would be worse than no job at all.
+
+    progress(fraction, message) is called as the work advances; cancelled() is
+    checked between pages and between the phases that surround inference.
+    Inference itself is a blocking call into the engine, so a cancel lands at
+    the next boundary rather than mid-note -- hence the UI says so.
     """
     started = time.perf_counter()
-    data = await file.read()
-    if not data:
-        raise HTTPException(400, "the uploaded file was empty")
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            413, f"file is {len(data) / 1e6:.1f} MB; the limit is {MAX_UPLOAD_BYTES / 1e6:.0f} MB"
-        )
-    if mode not in {"auto", "original", "clean"}:
-        raise HTTPException(400, f"unknown preprocessing mode {mode!r}")
 
+    def report(fraction: float, message: str) -> None:
+        if progress:
+            progress(max(0.0, min(1.0, fraction)), message)
+
+    def check_cancel() -> None:
+        if cancelled and cancelled():
+            raise JobCancelled()
+
+    check_cancel()
+    report(0.02, "Reading the file")
     wanted: Optional[set] = None
     if pages:
         try:
             wanted = {int(p) for p in pages.split(",") if p.strip() != ""}
         except ValueError:
-            raise HTTPException(400, "pages must be a comma-separated list of page numbers")
+            raise ValueError("pages must be a comma-separated list of page numbers")
 
+    check_cancel()
+    report(0.05, "Rasterising")
     try:
         raster_pages = preprocess.load_pages(
-            data, file.filename or "upload", pdf_dpi=pdf_dpi, max_pages=MAX_PDF_PAGES
+            data, filename or "upload", pdf_dpi=pdf_dpi, max_pages=MAX_PDF_PAGES
         )
     except ValueError as exc:
-        raise HTTPException(415, str(exc))
+        raise ValueError(str(exc))
     except Exception as exc:
-        raise HTTPException(415, f"could not read the file: {type(exc).__name__}: {exc}")
+        raise ValueError(f"could not read the file: {type(exc).__name__}: {exc}")
 
     if wanted is not None:
         raster_pages = [p for p in raster_pages if p.index in wanted]
         if not raster_pages:
-            raise HTTPException(400, f"none of the requested pages exist (file has {len(raster_pages)})")
+            raise ValueError(f"none of the requested pages exist (file has {len(raster_pages)})")
 
     results = []
     errors = []
-    for page in raster_pages:
+    for i, page in enumerate(raster_pages):
+        check_cancel()
+        report(0.1 + 0.85 * (i / max(1, len(raster_pages))),
+               f"Reading page {page.index + 1} of {len(raster_pages)}")
         try:
             result = omr_engine.transcribe_page(page, mode=mode, debug=debug)
         except RuntimeError as exc:
-            raise HTTPException(503, f"recognition engine unavailable: {exc}")
+            raise EngineUnavailable(str(exc))
         except ValueError as exc:
             errors.append({"page": page.index, "error": str(exc)})
             continue
+        except JobCancelled:
+            raise
         except Exception as exc:
             errors.append({"page": page.index, "error": f"{type(exc).__name__}: {exc}"})
             continue
+
+        # A cancel that arrives *during* inference is only noticed here. Without
+        # this, a one-page scan -- which is most scans -- could never be
+        # stopped: the only other checks all run before the page starts.
+        check_cancel()
 
         results.append({
             "page": result.index,
@@ -217,22 +258,216 @@ async def omr(
 
     if not results:
         detail = errors[0]["error"] if errors else "no readable music found"
-        raise HTTPException(422, detail)
+        raise NoMusicFound(detail)
 
     total_notes = sum(r["stats"].get("notes", 0) for r in results)
-    return JSONResponse({
+    report(0.99, "Done")
+    return {
         "ok": True,
         "engine": omr_engine.ENGINE_NAME,
         "version": omr_engine.ENGINE_VERSION,
         "device": omr_engine.DEVICE,
-        "filename": file.filename,
+        "filename": filename,
         "mode": mode,
         "pages": results,
         "pageCount": len(raster_pages),
         "totalNotes": total_notes,
         "seconds": round(time.perf_counter() - started, 2),
         "errors": errors,
-    })
+    }
+
+
+@app.post("/api/omr")
+async def omr(
+    file: UploadFile = File(...),
+    mode: str = Form("auto"),
+    pages: Optional[str] = Form(None),
+    pdf_dpi: int = Form(300),
+    debug: bool = Form(False),
+) -> JSONResponse:
+    """Transcribe sheet music from a photo, scan or PDF, and wait for the answer.
+
+    `mode` selects the preprocessing variant set:
+        original -- size-normalise only
+        auto     -- try several renderings, keep the one that reads most notes
+        clean    -- deskew + contrast + denoise, for faint photocopies
+
+    Recognition takes minutes on a large scan and holds this request open the
+    whole time. POST /api/omr/jobs does the same work in the background and
+    reports progress; this endpoint stays for callers that want one round trip.
+    """
+    data = await file.read()
+    _validate_upload(data, file.filename)
+    try:
+        payload = _transcribe(data, file.filename or "upload", mode, pages, pdf_dpi, debug)
+    except EngineUnavailable as exc:
+        raise HTTPException(503, f"recognition engine unavailable: {exc}")
+    except NoMusicFound as exc:
+        raise HTTPException(422, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return JSONResponse(payload)
+
+
+# --------------------------------------------------------------------- jobs
+#
+# Recognition on a real scan takes minutes. Holding one HTTP request open for
+# that is a timeout waiting to happen, behind a proxy or not, and gives the user
+# nothing to look at and no way out. So the same work can run as a job the
+# client polls, reports against, and cancels.
+
+_JOBS: "dict[str, dict]" = {}
+_JOBS_LOCK = threading.Lock()
+JOB_TTL_SECONDS = 3600
+
+
+def _job_view(job: dict) -> dict:
+    """What the client polls for. Never includes the (large) MusicXML bodies."""
+    view = {
+        "jobId": job["id"],
+        "state": job["state"],
+        "progress": round(job["progress"], 3),
+        "message": job["message"],
+        "seconds": round(job["seconds"], 2),
+    }
+    if job["state"] == "done":
+        view["result"] = job["result"]
+    if job["state"] == "error":
+        view["error"] = job["error"]
+        view["status"] = job.get("status", 400)
+    return view
+
+
+def _prune_jobs() -> None:
+    now = time.time()
+    for jid, job in list(_JOBS.items()):
+        if now - job["created"] > JOB_TTL_SECONDS and job["state"] != "running":
+            _JOBS.pop(jid, None)
+
+
+def _run_job(job_id: str, data: bytes, filename: str, mode: str,
+             pages: Optional[str], pdf_dpi: int, debug: bool) -> None:
+    def progress(fraction: float, message: str) -> None:
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if job:
+                job["progress"] = fraction
+                job["message"] = message
+
+    def cancelled() -> bool:
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            return bool(job and job["cancel"].is_set())
+
+    started = time.perf_counter()
+    try:
+        result = _transcribe(data, filename, mode, pages, pdf_dpi, debug,
+                             progress=progress, cancelled=cancelled)
+    except JobCancelled:
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if job:
+                job.update(state="cancelled", message="Stopped",
+                           seconds=time.perf_counter() - started)
+        return
+    except EngineUnavailable as exc:
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if job:
+                job.update(state="error", error=f"recognition engine unavailable: {exc}",
+                           status=503, message="Engine unavailable",
+                           seconds=time.perf_counter() - started)
+        return
+    except NoMusicFound as exc:
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if job:
+                job.update(state="error", error=str(exc), status=422,
+                           message="No readable music", seconds=time.perf_counter() - started)
+        return
+    except ValueError as exc:
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if job:
+                job.update(state="error", error=str(exc), status=400,
+                           message="Could not read the file",
+                           seconds=time.perf_counter() - started)
+        return
+    except Exception as exc:  # noqa: BLE001 - a worker thread must never die silently
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if job:
+                job.update(state="error", error=f"{type(exc).__name__}: {exc}", status=500,
+                           message="Recognition failed", seconds=time.perf_counter() - started)
+        return
+
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job:
+            job.update(state="done", progress=1.0, message="Done", result=result,
+                       seconds=time.perf_counter() - started)
+
+
+@app.post("/api/omr/jobs")
+async def create_job(
+    file: UploadFile = File(...),
+    mode: str = Form("auto"),
+    pages: Optional[str] = Form(None),
+    pdf_dpi: int = Form(300),
+    debug: bool = Form(False),
+) -> JSONResponse:
+    """Start a transcription in the background and return its id immediately."""
+    if mode not in {"auto", "original", "clean"}:
+        raise HTTPException(400, f"unknown preprocessing mode {mode!r}")
+    data = await file.read()
+    _validate_upload(data, file.filename)
+
+    with _JOBS_LOCK:
+        _prune_jobs()
+        job_id = uuid.uuid4().hex
+        _JOBS[job_id] = {
+            "id": job_id, "state": "running", "progress": 0.0,
+            "message": "Starting", "created": time.time(), "seconds": 0.0,
+            "cancel": threading.Event(), "result": None, "error": None, "status": 400,
+        }
+
+    thread = threading.Thread(
+        target=_run_job,
+        args=(job_id, data, file.filename or "upload", mode, pages, pdf_dpi, debug),
+        daemon=True,
+        name=f"omr-{job_id[:8]}",
+    )
+    thread.start()
+    return JSONResponse({"jobId": job_id, "state": "running"})
+
+
+@app.get("/api/omr/jobs/{job_id}")
+def job_status(job_id: str) -> JSONResponse:
+    """Poll a job. The result body is included only once it is done."""
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            raise HTTPException(404, "no such job; it may have expired")
+        return JSONResponse(_job_view(job))
+
+
+@app.post("/api/omr/jobs/{job_id}/cancel")
+def cancel_job(job_id: str) -> JSONResponse:
+    """Ask a running job to stop.
+
+    Cancellation is checked at the boundaries between pages: inference itself is
+    a single blocking call into the engine and cannot be interrupted part-way
+    through a page without killing the process.
+    """
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            raise HTTPException(404, "no such job; it may have expired")
+        if job["state"] == "running":
+            job["cancel"].set()
+            job["message"] = "Stopping after the current page"
+            return JSONResponse({"jobId": job_id, "state": "stopping"})
+        return JSONResponse({"jobId": job_id, "state": job["state"]})
 
 
 @app.get("/api/preview/{key}")

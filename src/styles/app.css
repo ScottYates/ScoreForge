@@ -334,6 +334,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 
+/*
+ * A sentence, not a caption. `.omr-sub` deliberately clips to one line because
+ * it labels a fixed-height image; prose has to wrap or it just loses its ending.
+ */
+.omr-note {
+  margin-top: 8px;
+  font-size: 10.5px; line-height: 1.5; color: var(--ink-3);
+}
+
 .omr-stats { padding: 6px; display: flex; flex-direction: column; gap: 5px; }
 .omr-page {
   text-align: left;
@@ -379,6 +388,55 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .omr-acc {
   margin-top: 8px; font-size: 10.5px; color: var(--ink-3); line-height: 1.45;
 }
+
+/* ------------------------------------------------------- running a job --- */
+
+.omr-job {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255,255,255,.02);
+}
+.omr-job-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin-bottom: 7px;
+}
+.omr-job-title {
+  font-size: 12px; font-weight: 650; color: var(--ink);
+}
+.omr-job-pct {
+  font-family: var(--mono); font-size: 11px; color: var(--accent);
+}
+.omr-job-track {
+  height: 5px; border-radius: 999px; overflow: hidden;
+  background: rgba(255,255,255,.06);
+}
+.omr-job-fill {
+  height: 100%; border-radius: 999px;
+  background: var(--accent);
+  transition: width .25s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .omr-job-fill { transition: none; }
+}
+.omr-job-foot {
+  display: flex; align-items: center; gap: 10px; margin-top: 8px;
+}
+.omr-job-msg {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 11px; color: var(--ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.omr-job-time {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-3);
+}
+
+.omr-save {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.omr-save .omr-note { margin-top: 0; flex: 1 1 auto; }
 
 .busy-bar {
   display: inline-flex; align-items: center; gap: 7px;

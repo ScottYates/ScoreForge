@@ -37,6 +37,7 @@ export class App {
     this.references = [];
     this.omrReport = null;
     this.omrAccuracy = null;
+    this.omrJob = null;
     this.activeId = null;
     this.score = null;
     this.resolved = null;
@@ -289,9 +290,14 @@ export class App {
 
     let read;
     try {
-      read = await readScoreFiles(usable, { onProgress: (m) => this._setBusy(m) });
+      read = await readScoreFiles(usable, {
+        onProgress: (m) => this._setBusy(m),
+        onOmrStarted: (job) => this._beginOmrJob(job),
+        onOmrProgress: (view) => this._paintOmrJob(view),
+      });
     } finally {
       this._setBusy(null);
+      this._endOmrJob();
     }
     const { ok, failed } = read;
 
@@ -306,14 +312,17 @@ export class App {
         }
         if (r.omr) {
           this.omrReport = { ...r.omr, name: r.score.fileName, reference: r.reference };
-          this._renderOmrReport();
+          this._renderOmrSection();
         }
       } else {
         this.references = this.references.filter((x) => x.url !== r.reference.url);
         this.references.push(r.reference);
       }
     }
-    for (const f of failed) toast(`Could not read ${f.file.name}`, f.error, 'err');
+    for (const f of failed) {
+      if (f.cancelled) toast(`Stopped reading ${f.file.name}`, 'The scan was not transcribed.', 'warn');
+      else toast(`Could not read ${f.file.name}`, f.error, 'err');
+    }
 
     this._renderLibrary();
     this._renderReferences();
@@ -470,7 +479,7 @@ export class App {
       const body = await res.json();
       if (body && body.available !== false && body.summary) {
         this.omrAccuracy = body;
-        this._renderOmrReport();
+        this._renderOmrSection();
       }
     } catch { /* the panel is optional */ }
   }
@@ -483,14 +492,121 @@ export class App {
     bar.textContent = message;
   }
 
+  /**
+   * Take ownership of a submitted transcription so the panel can follow it and
+   * the user can stop it. One scan is read at a time, so there is exactly one
+   * of these; a second load replaces it.
+   */
+  _beginOmrJob(handle) {
+    this.omrJob = { handle, view: null, stopping: false };
+    this._renderOmrSection();
+  }
+
+  /** Follow one polled view from the recognition service. */
+  _paintOmrJob(view) {
+    const job = this.omrJob;
+    if (!job) return;
+    job.view = view;
+    // The server says "Stopping after the current page" while it finishes the
+    // page in flight. Mirror that rather than inventing a second idea of when
+    // the scan has actually stopped.
+    job.stopping = /stopping/i.test(view.message || '');
+    const pct = Math.round((view.progress || 0) * 100);
+    this._setBusy(job.stopping ? 'Stopping after the current page…' : `${view.message || 'Reading'} · ${pct}%`);
+    this._renderOmrSection();
+  }
+
+  _endOmrJob() {
+    if (!this.omrJob) return;
+    this.omrJob = null;
+    this._renderOmrSection();
+  }
+
+  /**
+   * Stop a running transcription. The engine reads a page in one blocking
+   * call, so the page in flight always finishes -- which is why the button
+   * says so rather than pretending to stop instantly.
+   */
+  async _abortOmrJob() {
+    const job = this.omrJob;
+    if (!job || job.stopping) return;
+    job.stopping = true;
+    this._setBusy('Stopping after the current page…');
+    this._renderOmrSection();
+    await job.handle.cancel();
+  }
+
+  /** The Transcription panel shows whichever of the two things is current. */
+  _renderOmrSection() {
+    if (this.omrJob) return this._renderOmrJob();
+    return this._renderOmrReport();
+  }
+
+  /** The Transcription panel while a scan is being read. */
+  _renderOmrJob() {
+    const d = this.dom;
+    if (!d.omrSec) return;
+    d.omrSec.hidden = false;
+    const card = clear(d.omrCard);
+    const job = this.omrJob;
+    const view = job.view || {};
+    const pct = Math.max(0, Math.min(100, Math.round((view.progress || 0) * 100)));
+    const msg = job.stopping
+      ? 'Stopping after the current page…'
+      : (view.message || 'Sending this scan to the recogniser…');
+
+    card.appendChild(el('div', { class: 'omr-job' },
+      el('div', { class: 'omr-job-head' },
+        el('span', { class: 'omr-job-title', text: job.stopping ? 'Stopping' : 'Reading this scan' }),
+        el('span', { class: 'omr-job-pct', text: `${pct}%` })),
+      el('div', { class: 'omr-job-track' },
+        el('div', { class: 'omr-job-fill', style: { width: `${pct}%` } })),
+      el('div', { class: 'omr-job-foot' },
+        el('span', { class: 'omr-job-msg', text: msg }),
+        view.seconds ? el('span', { class: 'omr-job-time', text: `${view.seconds.toFixed(1)}s` }) : null,
+        el('button', {
+          class: 'btn ghost sm',
+          text: job.stopping ? 'Stopping…' : 'Abort',
+          disabled: job.stopping,
+          title: 'Stop reading this scan. The page being read finishes first.',
+          onclick: () => this._abortOmrJob(),
+        }))));
+
+    card.appendChild(el('div', {
+      class: 'omr-note',
+      text: 'Recognition runs in the background on the CPU, so you can carry on with the rest of the page. The transcription appears here when it is ready.',
+    }));
+  }
+
+  /**
+   * Save the MusicXML for one transcribed page.
+   *
+   * This is the recogniser's own output rather than the app's internal model
+   * written back out, so what lands on disk opens as-is in a notation editor.
+   */
+  _saveOmrXml(page) {
+    const rep = this.omrReport || {};
+    const stem = String(rep.name || 'scan').replace(/\.[^.]+$/, '');
+    const suffix = (rep.pages || []).length > 1 ? `-page${page.page + 1}` : '';
+    const filename = `${stem}${suffix}.musicxml`;
+    saveBlob(
+      new Blob([page.musicxml], { type: 'application/vnd.recordare.musicxml+xml' }),
+      filename
+    );
+    toast('MusicXML saved', filename, 'ok');
+  }
+
   /** Side-by-side: what the recogniser was shown, and what it made of it. */
   _renderOmrReport() {
     const d = this.dom;
     if (!d.omrSec) return;
     const rep = this.omrReport;
+    // Clear before the early return. Otherwise a job that ended with no report
+    // -- a cancelled scan, say -- leaves its progress card sitting in a hidden
+    // section, still offering an Abort button for a job that no longer exists.
+    const card = clear(d.omrCard);
     if (!rep) { d.omrSec.hidden = true; return; }
     d.omrSec.hidden = false;
-    const card = clear(d.omrCard);
     const active = this.score && this.score.omr;
     const pages = rep.pages || [];
 
@@ -555,6 +671,24 @@ export class App {
         `Measured on this machine: ${s.f1}% of notes read correctly across ${s.fixtures} test scores` +
         (others.length ? ` (${others.join(', ')} after degradation)` : '') +
         `, ${s.secondsPerPage}s per page on the CPU.`));
+    }
+
+    // Only offer the save for the page on screen, and only once the report has
+    // a body to save -- a page the recogniser gave up on has no MusicXML.
+    const shown = active && pages.find((p) => p.page === active.page);
+    if (shown && shown.musicxml) {
+      card.appendChild(el('div', { class: 'omr-save' },
+        el('button', {
+          class: 'btn ghost sm',
+          text: 'Save MusicXML',
+          title: `Download page ${shown.page + 1} as MusicXML`,
+          onclick: () => this._saveOmrXml(shown),
+        }),
+        el('span', {
+          class: 'omr-note',
+          text: `The MusicXML for page ${shown.page + 1}, exactly as the recogniser wrote it.` +
+            (pages.length > 1 ? ' Pick a page on the right to save a different one.' : ''),
+        })));
     }
   }
 
@@ -640,7 +774,7 @@ export class App {
 
     this._renderLibrary();
     this.dom.btnExport.disabled = !score;
-    this._renderOmrReport();
+    this._renderOmrSection();
 
     if (!score) {
       this.resolved = null;

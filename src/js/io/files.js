@@ -19,7 +19,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { parseMusicXml } from './musicxml.js';
 import { parseMidi } from './smf.js';
 import { parseMuseScoreXml } from './mscx.js';
-import { backendHealth, transcribeToScores } from './omr.js';
+import { backendHealth, scoresFromResult, startTranscription } from './omr.js';
 
 export const FORMATS = {
   musicxml: { label: 'MusicXML', exts: ['.musicxml', '.xml', '.mxl'], hint: 'MuseScore, Sibelius, Dorico, Finale, Noteflight' },
@@ -103,6 +103,9 @@ function pickScoreXml(xml, containerName) {
  * @param {object} [opts]
  * @param {'auto'|'original'|'clean'} [opts.omrMode]
  * @param {(msg:string)=>void} [opts.onProgress]
+ * @param {(view:object)=>void} [opts.onOmrProgress] every polled job view
+ * @param {(job:object)=>void} [opts.onOmrStarted] the handle, once submitted,
+ *   so the caller can offer a way to stop it
  * @returns {Promise<{kind:'score'|'reference', score?, reference?, warnings:string[], omr?}>}
  */
 export async function readScoreFile(file, opts = {}) {
@@ -129,7 +132,15 @@ export async function readScoreFile(file, opts = {}) {
       return { kind: 'reference', reference, warnings: [] };
     }
     opts.onProgress && opts.onProgress(`Reading ${name}…`);
-    const { scores, result } = await transcribeToScores(file, { mode: opts.omrMode });
+    // Recognition runs as a background job rather than one long request, so a
+    // slow scan shows progress and can be stopped instead of looking hung.
+    const job = startTranscription(file, {
+      mode: opts.omrMode,
+      onProgress: (view) => opts.onOmrProgress && opts.onOmrProgress(view),
+    });
+    opts.onOmrStarted && opts.onOmrStarted(job);
+    const result = await job.promise;
+    const scores = scoresFromResult(file, result);
     if (!scores.length) throw new Error(`No music could be read from ${name}.`);
     return {
       kind: 'score',
@@ -209,7 +220,9 @@ export async function readScoreFiles(files, opts = {}) {
       else if (r.reference) r.reference.fileName = file.name;
       ok.push(r);
     } catch (e) {
-      failed.push({ file, error: e && e.message ? e.message : String(e) });
+      // A job the user stopped is not a file that could not be read, and the
+      // two deserve different words in the toast.
+      failed.push({ file, error: e && e.message ? e.message : String(e), cancelled: !!(e && e.cancelled) });
     }
   }
   return { ok, failed };
