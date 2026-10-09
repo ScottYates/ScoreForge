@@ -222,12 +222,30 @@ export class NotationView {
   }
 }
 
-/** OSMD's Fraction is in whole notes; we want quarters. */
+/**
+ * OSMD's Fraction counts whole notes; the score's timeline counts quarters.
+ *
+ * RealValue is the whole-note value *including* its fractional part -- 0, 1/4,
+ * 1/2, 3/4, 1, ... across a 4/4 bar -- so scaling it by 4 is what lines the
+ * cursor table up with the notes.
+ *
+ * WholeValue is only the integer part: it reads 0,0,0,0,1,1,1,1,2... across the
+ * same bar. Scaling that throws the remainder away and yields a table that
+ * jumps a whole bar every four steps, which leaves the cursor stranded several
+ * bars behind the music and growing further out of step as it plays.
+ */
 function fractionToQuarters(ts) {
   if (!ts) return 0;
-  if (typeof ts.QuarterValue === 'number') return ts.QuarterValue;
+  if (typeof ts.RealValue === 'number') return ts.RealValue * 4;
+  if (typeof ts.realValue === 'number') return ts.realValue * 4;
+  // Otherwise reconstruct the absolute value from its parts.
+  const num = typeof ts.Numerator === 'number' ? ts.Numerator : ts.numerator;
+  const den = typeof ts.Denominator === 'number' ? ts.Denominator : ts.denominator;
+  if (typeof num === 'number') {
+    const whole = typeof ts.WholeValue === 'number' ? ts.WholeValue
+      : typeof ts.wholeValue === 'number' ? ts.wholeValue : 0;
+    return (whole + num / (den || 1)) * 4;
+  }
   if (typeof ts.WholeValue === 'number') return ts.WholeValue * 4;
-  if (typeof ts.AbsoluteValue === 'number') return ts.AbsoluteValue * 4;
-  if (typeof ts.numerator === 'number') return (ts.numerator / (ts.denominator || 1)) * 4;
   return 0;
 }
