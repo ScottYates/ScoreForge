@@ -131,7 +131,7 @@ drawbar-style additive synthesis for the organ.
 
 ## Installing on Linux
 
-Needs Python 3.11 to 3.15. Everything else comes from pip. No GPU, no CUDA.
+Needs Python 3.12 to 3.15. Everything else comes from pip. No GPU, no CUDA.
 
 ```bash
 git clone https://github.com/ScottYates/ScoreForge.git
