@@ -11,7 +11,7 @@
 import { resolveScore, describeScore, keyNameFromFifths } from '../score/model.js';
 import { readScoreFiles } from '../io/files.js';
 import { backendHealth, describePage, resolveBase, probeHealth, setBase, configuredBase } from '../io/omr.js';
-import { INSTRUMENTS } from '../audio/instruments.js';
+import { INSTRUMENTS, createInstrument } from '../audio/instruments.js';
 import { instrumentForProgram, instrumentForName } from '../audio/gm.js';
 import { Engine } from '../audio/engine.js';
 import { AudioBus, Meter, ROOMS, linToDb } from '../audio/fx.js';
@@ -751,11 +751,64 @@ export class App {
       this._engine.metronome = this.settings.metronome;
       this._engine.countInBeats = this.settings.countIn > 0 ? this.settings.countIn * 4 : 0;
       this._engine.humanize = this.settings.humanize ? 1 : 0;
-      if (this.position >= this.duration() - 0.05) this._engine.seek(0);
-      this._engine.play(this.position);
+      // Parked at the end means "play again", not "play the last note over".
+      // The seek has to come before the read: the engine emits its new
+      // position on the next tick, so reading this.position here would still
+      // give the old end time and playback would start on the final bar.
+      let from = this.position;
+      if (from >= this.duration() - 0.05) { this._engine.seek(0); from = 0; }
+      this._engine.play(from);
       this.playing = true;
     }
     this._syncPlayButton();
+  }
+
+  /**
+   * Play a short figure on an instrument, so picking one is audible rather
+   * than a guess from a list of names.
+   *
+   * It goes through the same instrument builder and the same master bus as
+   * playback, so what you hear is the sound the instrument will have in the
+   * mix -- same room, same EQ -- rather than a separate preview sound. Only
+   * one audition is ever alive: changing the selection again cuts the last
+   * one off instead of stacking them.
+   */
+  auditionInstrument(instrumentId) {
+    const ctx = this.ensureAudio();
+    if (ctx.state === 'suspended') ctx.resume();
+
+    if (this._auditionTimer) clearTimeout(this._auditionTimer);
+    if (this._auditionInst) {
+      try { this._auditionInst.dispose(ctx.currentTime + 0.02); } catch { /* already gone */ }
+      this._auditionInst = null;
+    }
+
+    let inst;
+    try {
+      inst = createInstrument(instrumentId, ctx, this._bus.input);
+    } catch (e) {
+      console.error('could not audition instrument', instrumentId, e);
+      return;
+    }
+    this._auditionInst = inst;
+
+    // C4-E4-G4 rolled rather than struck together, so the attack is part of
+    // what you hear. The lead absorbs the gap while a suspended context resumes.
+    const start = ctx.currentTime + 0.08;
+    [60, 64, 67].forEach((midi, i) => {
+      try {
+        inst.noteOn({ midi, velocity: 0.75, when: start + i * 0.11, duration: 1.3, channel: 0 });
+      } catch (e) {
+        console.error('audition note failed', e);
+      }
+    });
+
+    const lifeMs = 2600;
+    this._auditionTimer = setTimeout(() => {
+      this._auditionTimer = null;
+      this._auditionInst = null;
+      try { inst.dispose(ctx.currentTime + 0.05); } catch { /* already gone */ }
+    }, lifeMs);
   }
 
   stop() {
@@ -858,6 +911,9 @@ export class App {
         onchange: (e) => {
           this.partInstruments.set(p.id, e.target.value);
           if (this._engine) this._engine.setPartInstrument(p.id, e.target.value);
+          // While the music is running the swap is already audible, so an
+          // audition would only talk over it.
+          if (!this.playing) this.auditionInstrument(e.target.value);
         },
       });
       for (const [g, items] of groups) {

@@ -82,6 +82,17 @@ export class Engine {
     return Math.min(this.duration, this._offset + (this.ctx.currentTime - this._anchor));
   }
 
+  /**
+   * Score time elapsed, deliberately unclamped.
+   *
+   * `position` stops at the end of the piece, so asking it whether playback is
+   * finished is a question it cannot answer -- it can never exceed the
+   * duration. This is the value that keeps counting past the end.
+   */
+  get elapsed() {
+    return this._offset + (this.playing ? this.ctx.currentTime - this._anchor : 0);
+  }
+
   _setState(s) {
     if (this._lastState === s) return;
     this._lastState = s;
@@ -274,12 +285,22 @@ export class Engine {
 
   /* ----------------------------------------------------------- scheduling */
 
-  _tick() {
-    if (!this.playing) return;
+  /**
+   * Lay down the next SCHEDULE_AHEAD seconds of notes.
+   *
+   * Called once when playback starts and then from the interval timer. Both go
+   * through here so the opening window cannot drift from the ones that follow.
+   */
+  _scheduleWindow() {
     const horizon = this.position + SCHEDULE_AHEAD;
     this._scheduleUntil(horizon);
     if (this.metronome) this._scheduleClicksUntil(horizon);
-    if (this.position >= this.duration + RELEASE_TAIL) {
+  }
+
+  _tick() {
+    if (!this.playing) return;
+    this._scheduleWindow();
+    if (this.elapsed >= this.duration + RELEASE_TAIL) {
       this.pause();
       this._offset = this.duration;
       this._emit({ type: 'ended' });
