@@ -14,18 +14,41 @@ import { parseMusicXml } from './musicxml.js';
 const DEFAULT_BASE = 'http://127.0.0.1:8000';
 
 /**
+ * The backend given explicitly as `?api=http://host:port`, if any.
+ *
+ * This is the escape hatch for a service that is not on port 8000:
+ * `ScoreForge.html?api=http://127.0.0.1:9100`. It applies to the page load only
+ * and is not remembered, so a bookmarked link stays honest about where it points.
+ */
+function explicitBase() {
+  try {
+    const raw = new URLSearchParams(location.search).get('api');
+    return raw ? raw.replace(/\/+$/, '') : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Where the backend might be, most likely first.
  *
- * Over http we try same-origin first, because that is the case where the
- * backend serves the page too. If the page came from somewhere else -- a plain
- * `python -m http.server`, say -- we fall back to the loopback port the backend
- * listens on. Under file:// there is only the loopback option.
+ * `?api=` wins outright. Otherwise, over http we try same-origin, because that
+ * is the case where the backend serves the page too. If the page came from
+ * somewhere else -- a plain `python -m http.server`, say -- we fall back to the
+ * loopback port the backend listens on. Under file:// there is only the
+ * loopback option.
  */
 function candidateBases() {
-  const configured = localStorage.getItem('scoreforge.omrBase');
-  if (configured) return [configured.replace(/\/+$/, '')];
+  const explicit = explicitBase();
+  if (explicit) return [explicit];
   const bases = [];
   if (location.protocol === 'http:' || location.protocol === 'https:') bases.push('');
+  try {
+    const saved = localStorage.getItem('scoreforge.omrBase');
+    if (saved) bases.push(saved.replace(/\/+$/, ''));
+  } catch {
+    /* storage can be blocked entirely; the defaults below still work */
+  }
   bases.push(DEFAULT_BASE);
   return bases;
 }

@@ -170,6 +170,22 @@ Config lives in `/etc/scoreforge/scoreforge.env`, copied there from
 The service runs as `scoreforge` with a read-only filesystem. The weights are
 fetched during install so it never needs to write anywhere at runtime.
 
+### Changing the ports
+
+Two settings, both in `/etc/scoreforge/scoreforge.env`:
+
+```bash
+SCOREFORGE_PORT=9100    # the backend, and the page it serves at /
+SCOREFORGE_WEB_PORT=3000 # the page, when a separate server serves it
+```
+
+`SCOREFORGE_WEB_PORT` is the one to set when you put the page behind nginx or
+`python -m http.server` on some other port. It does not make the backend listen
+there; it tells the browser which page origins may call the API. Ports 8080 and
+8081 are always allowed, so you only need it for anything else.
+
+After editing, `systemctl restart scoreforge`.
+
 ### Serving the page separately
 
 The backend already serves the page at `/`. To serve it with Python instead:
@@ -180,6 +196,17 @@ python3 -m http.server 8080 --directory /opt/scoreforge --bind 127.0.0.1
 
 Open <http://127.0.0.1:8080/ScoreForge.html>. The page tries its own origin first
 and falls back to `127.0.0.1:8000` for the API, so scans still work.
+
+If the page is served from somewhere the backend has never heard of — another
+port, another host — point it at the backend with a query parameter:
+
+```
+http://127.0.0.1:3000/ScoreForge.html?api=http://127.0.0.1:9100
+```
+
+That applies to the page load only and is not remembered. The backend also has
+to allow the page's origin, which is what `SCOREFORGE_WEB_PORT` and
+`SCOREFORGE_ALLOWED_ORIGINS` are for.
 
 On a machine without Node, skip the build entirely: copy `ScoreForge.html` to the
 server and open it from disk.

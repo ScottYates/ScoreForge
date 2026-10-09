@@ -151,7 +151,9 @@ grep -Ev '^[[:space:]]*homr([=<>~! ]|$)' "$REQ" > "$REQ_REST"
 # last 2.3 release (no such baseline). Force either way with NUMPY_SPEC=...
 if [ -z "${NUMPY_SPEC:-}" ] && [ "$(uname -m)" = x86_64 ] && ! grep -qw sse4_2 /proc/cpuinfo; then
     NUMPY_SPEC="numpy==2.3.5"
-    warn "CPU lacks SSE4.2 (x86-64-v2); using $NUMPY_SPEC instead of the pinned numpy"
+    warn "CPU lacks SSE4.2 (x86-64-v2); using $NUMPY_SPEC instead of the pinned numpy."
+    warn "homr declares numpy>=2.4.2, so pip check will report that as a conflict. It is"
+    warn "expected here. The end of this install transcribes a real score as the actual test."
 fi
 if [ -n "${NUMPY_SPEC:-}" ]; then
     sed -i -E "s/^[[:space:]]*numpy[=<>~! ].*/$NUMPY_SPEC/" "$REQ_REST"
@@ -163,11 +165,13 @@ HOMR_SPEC="$(grep -E '^[[:space:]]*homr([=<>~! ]|$)' "$REQ" | sed 's/[[:space:]]
 "${PIP[@]}" install --prefer-binary -r "$REQ_REST" \
     || die "dependency install failed (numpy==2.5.3 requires Python >= $PY_MIN; this venv is $("$VPY" -V 2>&1))"
 # homr's other runtime deps that are not in requirements.txt (read from its metadata).
+# types-Pillow is one of these: it is stubs only, but homr declares it as a hard
+# requirement, so leaving it out makes `pip check` report a conflict forever.
 "${PIP[@]}" install --no-deps "$HOMR_SPEC"
 "$VPY" - <<'PY' > "$REQ_REST.homr"
 from importlib.metadata import requires
 from packaging.requirements import Requirement
-skip = {"opencv-python-headless", "numpy", "onnxruntime", "rapidocr", "pillow", "types-pillow"}
+skip = {"opencv-python-headless", "numpy", "onnxruntime", "rapidocr", "pillow"}
 for r in requires("homr") or []:
     q = Requirement(r)
     if q.name.lower() not in skip and (q.marker is None or q.marker.evaluate()):
@@ -247,6 +251,8 @@ systemctl restart scoreforge.service
 say "Waiting for the service"
 port="$(grep -E '^SCOREFORGE_PORT=' "$ETC_DIR/scoreforge.env" 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '[:space:]' || true)"
 port="${port:-8000}"
+# The page's own port, if it is served by something other than this service.
+webport="$(grep -E '^[[:space:]]*SCOREFORGE_WEB_PORT=' "$ETC_DIR/scoreforge.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]' || true)"
 healthy=0
 for _ in $(seq 1 60); do
     if curl -fsS "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then healthy=1; break; fi
@@ -260,15 +266,70 @@ if [ "$healthy" -ne 1 ]; then
 fi
 curl -fsS "http://127.0.0.1:$port/api/health"; echo
 
+# Importing cleanly is not the same as working inference, and the numpy pin above
+# is deliberately below what homr declares. So measure it: transcribe a fixture
+# through the running service and report what came back.
+say "Transcribing a test score end to end"
+smoke=""
+for f in simple grand; do
+    if [ -f "$PREFIX/fixtures/$f.png" ]; then smoke="$PREFIX/fixtures/$f.png"; break; fi
+done
+[ -n "$smoke" ] || die "no fixture image in $PREFIX/fixtures, so recognition cannot be verified"
+notes="$("$VPY" - "$port" "$smoke" <<'PY' 2>/dev/null || true
+import json, sys, urllib.request, uuid
+
+port, image = sys.argv[1], sys.argv[2]
+boundary = uuid.uuid4().hex
+with open(image, "rb") as fh:
+    body_bytes = fh.read()
+name = image.rsplit("/", 1)[-1]
+body = (
+    f"--{boundary}\r\n"
+    f'Content-Disposition: form-data; name="file"; filename="{name}"\r\n'
+    "Content-Type: application/octet-stream\r\n\r\n"
+).encode() + body_bytes + f"\r\n--{boundary}--\r\n".encode()
+req = urllib.request.Request(
+    f"http://127.0.0.1:{port}/api/omr",
+    data=body,
+    headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+)
+with urllib.request.urlopen(req, timeout=600) as res:
+    print(json.load(res).get("totalNotes", 0))
+PY
+)"
+case "$notes" in
+    ''|*[!0-9]*)
+        journalctl -u scoreforge --no-pager -n 30 || true
+        die "the service is healthy but ${smoke##*/} could not be transcribed"
+        ;;
+esac
+[ "$notes" -gt 0 ] || die "${smoke##*/} transcribed to zero notes"
+gt="${smoke%.png}.gt.json"
+want=""
+if [ -f "$gt" ]; then
+    want="$("$VPY" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("renderedNotes",""))' "$gt" 2>/dev/null || true)"
+fi
+if [ -n "$want" ]; then
+    echo "    read ${smoke##*/}: $notes notes (fixture renders $want)"
+else
+    echo "    read ${smoke##*/}: $notes notes"
+fi
+
+webline=""
+[ -n "$webport" ] && webline="  page origin  $webport  (SCOREFORGE_WEB_PORT -- also allowed to call the API)"
+apihint="  override     append ?api=http://127.0.0.1:$port to the page URL to point it at this backend"
+
 cat <<MSG
 
 $(printf '\033[1m')ScoreForge installed.$(printf '\033[0m')
   page      http://127.0.0.1:$port/
+$webline
   API docs  http://127.0.0.1:$port/api/docs
   install   $PREFIX
   python    $PYTHON_REAL
   config    $ETC_DIR/scoreforge.env
   systemctl status scoreforge
   journalctl -u scoreforge -f
+$apihint
 $(printf '\033[33m')The service binds loopback and has no authentication.$(printf '\033[0m')
 MSG

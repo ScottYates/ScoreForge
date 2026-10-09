@@ -63,10 +63,15 @@ def _origins() -> list[str]:
     Anything else has to be named explicitly. An allow-list of "*" would let
     every website you visit read whatever this service exposes, which is the
     reason this is a list rather than a wildcard.
+
+    SCOREFORGE_WEB_PORT adds further ports, comma separated, for when 8080 and
+    8081 are not the ones you serve the page from. PORT is always included, so
+    moving this service never breaks a page it is serving itself.
     """
     ports = [PORT, 8080, 8081]
+    ports += [int(p) for p in _split_env("SCOREFORGE_WEB_PORT") if p.isdigit()]
     base = ["null", "file://"]
-    for p in ports:
+    for p in dict.fromkeys(ports):
         base += [f"http://127.0.0.1:{p}", f"http://localhost:{p}"]
     return base + [o for o in _split_env("SCOREFORGE_ALLOWED_ORIGINS") if o not in base]
 
