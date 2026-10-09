@@ -336,7 +336,12 @@ function createAdditiveVoice(kit, cfg) {
         350, Math.min(18000, sr * 0.46));
       tone.frequency.setValueAtTime(lastFc, when);
       if (cfg.toneClose < 1) {
-        tone.frequency.linearRampToValueAtTime(Math.max(350, lastFc * cfg.toneClose), when + t60 * 0.7);
+        // How fast the top rolls off as the note ages. The default tracks the
+        // note's own decay (t60 * 0.7), which for a grand is over ten seconds --
+        // far longer than a piano takes to lose its brightness, and another way
+        // the voice stayed bright for the whole note.
+        const closeSec = cfg.toneCloseSec != null ? cfg.toneCloseSec : t60 * 0.7;
+        tone.frequency.linearRampToValueAtTime(Math.max(350, lastFc * cfg.toneClose), when + closeSec);
       }
       tone.Q.value = cfg.toneQ;
       tone.connect(vca);
@@ -749,15 +754,41 @@ const PIANO_BASE = {
 const PIANO = {
   grand: {
     ...PIANO_BASE,
-    level: 0.15, minPartials: 4, maxPartials: 13,
-    rolloff: 1.30, rolloffVel: 0.62,
-    brightBase: 0.50, brightVel: 0.62, brightReg: 0.010,
+    // Raised from 0.15: a slower, less clicky attack costs peak level, and this
+    // must not end up quieter than the voice it replaces or it reads as a volume
+    // bug rather than a new sound. 0.235 puts the rendered peak back where the
+    // old configuration's was (0.20 against 0.26 measured -- the old peak was
+    // flattered by the transient this removed).
+    level: 0.235, minPartials: 4, maxPartials: 13,
+    // The original series measured 1, 0.45, 0.28, 0.10, 0.09, 0.08 and was
+    // already plausible, so this is a nudge to 1, 0.54, 0.36 -- filling in the
+    // lower partials a little, not rescuing a cliff.
+    rolloff: 0.95, rolloffVel: 0.45,
+    brightBase: 0.62, brightVel: 0.62, brightReg: 0.010,
     B0: 3.0e-4, BSlope: 7, BMin: 2.5e-5, BMax: 3.5e-3,
     t60: 12, t60Slope: 0.85, t60Vel: 0.25, t60Min: 0.45, t60Max: 20,
-    dPartial: 0.62, dPow: 1.0,
-    tone: 9500, toneQ: 0.62, toneReg: 0.012, toneClose: 0.78,
+    // T60 of partial n is t60 / n^dPow, because (1 + dPartial*(n-1)) with
+    // dPartial=1 is exactly n. At dPartial 0.62 the second partial only decayed
+    // 1.6x faster than the fundamental, so the note held its brightness and then
+    // gained it -- measured centroid *rose* 56 Hz over two seconds where a
+    // struck string falls away. A piano loses its top first, and that darkening
+    // is most of what makes it sound like a piano.
+    //
+    // The exponent is 2.2, not the physical 2.0, because one exponential per
+    // partial starts dying the instant it peaks: pushed to 2.8, the upper
+    // partials were already 40% down before the note had finished sounding and
+    // the attack came out thinner than the problem it was fixing.
+    dPartial: 1.0, dPow: 2.2,
+    // And the tone filter closes over a second and a half rather than the ten
+    // seconds the shared default gave it, so the brightness actually falls while
+    // the note is still sounding.
+    tone: 9500, toneQ: 0.62, toneReg: 0.012, toneClose: 0.30, toneCloseSec: 1.6,
     spread: 1.0,
-    strike: 1.0, strikeGain: 3.0, strikeLo: 650, strikeHi: 5200, strikeDur: 0.030, strikeQ: 0.85,
+    // Felt-hammer range rather than a bright 5.2 kHz scrape.
+    strike: 0.5, strikeGain: 1.0, strikeLo: 650, strikeHi: 4200, strikeDur: 0.030, strikeQ: 0.85,
+    // A felt hammer takes a few milliseconds to come off the string, not two.
+    // At 2.2 ms the note reached full level fast enough to click.
+    attack: 0.0045,
   },
   'bright-piano': {
     ...PIANO_BASE,

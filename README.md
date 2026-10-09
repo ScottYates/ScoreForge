@@ -450,6 +450,7 @@ tools/
   check-sampler-audio.mjs  render the real pack and measure it
   check-cursor.mjs      is the playback cursor the colour we chose, where it should be
   check-transport.mjs   press Play / Stop / Back-to-start and read the UI back
+  check-piano-voice.mjs measure the synth piano against the recorded one
   drive-omr.mjs         drives the built page against a live backend
   drive-transport.mjs   one transport scenario, optionally with a screenshot
   check-omr-jobs.py     the job API against a live backend
