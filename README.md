@@ -144,13 +144,29 @@ throwing.
 ```bash
 git clone https://github.com/ScottYates/ScoreForge.git
 cd ScoreForge
+./deploy/release.sh
+```
+
+That is the three commands below, with the failure modes handled:
+
+```bash
 npm install && npm run build     # writes index.html
 sudo ./deploy/install.sh
 ```
 
-Run it as a program. It creates users, writes under `/opt` and drives systemd, so
-`source`-ing it would do all of that inside your interactive shell and close the
-shell on the first error — the script refuses if you try.
+`release.sh` checks Node is new enough, confirms `index.html` actually appeared
+before handing over to the installer, and runs npm as you — only the installer is
+escalated with sudo, so `node_modules` never ends up owned by root.
+
+| Override | Effect |
+|---|---|
+| `SKIP_NPM=1` | only run the installer |
+| `SKIP_INSTALL=1` | only build |
+| `NPM_INSTALL=1` | `npm install` instead of `npm ci` |
+
+Run either script as a program, not with `source`. They create users, write under
+`/opt` and drive systemd, so sourcing one would do all of that inside your
+interactive shell and close it on the first error — both refuse if you try.
 
 That installs to `/opt/scoreforge`, creates an unprivileged `scoreforge` system
 user, installs the Python dependencies, downloads the ONNX weights, and starts
@@ -194,8 +210,9 @@ sudo SKIP_PYTHON_FETCH=1 ./deploy/install.sh   # never download a Python
 sudo SKIP_WEB=1 ./deploy/install.sh             # backend only, no page service
 ```
 
-`deploy/install.sh` is also the upgrade path: pull, rebuild, run it again. It
-leaves `/etc/scoreforge/scoreforge.env` alone (backing it up to `.bak`).
+`deploy/release.sh` is also the upgrade path: pull, rebuild, install, in one
+step. Or run `deploy/install.sh` on its own — it leaves
+`/etc/scoreforge/scoreforge.env` alone (backing it up to `.bak`).
 
 ### The two services
 
