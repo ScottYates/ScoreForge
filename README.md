@@ -132,6 +132,8 @@ drawbar-style additive synthesis for the organ.
 ## Installing on Linux
 
 Needs Python 3.12 to 3.15. Everything else comes from pip. No GPU, no CUDA.
+See [Python](#python) below for the version this needs and what the installer
+does about it.
 
 ```bash
 git clone https://github.com/ScottYates/ScoreForge.git
@@ -156,10 +158,34 @@ exercised, not just imported.
 
 Then open <http://127.0.0.1:8000/>.
 
+### Python
+
+Needs Python 3.12 to 3.15 — `requirements.txt` pins numpy 2.5.3, which requires
+3.12 or newer.
+
+**The installer does not change the Python your machine already has.** It never
+invokes the system package manager, writes nothing to `/usr/bin` or
+`/usr/local/bin`, and edits no shell profile. It works like this:
+
+1. Use an interpreter already on `PATH` if one is in range. If several are, the
+   versions it skipped are listed with the reason.
+2. Otherwise fetch a private one under `/opt/python`, along with `uv` itself if
+   needed — also under `/opt/python`, with profile editing switched off.
+3. Point it somewhere else yourself with `PYTHON=/path/to/python3.13`.
+
+The interpreter that ends up being used is printed at the end, and so is the
+machine's own `python3` — re-read after the install and compared with what it
+was before. If it moved, the install fails.
+
+Two switches, if you would rather it touched nothing:
+
+```bash
+sudo SKIP_PYTHON_FETCH=1 ./deploy/install.sh   # never download a Python
+sudo SKIP_WEB=1 ./deploy/install.sh             # backend only, no page service
+```
+
 `deploy/install.sh` is also the upgrade path: pull, rebuild, run it again. It
 leaves `/etc/scoreforge/scoreforge.env` alone (backing it up to `.bak`).
-
-Pass `SKIP_WEB=1` to install the backend only.
 
 ### The two services
 

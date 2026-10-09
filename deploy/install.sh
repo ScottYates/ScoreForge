@@ -8,7 +8,16 @@
 # Override by exporting before running:
 #   PREFIX=/opt/scoreforge  SVC_USER=someone  PYTHON=/path/to/python3.12
 #   UV_PYTHON_INSTALL_DIR=/opt/python   (where uv-managed interpreters live)
-#   PYTHON_VERSION=3.12                 (version uv installs if none is found)
+#   PYTHON_VERSION=3.12                 (version to fetch if none is found)
+#   SKIP_WEB=1                          (backend only, no static page service)
+#   SKIP_PYTHON_FETCH=1                 (fail instead of fetching a Python)
+#
+# This never changes the machine's Python. No system package manager is invoked,
+# nothing is written to /usr/bin or /usr/local/bin, and no shell profile is
+# edited. An interpreter already on PATH is used if it fits the required range;
+# otherwise a private one is fetched under $UV_PYTHON_INSTALL_DIR. The system
+# python is recorded before and re-checked at the end, and the install fails if
+# it moved.
 #
 # Re-run to upgrade. The install is read-only at runtime; weights are fetched here.
 set -Eeuo pipefail
@@ -31,6 +40,7 @@ VENV="$PREFIX/.venv"
 WEB_ROOT="$PREFIX/www"
 DEFAULT_WEB_PORT=8080
 SKIP_WEB="${SKIP_WEB:-0}"   # SKIP_WEB=1 installs the backend only
+SKIP_PYTHON_FETCH="${SKIP_PYTHON_FETCH:-0}"   # 1 = never download anything
 # requirements.txt pins numpy==2.5.3, which needs Python >= 3.12 (homr itself
 # allows 3.11-3.15, so 3.11 passes homr's check but cannot install numpy).
 PY_MIN="3.12"; PY_MAX="3.15"
@@ -59,20 +69,63 @@ raise SystemExit(0 if lo <= sys.version_info[:2] <= hi else 1)
 PY
 }
 
+venv_ok() { "$1" -c 'import venv, ensurepip' >/dev/null 2>&1; }
+
+# What `python3` on this machine resolves to, plus its version. Recorded before
+# anything is fetched and re-checked at the end, so an interpreter that quietly
+# shadowed or replaced the system one is caught rather than assumed away.
+sys_py_snapshot() {
+    local p v
+    p="$(command -v python3 2>/dev/null || true)"
+    [ -n "$p" ] || { printf 'absent'; return; }
+    v="$("$p" -c 'import platform; print(platform.python_version())' 2>/dev/null || echo '?')"
+    printf '%s %s' "$p" "$v"
+}
+SYS_PY_BEFORE="$(sys_py_snapshot)"
+
 say "Selecting a Python interpreter ($PY_MIN-$PY_MAX)"
+tried=""
 if [ -n "$PYTHON" ]; then
     command -v "$PYTHON" >/dev/null || die "PYTHON=$PYTHON not found"
     PYTHON="$(command -v "$PYTHON")"
+    py_ok "$PYTHON" || die "PYTHON=$PYTHON is outside $PY_MIN-$PY_MAX"
+    venv_ok "$PYTHON" || die "PYTHON=$PYTHON cannot create a venv (Debian splits this into python3-venv)"
 else
     for c in "python$PYTHON_VERSION" python3.13 python3.12 python3.14 python3.15 python3; do
-        if p="$(command -v "$c" 2>/dev/null)" && py_ok "$p"; then PYTHON="$p"; break; fi
+        if p="$(command -v "$c" 2>/dev/null)"; then
+            if py_ok "$p"; then
+                # In range but unable to build a venv is a real case on Debian,
+                # where python3-venv is a separate package. Skip it and keep
+                # looking: the private-Python path below avoids installing one.
+                if venv_ok "$p"; then PYTHON="$p"; break; fi
+                tried="$tried\n  $c -> $("$p" -V 2>&1 | head -1)  (no venv/ensurepip)"
+            else
+                tried="$tried\n  $c -> $("$p" -V 2>&1 | head -1)  (out of range)"
+            fi
+        fi
     done
 fi
 
-if [ -z "$PYTHON" ] || ! py_ok "$PYTHON"; then
-    command -v uv >/dev/null || die "no Python $PY_MIN-$PY_MAX found and uv is not installed. Install one (apt install python3.12-venv, or uv) or set PYTHON=/path/to/python"
-    say "Installing Python $PYTHON_VERSION with uv into $UV_PYTHON_INSTALL_DIR"
-    install -d -m 0755 "$UV_PYTHON_INSTALL_DIR" "$UV_PYTHON_BIN_DIR"
+if [ -z "$PYTHON" ]; then
+    [ -z "$tried" ] || printf '  ignored:\n%b\n' "$tried"
+    if [ "$SKIP_PYTHON_FETCH" = 1 ]; then
+        die "no Python $PY_MIN-$PY_MAX on this machine, and SKIP_PYTHON_FETCH=1.
+  Install one yourself and re-run with PYTHON=/path/to/python, or drop
+  SKIP_PYTHON_FETCH to let this script fetch a private copy under $UV_PYTHON_INSTALL_DIR."
+    fi
+    # uv goes into the isolated tree rather than onto the system, and
+    # UV_NO_MODIFY_PATH stops its installer from editing any shell profile.
+    if ! command -v uv >/dev/null 2>&1; then
+        say "Fetching uv into $UV_PYTHON_BIN_DIR (not installed system-wide)"
+        install -d -m 0755 "$UV_PYTHON_BIN_DIR"
+        curl -LsSf https://astral.sh/uv/install.sh \
+            | env UV_INSTALL_DIR="$UV_PYTHON_BIN_DIR" UV_NO_MODIFY_PATH=1 sh \
+            || die "could not fetch uv; install it yourself, or set PYTHON=/path/to/python"
+        [ -x "$UV_PYTHON_BIN_DIR/uv" ] || die "uv did not appear at $UV_PYTHON_BIN_DIR/uv"
+        PATH="$UV_PYTHON_BIN_DIR:$PATH"; export PATH
+    fi
+    say "Fetching Python $PYTHON_VERSION into $UV_PYTHON_INSTALL_DIR"
+    install -d -m 0755 "$UV_PYTHON_INSTALL_DIR"
     uv python install "$PYTHON_VERSION"
     PYTHON="$(uv python find "$PYTHON_VERSION")" || die "uv could not locate Python $PYTHON_VERSION"
     py_ok "$PYTHON" || die "$PYTHON is outside $PY_MIN-$PY_MAX"
@@ -101,9 +154,10 @@ while [ "$d" != "/" ]; do
     [[ "$(stat -c %a "$d")" =~ [1357]$ ]] || chmod o+rx "$d"
     d="$(dirname "$d")"
 done
-# The venv needs ensurepip/venv; Debian splits it into python3-venv.
+# The venv needs ensurepip/venv. Nothing in the selection above should reach
+# here, but if it does, fail with the non-invasive fix rather than a dead end.
 "$PYTHON_REAL" -c 'import venv, ensurepip' 2>/dev/null \
-    || die "$PYTHON_REAL lacks venv/ensurepip (Debian/Ubuntu: apt install python3-venv)"
+    || die "$PYTHON_REAL lacks venv/ensurepip. Either install your distribution's python3-venv package, or point PYTHON= at an interpreter that has it, or unset SKIP_PYTHON_FETCH so a private one is fetched."
 
 # ---------------------------------------------------------------- service user
 say "Creating service account $SVC_USER"
@@ -367,6 +421,11 @@ else
     echo "    page served; /backend/app.py is 404, so only the built file is exposed"
     webline="  web page  http://127.0.0.1:$webport/ScoreForge.html  (scoreforge-web.service)"
 fi
+# The promise made in the header comment, checked rather than asserted.
+SYS_PY_AFTER="$(sys_py_snapshot)"
+[ "$SYS_PY_AFTER" = "$SYS_PY_BEFORE" ] || die "the machine's python3 changed during this install: was [$SYS_PY_BEFORE], now [$SYS_PY_AFTER]"
+echo "    machine python3 unchanged: $SYS_PY_AFTER"
+
 apihint="  override     append ?api=http://127.0.0.1:$port to the page URL to point it at this backend"
 
 cat <<MSG
