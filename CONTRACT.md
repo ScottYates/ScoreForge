@@ -6,27 +6,26 @@ runs from `file://`.
 
 ## Module map
 
-| File | Owner | Purpose |
-|---|---|---|
-| `src/js/score/model.js` | core | Score model, `Timing`, `resolveScore`, pitch/key math |
-| `src/js/io/musicxml.js` | **A** | MusicXML → internal score |
-| `src/js/io/smf.js` | **B** | Standard MIDI File → internal score |
-| `src/js/io/files.js` | core | File intake, zip, type sniffing |
-| `src/js/io/omr.js` | core | Recognition backend client (health, upload, MusicXML → scores) |
-| `src/js/audio/instruments.js` | **C** | Synthesised instrument voices |
-| `src/js/audio/fx.js` | core | Reverb / EQ / compressor bus |
-| `src/js/audio/engine.js` | core | Realtime player + offline renderer |
-| `src/js/audio/mp3.js` | core | OfflineAudioContext → MP3 bytes |
-| `src/js/render/notation.js` | core | OSMD wrapper + cursor |
-| `src/js/render/roll.js` | core | Piano roll canvas |
-| `src/js/ui/*` | core | UI |
-| `tools/build.mjs` | core | esbuild bundle → single HTML |
-| `backend/app.py` | core | FastAPI: `/api/omr`, `/api/health`, `/api/accuracy` |
-| `backend/omr_engine.py` | core | homr wrapper — CPU-only config, variant ranking |
-| `backend/preprocess.py` | core | decode / PDF raster / deskew / contrast / resize |
-| `tools/score_omr.py` | core | Ground-truth accuracy suite for the recogniser |
-
-Owners must not edit files outside their own column.
+| File | Purpose |
+|---|---|
+| `src/js/score/model.js` | Score model, `Timing`, `resolveScore`, pitch/key math |
+| `src/js/io/musicxml.js` | MusicXML → internal score |
+| `src/js/io/smf.js` | Standard MIDI File → internal score |
+| `src/js/io/mscx.js` | MuseScore `.mscx` / `.mscz` → internal score |
+| `src/js/io/files.js` | File intake, zip, type sniffing |
+| `src/js/io/omr.js` | Recognition backend client (health, upload, MusicXML → scores) |
+| `src/js/audio/instruments.js` | Synthesised instrument voices |
+| `src/js/audio/fx.js` | Reverb / EQ / compressor bus |
+| `src/js/audio/engine.js` | Realtime player + offline renderer |
+| `src/js/audio/mp3.js` | OfflineAudioContext → MP3 bytes |
+| `src/js/render/notation.js` | OSMD wrapper + cursor |
+| `src/js/render/roll.js` | Piano roll canvas |
+| `src/js/ui/*` | UI |
+| `tools/build.mjs` | esbuild bundle → single HTML |
+| `backend/app.py` | FastAPI: `/api/omr`, `/api/health`, `/api/accuracy` |
+| `backend/omr_engine.py` | homr wrapper — CPU-only config, variant ranking |
+| `backend/preprocess.py` | decode / PDF raster / deskew / contrast / resize |
+| `tools/score_omr.py` | Ground-truth accuracy suite for the recogniser |
 
 ---
 
@@ -45,7 +44,7 @@ Key invariants:
 
 ---
 
-## 2. Instrument contract (`src/js/audio/instruments.js`) — interface A
+## 2. Instrument contract (`src/js/audio/instruments.js`)
 
 ```js
 export const INSTRUMENTS = [
@@ -144,7 +143,7 @@ pitch-dependent brightness, and a damper release. It should not sound like a sin
 
 ---
 
-## 3. Parser contract — interfaces B and C
+## 3. Parser contract
 
 ```js
 // src/js/io/musicxml.js
@@ -206,6 +205,6 @@ Rules for the fixtures (`tools/score_omr.py`, `tools/score-render.html`):
 ---
 
 ## 5. Global conventions
-- Plain ES modules, no TypeScript, no JSX, no runtime deps beyond what `core` bundles.
+- Plain ES modules, no TypeScript, no JSX, no runtime deps beyond what the bundle inlines.
 - Every file must parse as a standalone ES module under `esbuild --bundle`.
 - Do not add `console.log` except inside an explicit `DEBUG` guard.
