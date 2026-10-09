@@ -36,3 +36,26 @@ Installed into `backend/.venv` and not bundled:
 | rapidocr 3.9.2 | Apache-2.0 |
 | opencv-python-headless 5.0 | Apache-2.0 |
 | pypdfium2 5.14 | Apache-2.0 / PDFium BSD-3 |
+
+<!-- BEGIN generated credits -->
+
+## Recorded-instrument samples
+
+`pack/` is built by `tools/make-pack.mjs` from the libraries below. The block
+between these two markers is generated from `pack/manifest.json` — edit the
+`SOURCES` table in `tools/make-pack.mjs` and rebuild, never this file.
+
+| Samples | By | Licence | Instruments |
+|---|---|---|---|
+| Salamander Grand Piano V3 | Alexander Holm | CC BY 3.0 | Concert Grand (Salamander) |
+| Versilian Community Edition | Versilian Studios and contributors | CC0 1.0 Universal (public domain) | Concert Grand (Versilian), Glockenspiel (recorded), Harpsichord (recorded), Koto (recorded), Marimba (recorded), Vibraphone (recorded), Viola da gamba (recorded), Xylophone (recorded) |
+
+`Salamander Grand Piano V3` is licensed **CC BY 3.0** and requires attribution. Author: Alexander Holm. Source: <https://github.com/sfzinstruments/SalamanderGrandPiano>.
+
+Changes made to the recordings: leading and trailing silence trimmed; mixed to mono; truncated to 6 s; peak-normalised per instrument; encoded to MP3 at 64 kbps.
+
+Music made with these samples is covered by the licence above. The sample
+recordings themselves remain the property of their authors, and neither the
+licence nor their inclusion here implies their endorsement of this project.
+
+<!-- END generated credits -->

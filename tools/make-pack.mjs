@@ -5,9 +5,11 @@
  * owed) cached in %TEMP%/sf-sample-cache. Output is pack/: a folder of MP3s and
  * one manifest the app fetches at load.
  *
- *   node tools/make-pack.mjs                 build pack/ from the cache
+ *   node tools/make-pack.mjs                 build pack/ from the caches
  *   node tools/make-pack.mjs --dry-run       report the plan, write nothing
- *   node tools/make-pack.mjs --src <dir> --out <dir>
+ *   node tools/make-pack.mjs --src <dir> --salamander <dir> --out <dir>
+ *
+ * Two libraries feed it, and they owe different things -- see SOURCES below.
  *
  * Three things in here are not obvious, and all three came from measuring the
  * real files rather than from the documentation:
@@ -32,60 +34,76 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readWav, peakOf, envelope } from './lib/wav.mjs';
 import { encodeMp3 } from './lib/lame.mjs';
+import { pitchIn } from './lib/pitch.mjs';
+import { noticeBlock, applyNoticeBlock } from './lib/credits.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /* ------------------------------------------------------------------ config */
 
 /**
- * One entry per source family.
+ * One entry per recorded instrument in the pack.
  *
- * `take` is a preference over the tokens VCSL puts in filenames: `ff` is a hard
- * mallet strike, `mf` a medium one, `pp` a soft one. The middle layer is picked
- * so a single velocity layer covers the useful range once the sampler applies
- * its own gain envelope.
+ * `from` names the entries in SOURCES this family is built from. `take` is a
+ * preference over the tokens VCSL puts in filenames: `ff` is a hard mallet
+ * strike, `mf` a medium one, `pp` a soft one. The middle layer is picked so a
+ * single velocity layer covers the useful range once the sampler applies its
+ * own gain envelope.
  *
  * `loop` marks a family that sustains while held. Its samples get loop points
  * so a two-bar note does not run out three seconds in.
  */
 const FAMILIES = [
   {
-    pack: 'gpiano', prefix: 'GPiano', name: 'Concert Grand (recorded)',
+    pack: 'sgpiano', from: ['salamander'], name: 'Concert Grand (Salamander)',
+    stereo: false, loop: false, prefer: [], maxHits: 1,
+    // No loop, and a longer take instead. A piano decays -- holding a key does
+    // not sustain it -- so looping these makes the keyboard behave unevenly:
+    // with a loop the finder liked, C4/C5/C6 rang on but F#4 was rejected, and
+    // a held note pulsed 12.5 dB at the wrap on the high C7. Measured across
+    // the pack with looping on, every Salamander seam that mattered was fixed
+    // only by refusing to loop. So it does not loop, and maxSec goes to 6 s
+    // because these takes are 2.5 s to 19 s long and the decay IS the note --
+    // truncating at 4 s threw away half of what was recorded.
+    maxSec: 6.0, target: 0.50,
+  },
+  {
+    pack: 'gpiano', from: ['vcsl'], prefix: 'GPiano', name: 'Concert Grand (Versilian)',
     stereo: false, loop: true, prefer: ['v2', 'v3', 'v1'], maxHits: 2,
     maxSec: 4.0, loopFrom: 0.18, loopTo: 0.94, minLoopSec: 0.30, target: 0.50,
   },
   {
-    pack: 'harpsichord', prefix: 'HarpsiRH', name: 'Harpsichord (recorded)',
+    pack: 'harpsichord', from: ['vcsl'], prefix: 'HarpsiRH', name: 'Harpsichord (recorded)',
     stereo: false, loop: true, prefer: [], maxHits: 1,
     maxSec: 2.2, loopFrom: 0.25, loopTo: 0.90, minLoopSec: 0.22, target: 0.45,
   },
   {
-    pack: 'koto', prefix: 'KSHarp', name: 'Koto (recorded)',
+    pack: 'koto', from: ['vcsl'], prefix: 'KSHarp', name: 'Koto (recorded)',
     stereo: false, loop: true, prefer: ['mf1', 'f1'], maxHits: 2,
     maxSec: 3.2, loopFrom: 0.12, loopTo: 0.60, minLoopSec: 0.30, target: 0.50,
   },
   {
-    pack: 'viola', prefix: 'Rode', name: 'Viola da gamba (recorded)',
+    pack: 'viola', from: ['vcsl'], prefix: 'Rode', name: 'Viola da gamba (recorded)',
     stereo: false, loop: true, prefer: [], maxHits: 1,
     maxSec: 3.0, loopFrom: 0.30, loopTo: 0.92, minLoopSec: 0.35, target: 0.45,
   },
   {
-    pack: 'marimba', prefix: 'Marimba', name: 'Marimba (recorded)',
+    pack: 'marimba', from: ['vcsl'], prefix: 'Marimba', name: 'Marimba (recorded)',
     stereo: true, loop: false, prefer: ['_1', '2', '3'], maxHits: 3,
     maxSec: 2.4, target: 0.42,
   },
   {
-    pack: 'vibraphone', prefix: 'Vibes', name: 'Vibraphone (recorded)',
+    pack: 'vibraphone', from: ['vcsl'], prefix: 'Vibes', name: 'Vibraphone (recorded)',
     stereo: true, loop: false, prefer: ['soft', 'main'], maxHits: 3,
     maxSec: 3.0, target: 0.42,
   },
   {
-    pack: 'xylophone', prefix: 'Xylo', name: 'Xylophone (recorded)',
+    pack: 'xylophone', from: ['vcsl'], prefix: 'Xylo', name: 'Xylophone (recorded)',
     stereo: true, loop: false, prefer: ['Medium', 'Hard'], maxHits: 3,
     maxSec: 2.0, target: 0.50,
   },
   {
-    pack: 'glockenspiel', prefix: 'glock', name: 'Glockenspiel (recorded)',
+    pack: 'glockenspiel', from: ['vcsl'], prefix: 'glock', name: 'Glockenspiel (recorded)',
     stereo: true, loop: false, prefer: ['medium', 'loud'], maxHits: 3,
     maxSec: 2.2, target: 0.38,
   },
@@ -95,8 +113,25 @@ const FAMILIES = [
  *  the true onset. Long enough to swamp MP3 pre-echo, short enough to be free. */
 const MARKER = 1024;
 
-/** How far below the sustain level a loop seam is allowed to sit. */
+/**
+ * How far below the sustain level a loop point may sit, in dB.
+ *
+ * The sibling of the seam: findLoop() picks the quietest window still within
+ * this of the median sustain, so a low value puts the loop deep in the decay.
+ */
 const FLOOR_DB = 9;
+
+/**
+ * How far below the take's loudest window a loop may start, in dB.
+ *
+ * Null by default: this is a per-family guard, not a general rule, because the
+ * depth is a property of the recording rather than of music. The Versilian
+ * takes sit 60+ dB below their own peak at the loop point and are still real
+ * signal -- their loops measure 2.0 to 4.6 dB -- so a threshold that suits them
+ * would have to be so loose as to do nothing. Only the clean, long Salamander
+ * grand sets one; see its loopFloorDb.
+ */
+const LOOP_FLOOR_DB = null;
 
 /** Loudness, by family. Percussive mallets sit lower or they slap the bus. */
 const BITRATE = { stereo: 96, mono: 64 };
@@ -108,25 +143,77 @@ const flag = (name, dflt) => {
 };
 const DRY = args.includes('--dry-run');
 const SRC = flag('src', path.join(os.tmpdir(), 'sf-sample-cache'));
+const SAL = flag('salamander', path.join(os.tmpdir(), 'sf-salamander'));
 const OUT = path.resolve(repo, flag('out', 'pack'));
 
+/* ---------------------------------------------------------------- sources */
+
+/**
+ * Where each library's recordings come from, and what they are owed.
+ *
+ * This table is the only place in the project that records sample provenance.
+ * pack/manifest.json, the credits block in NOTICE.md and the credits line in
+ * the app are all generated from it, and tools/check-pack-credits.mjs fails if
+ * the generated file and the manifest ever disagree. A credit maintained by
+ * hand next to the code would drift from the files actually shipped, which is
+ * the exact failure attribution exists to prevent.
+ *
+ * `dir` is a thunk rather than a string so this table can be written next to
+ * the families that use it, above the argument parsing it depends on.
+ */
+const SOURCES = {
+  vcsl: {
+    dir: () => SRC,
+    /** Which files in this directory belong to the family asking for them. */
+    match: (file, cfg) => file.split('_')[0] === cfg.prefix,
+    /** Lower sorts first; see rankTake. */
+    rank: (file, cfg) => rankTake(file, cfg.prefer),
+    credit: {
+      title: 'Versilian Community Edition',
+      author: 'Versilian Studios and contributors',
+      licence: 'CC0 1.0 Universal (public domain)',
+      url: 'https://versilianstudios.com/community-edition/',
+      changes: null, // CC0 asks for nothing, so there is nothing to declare.
+    },
+  },
+  salamander: {
+    dir: () => SAL,
+    // Salamander filenames are just the pitch and the velocity layer --
+    // `A3vH`, `D#2vH` -- with no family prefix and no underscore to split on.
+    match: () => true,
+    rank: () => 0,
+    credit: {
+      title: 'Salamander Grand Piano V3',
+      author: 'Alexander Holm',
+      licence: 'CC BY 3.0',
+      url: 'https://github.com/sfzinstruments/SalamanderGrandPiano',
+    },
+  },
+};
+
+/**
+ * What the pack builder did to a family's recordings.
+ *
+ * CC BY asks you to state your modifications, and the statements are all
+ * audible. They are built from the family config rather than written beside it,
+ * because prose next to the setting it describes is prose that goes stale: the
+ * grand stopped looping and the notice went on claiming loop points for a year
+ * of edits without any check noticing, since the check compares the notice
+ * against the manifest and both were generated from the same wrong sentence.
+ *
+ * Only families whose licence asks for it need one.
+ */
+function changesFor(cfg) {
+  const bits = ['leading and trailing silence trimmed'];
+  bits.push(cfg.stereo ? 'kept stereo' : 'mixed to mono');
+  if (cfg.maxSec) bits.push(`truncated to ${cfg.maxSec} s`);
+  if (cfg.loop) bits.push('loop points added for held notes');
+  bits.push('peak-normalised per instrument');
+  bits.push(`encoded to MP3 at ${cfg.stereo ? BITRATE.stereo : BITRATE.mono} kbps`);
+  return bits.join('; ') + '.';
+}
+
 /* ------------------------------------------------------------------ utils */
-
-function midiOf(token) {
-  const m = /^([A-Ga-g])([#b]?)(-?\d+)$/.exec(token);
-  if (!m) return null;
-  const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1].toUpperCase()];
-  return (Number(m[3]) + 1) * 12 + base + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
-}
-
-/** The pitch is the first token that parses as a note; families disagree on where. */
-function pitchIn(name) {
-  for (const tok of name.split('_')) {
-    const m = midiOf(tok);
-    if (m != null && m >= 0 && m <= 127) return m;
-  }
-  return null;
-}
 
 /**
  * Rank candidate takes for one pitch against the family's preference list.
@@ -205,6 +292,16 @@ function findLoop(wav, from, to, cfg) {
   // series of faint clicks. Choose among points that are within FLOOR_DB of the
   // sustain level instead, and take the quietest of *those*, so the seam is both
   // inaudible and audible.
+  //
+  // KNOWN LIMITATION, measured rather than assumed: because the two points are
+  // chosen independently, nothing constrains the step between them, and tools/
+  // check-loop-seam.mjs finds real ones -- 13.2 dB on a harpsichord C4 and
+  // 72.8 dB on a low koto, the latter a click out of silence. Fixing it means
+  // choosing the pair together against the whole segment rather than matching
+  // two distant windows, which does repair the low koto but made a harpsichord
+  // C4 and a Versilian grand F5 measurably worse, so it is not a general
+  // improvement and has not been adopted. The grand that ships is tuned per
+  // family instead -- see the loopFrom/loopTo on sgpiano.
   const sustain = [...env].slice(lo).sort((a, b) => a - b);
   const level = sustain[Math.floor(sustain.length / 2)] || 0;
   const floor = level * Math.pow(10, -FLOOR_DB / 20);
@@ -231,6 +328,21 @@ function findLoop(wav, from, to, cfg) {
   const spanSec = (endIdx - startIdx) * 0.01;
   if (spanSec < cfg.minLoopSec) return null;
   if (spanSec > dur * 0.7) return null; // looping nearly all of it is not a loop
+
+  // A loop in the noise is not a sustain, it is a loop of hiss. Deep in a
+  // take's tail the envelope stops being the note and starts being the room,
+  // and its RMS swings by tens of dB between adjacent 10 ms windows -- which is
+  // exactly what produces the large "seam" steps this check reports. Measured on
+  // the Salamander C5: the loop the finder liked sat 45 dB under the peak and
+  // pulsed 13.8 dB. Declining to loop there leaves the note decaying into
+  // silence, which is what a piano with the damper down actually does.
+  const floorDb = cfg.loopFloorDb === undefined ? LOOP_FLOOR_DB : cfg.loopFloorDb;
+  if (floorDb != null) {
+    const loudest = Math.max(...env);
+    if (20 * Math.log10(Math.max(env[startIdx], 1e-9) / Math.max(loudest, 1e-9)) < -floorDb) {
+      return null;
+    }
+  }
 
   return {
     start: +((startIdx * win) / len).toFixed(4),
@@ -271,19 +383,38 @@ function withMarker(channels, marker) {
 
 /* ------------------------------------------------------------------- build */
 
-function collect(srcDir, cfg) {
-  const all = fs.readdirSync(srcDir).filter((f) => f.toLowerCase().endsWith('.wav'));
+/**
+ * Group a family's source files by MIDI pitch, best take first.
+ *
+ * A family names its libraries in `from` and each library decides for itself
+ * which files belong to it, so adding a source is a table entry rather than a
+ * new branch here.
+ *
+ * Salamander is a whole instrument in its own right rather than a top-up: its
+ * 26 files span MIDI 24..107 -- C1 to B7 -- which is all but three keys of an
+ * 88-key piano, and its widest gap is six semitones. Filling the remainder
+ * from the Versilian piano would only blur the provenance of the one family
+ * whose licence actually needs stating.
+ */
+function collect(cfg) {
   const byPitch = new Map();
-  for (const f of all) {
-    if (f.split('_')[0] !== cfg.prefix) continue;
-    const midi = pitchIn(path.basename(f, '.wav'));
-    if (midi == null) continue;
-    if (!byPitch.has(midi)) byPitch.set(midi, []);
-    byPitch.get(midi).push(f);
+  for (const id of cfg.from) {
+    const src = SOURCES[id];
+    if (!src) throw new Error(`family ${cfg.pack}: no such source "${id}"`);
+    const dir = src.dir();
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.toLowerCase().endsWith('.wav')) continue;
+      if (!src.match(f, cfg)) continue;
+      const midi = pitchIn(path.basename(f, '.wav'));
+      if (midi == null) continue;
+      if (!byPitch.has(midi)) byPitch.set(midi, []);
+      byPitch.get(midi).push({ file: f, dir, rank: src.rank(f, cfg) });
+    }
   }
   // Keep the best N takes per pitch, deterministically.
   for (const [midi, list] of byPitch) {
-    list.sort((a, b) => rankTake(a, cfg.prefer) - rankTake(b, cfg.prefer) || a.localeCompare(b));
+    list.sort((a, b) => a.rank - b.rank || a.file.localeCompare(b.file));
     byPitch.set(midi, list.slice(0, cfg.maxHits));
   }
   return byPitch;
@@ -300,16 +431,26 @@ function nearest(byPitch, target) {
 }
 
 function main() {
-  if (!fs.existsSync(SRC)) {
-    console.error(`no sample source at ${SRC}\nPoint --src at the Versilian cache.`);
+  if (!fs.existsSync(SRC) && !fs.existsSync(SAL)) {
+    console.error(
+      `no sample source found.\n` +
+      `  Versilian cache: ${SRC}\n` +
+      `  Salamander:      ${SAL}\n` +
+      `Point --src and --salamander at them.`
+    );
     process.exit(1);
   }
 
   const manifest = {
     version: 1,
-    builtFrom: 'Versilian Community Edition (CC0)',
     markerSamples: MARKER,
     sampleRate: 44100,
+    /**
+     * What each pack's samples came from and what they are owed. Built from
+     * SOURCES, and the thing NOTICE.md and the app's credits line are
+     * generated from -- see tools/check-pack-credits.mjs.
+     */
+    credits: {},
     instruments: {},
   };
 
@@ -317,9 +458,10 @@ function main() {
   const rows = [];
 
   for (const cfg of FAMILIES) {
-    const byPitch = collect(SRC, cfg);
+    const byPitch = collect(cfg);
     if (!byPitch.size) {
-      console.warn(`skip ${cfg.pack}: no ${cfg.prefix}* files in ${SRC}`);
+      const where = cfg.from.map((id) => SOURCES[id].dir()).join(', ');
+      console.warn(`skip ${cfg.pack}: no files in ${where}`);
       continue;
     }
 
@@ -330,8 +472,8 @@ function main() {
     let familyBytes = 0;
     for (const [midi, files] of [...byPitch].sort((a, b) => a[0] - b[0])) {
       const hits = [];
-      files.forEach((file, i) => {
-        const wav = readWav(fs.readFileSync(path.join(SRC, file)));
+      files.forEach((entry, i) => {
+        const wav = readWav(fs.readFileSync(path.join(entry.dir, entry.file)));
         const { from, to, peak } = trimSilence(wav);
         if (to - from < wav.sampleRate * 0.05) return;
 
@@ -392,6 +534,10 @@ function main() {
       sustains: !!cfg.loop,
       notes,
     };
+    manifest.credits[cfg.pack] = cfg.from.map((id) => {
+      const c = SOURCES[id].credit;
+      return { source: id, ...c, changes: c.changes === undefined ? changesFor(cfg) : c.changes };
+    });
 
     rows.push({
       pack: cfg.pack,
@@ -405,6 +551,22 @@ function main() {
 
   if (!DRY) {
     fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest), 'utf8');
+
+    // The credit travels with the audio (manifest) AND with the repository
+    // (NOTICE.md), from the same SOURCES table. Writing it here rather than by
+    // hand is the whole point: a notice nobody regenerates describes whatever
+    // the pack used to contain.
+    const noticeFile = path.join(repo, 'NOTICE.md');
+    if (!fs.existsSync(noticeFile)) {
+      console.warn(`NOTICE.md not found; credits were written to the manifest only`);
+    } else {
+      const before = fs.readFileSync(noticeFile, 'utf8');
+      const after = applyNoticeBlock(before, noticeBlock(manifest));
+      if (after !== before) {
+        fs.writeFileSync(noticeFile, after, 'utf8');
+        console.log('NOTICE.md: credits block updated');
+      }
+    }
   }
 
   console.log(DRY ? 'dry run - nothing written\n' : `pack written to ${OUT}\n`);
@@ -421,6 +583,13 @@ function main() {
     markerSamples: MARKER,
     keys: Object.fromEntries(Object.entries(manifest.instruments).map(([k, v]) => [k, Object.keys(v.notes).length])),
   })}`);
+
+  const owed = Object.entries(manifest.credits).filter(([, cs]) => cs.some((c) => c.licence !== 'CC0 1.0 Universal (public domain)'));
+  if (owed.length) {
+    console.log(`\nATTRIBUTION OWED by ${owed.length} of ${rows.length} instruments:`);
+    for (const [pack, cs] of owed) console.log(`  ${pack}: ${cs.map((c) => `${c.title} by ${c.author} (${c.licence})`).join('; ')}`);
+    console.log('Run node tools/check-pack-credits.mjs to confirm NOTICE.md and the app agree.');
+  }
 }
 
 main();

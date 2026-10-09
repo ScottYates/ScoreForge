@@ -147,7 +147,7 @@ export function loadPack(onProgress) {
     await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, files.length) }, worker));
 
     for (const [id, inst] of Object.entries(manifest.instruments)) {
-      packs.set(id, { id, ...inst, buffers });
+      packs.set(id, { id, ...inst, credits: manifest.credits?.[id] || [], buffers });
     }
     loadProgress = 1;
     loadState = 'ready';
@@ -295,6 +295,12 @@ export function createSampledInstrument(packId, ctx, outputNode) {
       midi, when, src, amp, peakGain, sustainLoop,
       loopStart: sustainLoop ? src.loopStart : null,
       loopEnd: sustainLoop ? src.loopEnd : null,
+      // Where this take actually starts inside its own buffer, and the rate it
+      // plays back at. Together these turn a loop point -- stored as fractions
+      // of the take -- into a time on the render timeline, which is the only
+      // way to line a loop seam up with the waveform to measure it. Exposed
+      // because getting this wrong makes a measurement look like a bug.
+      onset, rate,
       /** Live flag off the node, so a scheduled release can be inspected. */
       get looping() { return src.loop; },
       generation: ++roundRobin,
@@ -427,6 +433,11 @@ export function createSampledInstrument(packId, ctx, outputNode) {
         looping: active.filter((v) => v.sustainLoop).length,
         loopPoints: active.filter((v) => v.sustainLoop)
           .map((v) => [+v.loopStart.toFixed(4), +v.loopEnd.toFixed(4)]),
+        // Per voice: sample onset in the buffer, playback rate, and start time.
+        // NOT called `voices` -- that name is the voice COUNT above, and adding a
+        // second key by that name silently replaces it rather than failing.
+        timings: active.filter((v) => v.sustainLoop)
+          .map((v) => ({ midi: v.midi, when: v.when, onset: +v.onset.toFixed(5), rate: v.rate })),
       };
     },
   };
@@ -436,6 +447,32 @@ export function createSampledInstrument(packId, ctx, outputNode) {
 /** The pack ids this build can play, for the roster and the tests. */
 export function loadedPackIds() {
   return [...packs.keys()];
+}
+
+/**
+ * Who the samples came from and what licence they carry, read straight out of
+ * the manifest.
+ *
+ * This exists because attribution is not optional for part of the pack. The
+ * grand in sgpiano is Salamander Grand Piano V3 under CC BY 3.0, and CC BY
+ * wants the credit where the material is actually used -- which, for a web
+ * page, is in the page. The values are not written here: they are built by
+ * tools/make-pack.mjs from the SOURCES table and travel inside the pack, so
+ * they cannot fall out of step with the files that were actually shipped.
+ *
+ * Deduplicated by source, because one library covers eight of the nine packs
+ * and listing it eight times would read as an error rather than a credit.
+ */
+export function packCredits() {
+  const bySource = new Map();
+  for (const p of packs.values()) {
+    for (const c of p.credits || []) {
+      let entry = bySource.get(c.source);
+      if (!entry) bySource.set(c.source, (entry = { ...c, packs: [] }));
+      entry.packs.push(p.name);
+    }
+  }
+  return [...bySource.values()];
 }
 
 /**

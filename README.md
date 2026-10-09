@@ -132,13 +132,19 @@ that ramps in for bowed and vocal sounds, breath noise for the winds, and
 drawbar-style additive synthesis for the organ. None of these needs a network
 connection, and the whole app still fits in one file.
 
-**Recorded** (8 instruments, a `pack/` directory of 4.6 MB). Real sampled
-instruments from the [Versilian Community Edition][versilian] (CC0 — public
-domain, no attribution owed): concert grand, harpsichord, koto, viola da gamba,
-marimba, vibraphone, xylophone and glockenspiel. Between them they cover 466
-keys; the families sample every third semitone or wider, so a key with no take
-of its own plays the nearest one resampled by at most three semitones rather than
-going silent.
+**Recorded** (9 instruments, a `pack/` directory of 5.1 MB). Real sampled
+instruments. The concert grand is [Salamander Grand Piano V3][salamander] by
+Alexander Holm (CC BY 3.0 - attribution required, and credited in NOTICE.md and
+in the app's Settings panel); the other eight are from the
+[Versilian Community Edition][versilian] (CC0 - public domain, no attribution
+owed): a second grand, harpsichord, koto, viola da gamba, marimba,
+vibraphone, xylophone and glockenspiel.
+
+The Salamander grand is sampled once every few semitones across almost the whole
+keyboard - 26 takes spanning C1 to B7 - so almost every key plays a real
+recording and the rest are resampled by at most three semitones. No key goes
+silent anywhere in the pack: a key with no take of its own plays the nearest
+one, shifted.
 
 These need the pack fetched once, so they are **not** available from a page
 opened as a `file://` URL — pick one there and it falls back to the modelled
@@ -158,6 +164,7 @@ things about it are worth knowing before changing the encoder settings:
   time, and that target is the playing level.
 
 [versilian]: https://github.com/sgossner/versilian-studios (Community Edition samples, CC0)
+[salamander]: https://github.com/sfzinstruments/SalamanderGrandPiano (Grand Piano V3 samples, CC BY 3.0)
 
 ## Installing on Linux
 
@@ -445,7 +452,9 @@ tools/
   cdp.mjs               headless-Chrome harness (no npm deps)
   verify.mjs            build + self-test + screenshot
   run-suites.mjs        the module suites, one verdict
-  make-pack.mjs         build pack/ from the Versilian sample cache
+  make-pack.mjs         build pack/ from the sample caches
+  check-pack-credits.mjs  do NOTICE.md and the app still credit what the pack ships
+  check-loop-seam.mjs   does a held recorded note gate at its loop point
   check-codec-delay.mjs measure MP3 encode+decode latency
   check-sampler-audio.mjs  render the real pack and measure it
   check-cursor.mjs      is the playback cursor the colour we chose, where it should be

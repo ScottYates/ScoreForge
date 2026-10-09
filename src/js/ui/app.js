@@ -12,14 +12,14 @@ import { resolveScore, describeScore, keyNameFromFifths } from '../score/model.j
 import { readScoreFiles } from '../io/files.js';
 import { backendHealth, describePage, resolveBase, probeHealth, setBase, configuredBase } from '../io/omr.js';
 import { INSTRUMENTS, createInstrument } from '../audio/instruments.js';
-import { packState } from '../audio/sampler.js';
+import { packState, packCredits } from '../audio/sampler.js';
 import { instrumentForProgram, instrumentForName } from '../audio/gm.js';
 import { Engine } from '../audio/engine.js';
 import { AudioBus, Meter, ROOMS, linToDb } from '../audio/fx.js';
 import { renderToBuffer, encodeMp3, encodeWav, inspectMp3, BITRATES } from '../audio/mp3.js';
 import { NotationView } from '../render/notation.js';
 import { PianoRoll, PALETTE } from '../render/roll.js';
-import { $, el, clear, icon, fmtTime, fmtBytes, fmtDb, toast, modal, bindRange } from './dom.js';
+import { $, el, clear, icon, fmtTime, fmtBytes, fmtDb, toast, modal, bindRange, escapeHtml } from './dom.js';
 
 const ROLL_THEME = {
   bg: '#0b0e14',
@@ -80,7 +80,7 @@ export class App {
       refSec: $('#refSec'), refCard: $('#refCard'), refHint: $('#refHint'),
       omrSec: $('#omrSec'), omrCard: $('#omrCard'), omrBadge: $('#omrBadge'),
       inpOmrBase: $('#inpOmrBase'), btnOmrUse: $('#btnOmrUse'), btnOmrAuto: $('#btnOmrAuto'),
-      omrStatus: $('#omrStatus'), omrBaseHint: $('#omrBaseHint'), packStatus: $('#packStatus'),
+      omrStatus: $('#omrStatus'), omrBaseHint: $('#omrBaseHint'), packStatus: $('#packStatus'), packCredits: $('#packCredits'),
       busyBar: $('#busyBar'), dropHint: $('#dropHint'), fmtScan: $('#fmtScan'),
       paper: $('#paper'), paperWrap: $('#paperWrap'), rollWrap: $('#rollWrap'),
       rollCanvas: $('#rollCanvas'), stageEmpty: $('#stageEmpty'), stageBody: $('#stageBody'),
@@ -445,6 +445,35 @@ export class App {
     }
     el.textContent = text;
     el.className = `hint ${tone}`.trim();
+    this._paintPackCredits();
+  }
+
+  /**
+   * Who the recorded samples are and what licence they carry.
+   *
+   * The concert grand is Salamander Grand Piano V3 under CC BY 3.0, which asks
+   * for the credit where the samples are actually used. That is this panel, for
+   * anyone who has loaded the pack -- an offline copy of the page from someone
+   * else's build is exactly the case the licence is about.
+   *
+   * The text comes from pack/manifest.json rather than from here, so it
+   * describes the files this build actually downloaded and cannot go stale.
+   */
+  _paintPackCredits() {
+    const el = this.dom.packCredits;
+    if (!el) return;
+    const credits = packCredits();
+    if (!credits.length) { el.textContent = ''; return; }
+
+    const rows = credits.map((c) => {
+      const who = escapeHtml(`${c.title} by ${c.author}`);
+      const what = c.changes ? ` — ${escapeHtml(c.changes)}` : '';
+      const href = c.url ? escapeHtml(c.url) : '';
+      return `<div>${who} (${escapeHtml(c.licence)})${what}` +
+        (href ? ` <a href="${href}" target="_blank" rel="noopener">source</a>` : '') +
+        '</div>';
+    });
+    el.innerHTML = `<div style="color:var(--ink-3)">Recorded samples</div>${rows.join('')}`;
   }
 
   /**

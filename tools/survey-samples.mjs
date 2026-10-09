@@ -10,34 +10,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { readWav, peakOf, envelope } from './lib/wav.mjs';
+import { pitchIn } from './lib/pitch.mjs';
 
-const dir = process.argv[2] || path.join(os.tmpdir(), 'sf-sample-cache');
+const argv = process.argv.slice(2);
+const labelAt = argv.indexOf('--label');
+const LABEL = labelAt >= 0 ? argv[labelAt + 1] : null;
+const positional = argv.filter((a, i) => i !== labelAt && i !== labelAt + 1);
+const dir = positional[0] || path.join(os.tmpdir(), 'sf-sample-cache');
 const files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.wav'));
-
-/** MIDI note number from a VCSL pitch token like C#4, A#-1, D#5. */
-function midiOf(token) {
-  const m = /^([A-Ga-g])([#b]?)(-?\d+)$/.exec(token);
-  if (!m) return null;
-  const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1].toUpperCase()];
-  const acc = m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0;
-  return (Number(m[3]) + 1) * 12 + base + acc;
-}
-
-/**
- * The pitch is the first underscore-separated token that parses as a note.
- *
- * It is not always field 2: the families disagree about naming. `KSHarp_E3_f1`
- * leads with it, `glock_loud_C5_01` puts an articulation before it and a take
- * number after, and `Vibes_bowed_E3_rr1_Main` buries it third. Assuming a
- * fixed position silently drops 239 of the 284 files.
- */
-function pitchIn(name) {
-  for (const tok of name.split('_')) {
-    const m = midiOf(tok);
-    if (m != null && m >= 0 && m <= 127) return m;
-  }
-  return null;
-}
 
 const groups = new Map();
 const odd = [];
@@ -45,7 +25,10 @@ const odd = [];
 for (const f of files) {
   const base = path.basename(f, '.wav');
   const parts = base.split('_');
-  const inst = parts[0];
+  // VCSL names lead with the family (`GPiano_A3_v2`). Salamander names carry no
+  // family at all (`A3vH`), so without --label every file becomes its own group
+  // and the useful summary -- one line per instrument -- is 26 lines of one note.
+  const inst = LABEL || (parts.length > 1 ? parts[0] : base);
   const midi = pitchIn(base);
   if (midi == null) { odd.push(f); continue; }
   let g = groups.get(inst);

@@ -154,10 +154,10 @@ const SCORE = \`<?xml version="1.0" encoding="UTF-8"?>
   const rosterIds = INSTRUMENTS.map((i) => i.id);
   const recorded = INSTRUMENTS.filter((i) => i.sampled);
 
-  // The route itself: does createInstrument hand back a real sampled voice?
+  // The expected pack id is read from the roster rather than written here. This assertion exists to catch the roster quietly handing back a synth voice -- and restating which pack it points at would make it a second place to update when the piano changes.
   const probeCtx = new OfflineAudioContext(1, 128, 44100);
   const routed = createInstrument('rec-grand', probeCtx, probeCtx.destination);
-  const routedIsSampled = routed && routed.sampled === true && routed.id === 'gpiano';
+  const routedIsSampled = routed && routed.sampled === true && routed.id === INSTRUMENTS.find((i) => i.id === 'rec-grand')?.pack;
 
   const score = parseMusicXml(SCORE, { fileName: 'check' });
   const resolved = resolveScore(score, { transpose: 0, tempoScale: 1 });

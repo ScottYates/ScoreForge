@@ -167,7 +167,21 @@ if (piano.code !== 0) {
   failures.push('piano: ' + (piano.out.trim().split('\n').pop() || piano.err.trim()));
 }
 
-if (report) console.log(`self-test: ${report.result} — ${report.pass} passed, ${report.fail} failed`);
+// Sample provenance. The pack is no longer uniformly CC0 -- the concert grand
+// is Salamander Grand Piano V3 under CC BY 3.0 -- and a licence nobody is shown
+// is a licence nobody is complying with. This fails on a missing credit, a
+// stale notice, or a pack the roster cannot reach.
+const credits = await run(process.execPath, [path.join(root, 'tools/check-pack-credits.mjs')],
+  { allowFail: true });
+console.log(credits.out.trim());
+if (credits.code !== 0) {
+  for (const line of credits.out.split('\n')) {
+    if (line.startsWith('FAIL ')) failures.push(line.trim());
+  }
+  if (!credits.out.includes('FAIL ')) failures.push('pack credits: ' + (credits.err.trim() || 'check failed'));
+}
+
+if (report) console.log(`self-test: ${report.result} - ${report.pass} passed, ${report.fail} failed`);
 
 if (failures.length) {
   console.error('\nVERIFY FAILED: ' + failures.join('; '));

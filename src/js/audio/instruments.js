@@ -1113,18 +1113,31 @@ const ROSTER = [
 
   /* ------------------------------------------------------------- recorded --- */
   //
-  // Real recordings from the Versilian Community Edition (CC0), built into
-  // pack/ by tools/make-pack.mjs. They sit beside the modelled instruments
-  // rather than replacing them: the synthesiser is always available offline,
-  // and these need the pack fetched once.
+  // Real recordings built into pack/ by tools/make-pack.mjs. They sit beside the
+  // modelled instruments rather than replacing them: the synthesiser is always
+  // available offline, and these need the pack fetched once.
+  //
+  // Most families are the Versilian Community Edition (CC0). The two grands are
+  // not, and neither is only half CC0 -- see the comment on the first one. What
+  // each pack owes is recorded once, in the SOURCES table in tools/make-pack.mjs,
+  // and flows from there into pack/manifest.json, NOTICE.md and the app's
+  // credits line. Do not restate it here.
   //
   // `fallback` is the modelled instrument to use if the pack is not loaded --
   // picking one of these from a file:// page still makes music instead of
   // silence. `pack` is the id in pack/manifest.json.
 
   { id: 'rec-grand', name: 'Concert Grand (recorded)', group: 'Recorded', engine: 'sampled',
+    pack: 'sgpiano', fallback: 'grand', cap: 48,
+    // Salamander Grand Piano V3 by Alexander Holm, CC BY 3.0 -- attribution
+    // required, so unlike every other instrument in this list this one has a
+    // credit owed. It is the one piano here recorded from a real 9-foot grand
+    // with a real room, sampled across almost the whole keyboard (26 takes,
+    // C1 to B7) rather than a handful of pitches stretched to cover it.
+    description: 'A sampled grand, recorded note by note across the whole keyboard — real hammer, real strings, real room.' },
+  { id: 'rec-grand-vs', name: 'Grand (Versilian, recorded)', group: 'Recorded', engine: 'sampled',
     pack: 'gpiano', fallback: 'grand', cap: 48,
-    description: 'A sampled 9-foot grand from the Versilian collection — real hammer, real strings, real room.' },
+    description: 'The CC0 Versilian grand, kept alongside the Salamander one: fewer real pitches, so more of the range is resampled.' },
   { id: 'rec-harpsichord', name: 'Harpsichord (recorded)', group: 'Recorded', engine: 'sampled',
     pack: 'harpsichord', fallback: 'harpsichord', cap: 48,
     description: 'A sampled harpsichord: the quill rasp and the dry, fast release are in the recording.' },
@@ -1155,6 +1168,12 @@ export const INSTRUMENTS = ROSTER.map((r) => ({
   group: r.group,
   description: r.description,
   sampled: r.engine === 'sampled',
+  // Which pack a recorded instrument plays, so this can be checked against what
+  // the pack actually contains rather than against a name written into the
+  // test. Two recorded grands now exist and sit one entry apart, so "did the
+  // roster route somewhere real" and "did it route to the RIGHT somewhere" are
+  // different questions.
+  pack: r.pack || null,
   defaults: { ...(r.defaults || {}) },
 }));
 
