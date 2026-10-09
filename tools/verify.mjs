@@ -15,6 +15,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const file = path.join(root, 'index.html');
 const url = 'file:///' + file.replace(/\\/g, '/');
 
+// These checks drive headless Chrome over the DevTools protocol, which needs the
+// global WebSocket Node gained in 22. Stop here and say so, rather than reporting
+// a self-test that "never completed" for what looks like an app problem.
+if (typeof WebSocket === 'undefined') {
+  console.error(
+    `npm test needs Node 22 or newer: the global WebSocket it uses to reach Chrome\n` +
+    `is not defined on Node ${process.versions.node}. Building with Node 18 is fine --\n` +
+    `only these browser-driven checks need the newer runtime.`
+  );
+  process.exit(2);
+}
+
 function run(cmd, args, opts = {}) {
   return new Promise((res, rej) => {
     const p = spawn(cmd, args, { cwd: root, stdio: 'pipe', ...opts });

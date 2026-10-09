@@ -78,7 +78,10 @@ if [ "$SKIP_NPM" != 1 ]; then
     # part of this script.
     [ "$major" -ge 18 ] || die "node $major is too old; the build needs 18 or newer"
     if [ "$major" -lt 22 ]; then
-        warn "node $major builds fine, but `npm test` needs 22 or newer (global WebSocket)."
+        # Escaped backticks on purpose. Unescaped, they are command
+        # substitution: the warning would run npm test, and on Node 18 that
+        # fails, which aborts the release this message was meant to describe.
+        warn "node $major builds fine, but \`npm test\` needs 22 or newer (global WebSocket)."
     fi
     echo "    node $(node --version)  npm v$(npm --version)"
 fi

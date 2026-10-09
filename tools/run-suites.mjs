@@ -17,6 +17,18 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cdp = path.join(root, 'tools/cdp.mjs');
 
+// The suites run in headless Chrome over the DevTools protocol, which needs the
+// global WebSocket Node gained in 22. Say that, instead of four suites each
+// failing for a reason that has nothing to do with them.
+if (typeof WebSocket === 'undefined') {
+  console.error(
+    `npm run test:suites needs Node 22 or newer: the global WebSocket it uses to reach\n` +
+    `Chrome is not defined on Node ${process.versions.node}. Building with Node 18 is\n` +
+    `fine -- only the browser-driven checks need the newer runtime.`
+  );
+  process.exit(2);
+}
+
 const ALL = ['musicxml-test', 'smf-test', 'instruments-test', 'mscx-test'];
 const suites = process.argv.slice(2).length ? process.argv.slice(2) : ALL;
 
