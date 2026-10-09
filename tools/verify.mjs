@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 // import.meta.dirname needs Node 20.11; from the module URL it works on 18 too.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const file = path.join(root, 'ScoreForge.html');
+const file = path.join(root, 'index.html');
 const url = 'file:///' + file.replace(/\\/g, '/');
 
 function run(cmd, args, opts = {}) {

@@ -246,13 +246,13 @@ def preview(key: str) -> Response:
 
 # Serve the built page and nothing else. Mounting the project directory would
 # publish the source tree, .git/ and any scores dropped alongside it.
-_INDEX = ROOT / "ScoreForge.html"
+_INDEX = ROOT / "index.html"
 
 
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     if not _INDEX.exists():
-        raise HTTPException(404, "ScoreForge.html is not built - run `npm run build`")
+        raise HTTPException(404, "index.html is not built - run `npm run build`")
     return FileResponse(_INDEX, media_type="text/html",
                         headers={"Cache-Control": "no-cache"})
 

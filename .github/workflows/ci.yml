@@ -51,11 +51,11 @@ jobs:
           cache: npm
       - name: Artifact exists and is self-contained
         run: |
-          test -f ScoreForge.html
-          size=$(stat -c%s ScoreForge.html)
-          echo "built ScoreForge.html: $size bytes"
+          test -f index.html
+          size=$(stat -c%s index.html)
+          echo "built index.html: $size bytes"
           # The whole point is one file with no external requests.
-          grep -q 'src="http' ScoreForge.html && { echo "external script reference found"; exit 1; } || true
+          grep -q 'src="http' index.html && { echo "external script reference found"; exit 1; } || true
           [ "$size" -gt 500000 ] || { echo "suspiciously small build"; exit 1; }
 
   verify:

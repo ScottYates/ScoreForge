@@ -17,7 +17,7 @@ const DEFAULT_BASE = 'http://127.0.0.1:8000';
  * The backend given explicitly as `?api=http://host:port`, if any.
  *
  * This is the escape hatch for a service that is not on port 8000:
- * `ScoreForge.html?api=http://127.0.0.1:9100`. It applies to the page load only
+ * `index.html?api=http://127.0.0.1:9100`. It applies to the page load only
  * and is not remembered, so a bookmarked link stays honest about where it points.
  */
 function explicitBase() {

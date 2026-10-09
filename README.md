@@ -2,7 +2,7 @@
 
 Sheet music to MP3, in the browser, in one file.
 
-Open `ScoreForge.html` and drop in a MusicXML, MuseScore or MIDI file. Pick a key,
+Open `index.html` and drop in a MusicXML, MuseScore or MIDI file. Pick a key,
 tempo and instrument, press space, and it plays. Exporting gives you an MP3 that
 you can listen to in the page before you download it.
 
@@ -11,7 +11,7 @@ optical music recognition and hands back a score you can edit, transpose and
 export like any other. It runs on the CPU, so there is no graphics card
 requirement.
 
-`ScoreForge.html` is the build output: 1.7 MB with the notation engine, MP3
+`index.html` is the build output: 1.7 MB with the notation engine, MP3
 encoder, zip reader and 21 instruments inlined. It runs from `file://`.
 
 ![ScoreForge with a score loaded](docs/screenshots/app.png)
@@ -68,7 +68,7 @@ The recogniser lives in `backend/`. Start it with:
 python backend/app.py
 ```
 
-It listens on http://127.0.0.1:8000 and also serves `ScoreForge.html`, so
+It listens on http://127.0.0.1:8000 and also serves `index.html`, so
 http://127.0.0.1:8000/ is the easiest place to work. Opening the HTML file
 directly works too; the page points at 127.0.0.1:8000 only when it needs to
 transcribe something.
@@ -144,7 +144,7 @@ throwing.
 ```bash
 git clone https://github.com/ScottYates/ScoreForge.git
 cd ScoreForge
-npm install && npm run build     # writes ScoreForge.html
+npm install && npm run build     # writes index.html
 sudo ./deploy/install.sh
 ```
 
@@ -154,7 +154,7 @@ shell on the first error — the script refuses if you try.
 
 That installs to `/opt/scoreforge`, creates an unprivileged `scoreforge` system
 user, installs the Python dependencies, downloads the ONNX weights, and starts
-two systemd services. `ScoreForge.html` is copied there too, so it works
+two systemd services. `index.html` is copied there too, so it works
 straight off disk with no server at all.
 
 ```bash
@@ -215,7 +215,7 @@ are read in the browser either way, and a scan with no backend behind it is kept
 as a reference image instead of being transcribed — so the web service is not
 ordered after `scoreforge.service`, and it stays up when the backend is down.
 
-Only `ScoreForge.html` is served. The page lives in `/opt/scoreforge/www`, not in
+Only `index.html` is served. The page lives in `/opt/scoreforge/www`, not in
 `/opt/scoreforge`, so the backend source and the test fixtures are not reachable
 over HTTP. The installer checks this at the end and fails if it ever stops being
 true.
@@ -253,14 +253,14 @@ nginx, say — stop that unit and point the page at the backend with a query
 parameter:
 
 ```
-http://127.0.0.1:3000/ScoreForge.html?api=http://127.0.0.1:9100
+http://127.0.0.1:3000/?api=http://127.0.0.1:9100
 ```
 
 That applies to the page load only and is not remembered. The backend also has
 to allow the page's origin, which is what `SCOREFORGE_WEB_PORT` and
 `SCOREFORGE_ALLOWED_ORIGINS` are for.
 
-On a machine without Node, skip the build entirely: copy `ScoreForge.html` to the
+On a machine without Node, skip the build entirely: copy `index.html` to the
 server and open it from disk.
 
 ### Behind a reverse proxy
@@ -294,7 +294,7 @@ and the API on another, and the page tells the backend where to find it with
 `?api=`:
 
 ```
-page   https://music.example.com/ScoreForge.html
+page   https://music.example.com/
 API    https://api.music.example.com
 ```
 
@@ -344,8 +344,8 @@ rebind cannot either.
 
 ```bash
 npm install
-npm run build      # -> ScoreForge.html (minified)
-npm run dev        # -> ScoreForge.html (readable)
+npm run build      # -> index.html (minified)
+npm run dev        # -> index.html (readable)
 npm test           # build + headless self-test + screenshot
 npm run test:suites   # the four module suites
 npm run serve      # start the recognition backend
@@ -425,7 +425,7 @@ CI runs the build and both test layers on every push and pull request.
 
 ## Third-party components
 
-Bundled into `ScoreForge.html`:
+Bundled into `index.html`:
 
 | Component | Licence |
 |---|---|

@@ -24,7 +24,7 @@ EnvironmentFile=/etc/scoreforge/scoreforge.env
 
 # --directory is the $PREFIX/www directory, NOT $PREFIX itself: that one also
 # holds backend/*.py, requirements.txt and the fixtures, and serving it would
-# publish the source tree over HTTP. Only ScoreForge.html lives here.
+# publish the source tree over HTTP. Only the built page lives here.
 ExecStart=/opt/scoreforge/.venv/bin/python -m http.server ${SCOREFORGE_WEB_PORT} --directory /opt/scoreforge/www --bind 127.0.0.1
 
 Restart=on-failure

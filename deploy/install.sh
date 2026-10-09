@@ -63,7 +63,7 @@ trap 'die "failed at line $LINENO: $BASH_COMMAND"' ERR
 [ "$(id -u)" -eq 0 ] || die "run as root (sudo $0)"
 command -v systemctl >/dev/null || die "systemctl not found; this installer is for systemd hosts"
 command -v curl >/dev/null || die "curl not found"
-[ -f "$REPO/ScoreForge.html" ] || die "ScoreForge.html is not built -- run 'npm install && npm run build' first"
+[ -f "$REPO/index.html" ] || die "index.html is not built -- run 'npm install && npm run build' first"
 for f in app.py omr_engine.py preprocess.py requirements.txt; do
     [ -f "$REPO/backend/$f" ] || die "missing $REPO/backend/$f"
 done
@@ -180,10 +180,10 @@ fi
 # ------------------------------------------------------------------- copy tree
 say "Installing to $PREFIX"
 install -d -m 0755 "$PREFIX" "$PREFIX/backend" "$PREFIX/fixtures" "$WEB_ROOT"
-install -m 0644 "$REPO/ScoreForge.html" "$PREFIX/ScoreForge.html"
+install -m 0644 "$REPO/index.html" "$PREFIX/index.html"
 # The web service's document root. Only the built page goes in here, so serving
 # this directory cannot leak the backend source or the fixtures.
-install -m 0644 "$REPO/ScoreForge.html" "$WEB_ROOT/ScoreForge.html"
+install -m 0644 "$REPO/index.html" "$WEB_ROOT/index.html"
 for f in app.py omr_engine.py preprocess.py requirements.txt; do
     install -m 0644 "$REPO/backend/$f" "$PREFIX/backend/$f"
 done
@@ -415,7 +415,7 @@ else
     say "Waiting for the web service on port $webport"
     webup=0
     for _ in $(seq 1 30); do
-        if curl -fsS "http://127.0.0.1:$webport/ScoreForge.html" >/dev/null 2>&1; then webup=1; break; fi
+        if curl -fsS "http://127.0.0.1:$webport/" >/dev/null 2>&1; then webup=1; break; fi
         systemctl is-failed --quiet scoreforge-web.service && break
         sleep 1
     done
@@ -429,7 +429,7 @@ else
     code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$webport/backend/app.py" || true)"
     [ "$code" = 404 ] || die "the web service is serving $PREFIX itself: /backend/app.py returned ${code:-no response}, expected 404"
     echo "    page served; /backend/app.py is 404, so only the built file is exposed"
-    webline="  web page  http://127.0.0.1:$webport/ScoreForge.html  (scoreforge-web.service)"
+    webline="  web page  http://127.0.0.1:$webport/  (scoreforge-web.service)"
 fi
 # The promise made in the header comment, checked rather than asserted.
 SYS_PY_AFTER="$(sys_py_snapshot)"

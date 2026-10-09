@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 // import.meta.dirname needs Node 20.11; from the module URL it works on 18 too.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dev = process.argv.includes('--dev');
-const outFile = path.join(root, 'ScoreForge.html');
+const outFile = path.join(root, 'index.html');
 
 const t0 = Date.now();
 
@@ -65,6 +65,6 @@ const html = template
 fs.writeFileSync(outFile, html, 'utf8');
 
 const kb = (n) => (n / 1024).toFixed(0).padStart(6) + ' KB';
-console.log(`built ScoreForge.html  ${kb(Buffer.byteLength(html))}`);
+console.log(`built index.html  ${kb(Buffer.byteLength(html))}`);
 console.log(`  app ${kb(appJs.length)} · vendor ${kb(vendor.length)} · css ${kb(css.length)} · template ${kb(template.length)}`);
 console.log(`  ${Date.now() - t0} ms${dev ? ' (dev — not minified)' : ''}`);

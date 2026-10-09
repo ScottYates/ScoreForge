@@ -2,7 +2,7 @@
 
 ## Optional Python backend
 
-The bundled web page — `ScoreForge.html` and everything in `src/` — is MIT, as
+The bundled web page — `index.html` and everything in `src/` — is MIT, as
 is this repository's own source.
 
 The optional recognition service in `backend/` is also MIT source, but it
@@ -19,7 +19,7 @@ against homr.
 
 ## Bundled third-party components
 
-Inlined into `ScoreForge.html`:
+Inlined into `index.html`:
 
 | Component | Licence |
 |---|---|
