@@ -16,7 +16,16 @@ const out = path.join(root, 'fixtures');
 fs.mkdirSync(out, { recursive: true });
 
 const pieces = process.argv.slice(2).length ? process.argv.slice(2)
-  : ['simple', 'ode', 'rhythm', 'grand', 'sharps'];
+  : ['tiny', 'simple', 'ode', 'rhythm', 'grand', 'sharps'];
+
+/**
+ * Paper width per piece, in CSS pixels. The accuracy set is engraved wide,
+ * because it stands in for a real page and should exercise one. The end-to-end
+ * install check reads `tiny`, which wants the smallest image that still reads
+ * cleanly rather than a realistic-looking one.
+ */
+const PAPER = { tiny: 520 };
+const DEFAULT_PAPER = 1400;
 
 function cdp(args) {
   return new Promise((res, rej) => {
@@ -29,7 +38,8 @@ function cdp(args) {
 }
 
 for (const piece of pieces) {
-  const url = `file:///${path.join(root, 'tools/score-render.html').replace(/\\/g, '/')}?piece=${piece}`;
+  const paper = PAPER[piece] || DEFAULT_PAPER;
+  const url = `file:///${path.join(root, 'tools/score-render.html').replace(/\\/g, '/')}?piece=${piece}&paper=${paper}`;
   const png = path.join(out, `${piece}.png`);
   const r = await cdp([
     '--url', url,
@@ -38,12 +48,15 @@ for (const piece of pieces) {
     '--eval', 'JSON.stringify(window.__GT__)',
     '--selector', '#paper',
     '--shot', png,
-    '--width', '1460', '--height', '1200',
+    '--width', String(paper + 120), '--height', '900',
   ]);
   if (!r.ready) { console.log(`${piece}: RENDER FAILED`); continue; }
   let gt = null;
   try { gt = JSON.parse(typeof r.value === 'string' ? r.value : JSON.stringify(r.value)); } catch { /* fall through */ }
   if (gt) fs.writeFileSync(path.join(out, `${piece}.gt.json`), JSON.stringify(gt, null, 1));
   const bytes = fs.existsSync(png) ? fs.statSync(png).size : 0;
-  console.log(`${piece.padEnd(8)} ${String(bytes / 1024).padStart(7)} KB  ${gt ? gt.notes.length : '?'} ground-truth notes  ${gt ? gt.notes[0] ? `first=${gt.notes[0].midi}` : '' : 'NO GT'}`);
+  console.log(`${piece.padEnd(8)} ${String(Math.round(bytes / 1024)).padStart(5)} KB  ` +
+    `${paper}px  ${gt ? gt.notes.length : '?'} ground-truth notes  ` +
+    `${gt && gt.consistent ? '' : gt ? 'GT MISMATCH ' : ''}` +
+    `${gt ? `first=${gt.notes[0]?.midi} last=${gt.notes.at(-1)?.midi}` : 'NO GT'}`);
 }

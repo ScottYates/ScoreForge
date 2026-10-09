@@ -365,7 +365,11 @@ curl -fsS "http://127.0.0.1:$port/api/health"; echo
 # through the running service and report what came back.
 say "Transcribing a test score end to end"
 smoke=""
-for f in simple grand; do
+# tiny first: one stave, one bar, four quarter notes inside the stave. It is
+# the easiest fixture to read and the easiest to fail meaningfully, so it is
+# the one worth spending the check on. The others stay as fallbacks for a
+# checkout that predates it.
+for f in tiny simple grand; do
     if [ -f "$PREFIX/fixtures/$f.png" ]; then smoke="$PREFIX/fixtures/$f.png"; break; fi
 done
 [ -n "$smoke" ] || die "no fixture image in $PREFIX/fixtures, so recognition cannot be verified"
@@ -403,8 +407,16 @@ want=""
 if [ -f "$gt" ]; then
     want="$("$VPY" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("renderedNotes",""))' "$gt" 2>/dev/null || true)"
 fi
+# Anything that is not a plain count cannot be compared against, so treat it as
+# unknown rather than letting a string comparison fail confusingly later.
+case "$want" in ''|*[!0-9]*) want="" ;; esac
 if [ -n "$want" ]; then
-    echo "    read ${smoke##*/}: $notes notes (fixture renders $want)"
+    # This was read and printed but never compared, so the check passed on any
+    # non-empty transcription -- including one that read the wrong notes. With
+    # a four-note fixture the count is the whole score, so it can be asserted.
+    [ "$notes" -eq "$want" ] \
+        || die "${smoke##*/}: read $notes notes, but the fixture engraves exactly $want"
+    echo "    read ${smoke##*/}: $notes notes, matching the fixture exactly"
 else
     echo "    read ${smoke##*/}: $notes notes"
 fi

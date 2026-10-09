@@ -92,6 +92,18 @@ const C3 = 48, E2 = 40, F3 = 53, G2 = 43;
 const w = 16, h = 8, q = 4, e = 2;
 
 const PIECES = {
+  /* The end-to-end install check reads this one, so it is deliberately the
+     easiest thing that is still music: a single stave, one bar, four quarter
+     notes all inside the stave, no accidentals, no ledger lines. When the
+     recogniser breaks, the failure is unambiguous instead of a question about
+     which of fifty notes was wrong. */
+  tiny: {
+    name: 'GT Tiny',
+    parts: [{ name: 'Melody', clef: 'G', notes: [
+      [E4, q], [F4, q], [G4, q], [A4, q],
+    ]}],
+  },
+
   /* Quarter notes only — the easiest thing an OMR can be asked to read. */
   simple: {
     name: 'GT Simple',
@@ -155,6 +167,14 @@ const PIECES = {
 
 const key = new URLSearchParams(location.search).get('piece') || 'ode';
 window.__GT__ = null;
+
+// The screenshot is of #paper, so its CSS width -- not the browser window --
+// decides how many pixels the fixture occupies. A short piece has no reason to
+// be engraved across a metre of paper, and every pixel is bytes in the repo and
+// work in the recognition step. preprocess.fit_page() scales the result back up
+// to a readable size before the model sees it.
+const paperPx = parseInt(new URLSearchParams(location.search).get('paper') || '', 10);
+if (paperPx > 0) document.getElementById('paper').style.width = paperPx + 'px';
 
 /**
  * Ground truth must be an independent record of what was DRAWN, not a

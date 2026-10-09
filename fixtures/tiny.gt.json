@@ -1,0 +1,55 @@
+{
+ "key": "tiny",
+ "name": "GT Tiny",
+ "sourceNotes": 4,
+ "restCount": 0,
+ "renderedNotes": 4,
+ "consistent": true,
+ "staves": [
+  {
+   "index": 1,
+   "name": "Melody",
+   "clef": "G",
+   "notes": [
+    {
+     "midi": 64,
+     "quarters": 1
+    },
+    {
+     "midi": 65,
+     "quarters": 1
+    },
+    {
+     "midi": 67,
+     "quarters": 1
+    },
+    {
+     "midi": 69,
+     "quarters": 1
+    }
+   ]
+  }
+ ],
+ "notes": [
+  {
+   "midi": 64,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 65,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 67,
+   "quarters": 1,
+   "part": "Melody"
+  },
+  {
+   "midi": 69,
+   "quarters": 1,
+   "part": "Melody"
+  }
+ ]
+}
