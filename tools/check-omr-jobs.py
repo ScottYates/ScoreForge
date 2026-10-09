@@ -77,12 +77,50 @@ while time.time() < deadline:
     seen_messages.append(view["message"])
     if state in ("done", "error", "cancelled"):
         break
-    time.sleep(0.4)
+    time.sleep(0.15)
 
 check("job finishes", state == "done", f"state={state} last={seen_messages[-1:]}")
 check("progress advances", max(seen_progress) > 0.1, f"max={max(seen_progress):.2f}")
 check("progress is monotonic", all(b >= a for a, b in zip(seen_progress, seen_progress[1:])),
       f"{seen_progress[:6]}...")
+
+# --- granularity -------------------------------------------------------------
+# The bug this exists to catch: a one-page scan reported 10% and then jumped to
+# done, because progress was reported once per page and inference was a single
+# blocking call. "max > 0.1" is satisfied by that too -- the bar reaches 0.99 at
+# the end -- so it never caught it. These measure how the bar travels, not where
+# it ends up.
+
+running = seen_progress[:-1] if seen_progress else []
+mid = [p for p in running if 0.15 < p < 0.9]
+check("progress leaves the 10% mark before the job ends", len(mid) > 0,
+      f"running values in (0.15, 0.9): {mid[:6] or 'none'}")
+
+# A bar that only ever sits still and then finishes gives ~5 distinct values.
+# Compare against the 4 variants auto mode runs, plus the engine's own
+# milestones, plus the per-page steps -- a long way more than that.
+distinct = len({round(p, 3) for p in running})
+check("progress takes many distinct values, not a handful", distinct >= 8,
+      f"{distinct} distinct while running of {len(running)} polls")
+
+msgs = [m for m in seen_messages[:-1] if m and m.strip()]
+distinct_msgs = len(set(msgs))
+check("progress messages change as it works", distinct_msgs >= 5,
+      f"{distinct_msgs} distinct: {list(dict.fromkeys(msgs))[:4]}")
+
+# The worst case is a single page: one page means one page-slice, so all the
+# movement has to come from inside the engine.
+# Catches a bar that teleports through the middle -- one enormous step between
+# two samples, e.g. one report covering a whole page. It does *not* catch the
+# frozen-then-done case, because the jump to 1.0 lands in the final poll and is
+# excluded from `running`; the three checks above are what catch that. Guard the
+# empty case: this has to fail as a failed assertion rather than a traceback,
+# and a job polled only once is exactly when it matters most.
+steps = [b - a for a, b in zip(running, running[1:])]
+check("no single poll accounts for most of the bar",
+      bool(steps) and max(steps) <= 0.4,
+      f"largest single step={max(steps):.3f}" if steps else "job finished within one poll")
+
 check("progress messages are not empty",
       any(m and m.strip() for m in seen_messages), f"{seen_messages[:4]}")
 if state == "done":

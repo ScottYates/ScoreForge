@@ -225,10 +225,20 @@ def _transcribe(
     errors = []
     for i, page in enumerate(raster_pages):
         check_cancel()
-        report(0.1 + 0.85 * (i / max(1, len(raster_pages))),
-               f"Reading page {page.index + 1} of {len(raster_pages)}")
+        # Each page gets a fixed slice of the bar so multi-page scans advance
+        # steadily instead of jumping a whole fraction per page. The page's own
+        # 0..1 progress is mapped into its slice by page_progress below.
+        page_base = 0.1 + 0.85 * (i / max(1, len(raster_pages)))
+        page_span = 0.85 / max(1, len(raster_pages))
+        report(page_base, f"Page {page.index + 1} of {len(raster_pages)}")
+
+        def page_progress(fraction: float, message: str,
+                          _base=page_base, _span=page_span, _page=page) -> None:
+            report(_base + _span * fraction, f"Page {_page.index + 1}: {message}")
+
         try:
-            result = omr_engine.transcribe_page(page, mode=mode, debug=debug)
+            result = omr_engine.transcribe_page(page, mode=mode, debug=debug,
+                                                progress=page_progress)
         except RuntimeError as exc:
             raise EngineUnavailable(str(exc))
         except ValueError as exc:
@@ -351,7 +361,13 @@ def _run_job(job_id: str, data: bytes, filename: str, mode: str,
         with _JOBS_LOCK:
             job = _JOBS.get(job_id)
             if job:
-                job["progress"] = fraction
+                # Progress is reported from several nested scopes -- the page
+                # loop, then each variant, then each engine log line. Clamp it
+                # here, at the one place it is stored, rather than trusting every
+                # caller to be monotonic: a bar that slips reads as a broken job
+                # even when the work is fine.
+                if fraction > job["progress"]:
+                    job["progress"] = fraction
                 job["message"] = message
 
     def cancelled() -> bool:

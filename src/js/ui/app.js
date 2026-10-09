@@ -598,7 +598,7 @@ export class App {
       el('div', { class: 'omr-job-track' },
         el('div', { class: 'omr-job-fill', style: { width: `${pct}%` } })),
       el('div', { class: 'omr-job-foot' },
-        el('span', { class: 'omr-job-msg', text: msg }),
+        el('span', { class: 'omr-job-msg', text: msg, title: msg }),
         view.seconds ? el('span', { class: 'omr-job-time', text: `${view.seconds.toFixed(1)}s` }) : null,
         el('button', {
           class: 'btn ghost sm',

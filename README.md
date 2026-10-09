@@ -436,6 +436,8 @@ tools/
   check-sampler-audio.mjs  render the real pack and measure it
   drive-omr.mjs         drives the built page against a live backend
   check-omr-jobs.py     the job API against a live backend
+  check-omr-progress.py progress plumbing, without loading the model
+  watch-omr-progress.py print every progress tick of one real scan
   survey-samples.mjs    what is actually in the sample cache
   lib/wav.mjs           RIFF/WAVE reader for the pack builder
   lib/lame.mjs          the app's own lamejs, loaded into Node
@@ -488,6 +490,8 @@ Two checks need something the fast suites do not:
 node tools/check-sampler-audio.mjs   # the real pack, in a browser, measured
 node tools/check-codec-delay.mjs     # how late an encoded note arrives
 python tools/check-omr-jobs.py fixtures/tiny.png fixtures/ode.pdf
+python tools/check-omr-progress.py    # no backend needed
+python tools/watch-omr-progress.py    # prints every tick of a real scan
 node tools/drive-omr.mjs run   fixtures/tiny.png
 node tools/drive-omr.mjs abort fixtures/ode.pdf
 ```
