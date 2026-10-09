@@ -904,8 +904,12 @@ export class App {
       } else if (ev.type === 'time') {
         this._tickPosition(ev.position);
       } else if (ev.type === 'ended') {
-        this.playing = false;
-        this._syncPlayButton();
+        // Finishing the piece returns it to the start rather than parking at the
+        // last bar: the transport is showing 0:19 of 0:19 and a cursor on the
+        // final note, which is the state you were in when you asked to play it
+        // again. stop() resets the engine's offset too, so the next Play begins
+        // at the top without the caller having to notice it had ended.
+        this.stop();
       }
     });
   }
@@ -983,10 +987,12 @@ export class App {
 
   stop() {
     if (this._engine) this._engine.stop();
+    // Before _tickPosition, which decides the cursor from `playing`.
     this.playing = false;
-    this.position = 0;
-    this.notation.resetCursor();
     this._syncPlayButton();
+    // One place owns the transport's displayed state: the scrub bar, the time
+    // readout, the roll playhead and the notation cursor. Resetting the cursor
+    // here as well would state the same thing twice and they could disagree.
     this._tickPosition(0);
   }
 
@@ -1022,8 +1028,16 @@ export class App {
     this.roll.setPlayhead(t);
 
     if (this.view === 'score' && this.resolved && this._engine) {
-      const q = this.resolved.timing.quarterAtSeconds(t);
-      this.notation.showCursorAtQuarter(q);
+      // Idle at the start is a distinct state, and it looks like a fresh load:
+      // no cursor. Without this, position 0 showed a cursor parked on the first
+      // note after a Stop but none before you had played anything, so the same
+      // position looked different depending on how you arrived at it.
+      if (this.playing || t > 1e-3) {
+        const q = this.resolved.timing.quarterAtSeconds(t);
+        this.notation.showCursorAtQuarter(q);
+      } else {
+        this.notation.resetCursor();
+      }
     }
   }
 

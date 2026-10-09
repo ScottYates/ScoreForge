@@ -434,7 +434,10 @@ tools/
   make-pack.mjs         build pack/ from the Versilian sample cache
   check-codec-delay.mjs measure MP3 encode+decode latency
   check-sampler-audio.mjs  render the real pack and measure it
+  check-cursor.mjs      is the playback cursor the colour we chose, where it should be
+  check-transport.mjs   press Play / Stop / Back-to-start and read the UI back
   drive-omr.mjs         drives the built page against a live backend
+  drive-transport.mjs   one transport scenario, optionally with a screenshot
   check-omr-jobs.py     the job API against a live backend
   check-omr-progress.py progress plumbing, without loading the model
   watch-omr-progress.py print every progress tick of one real scan
@@ -494,7 +497,17 @@ python tools/check-omr-progress.py    # no backend needed
 python tools/watch-omr-progress.py    # prints every tick of a real scan
 node tools/drive-omr.mjs run   fixtures/tiny.png
 node tools/drive-omr.mjs abort fixtures/ode.pdf
+node tools/drive-transport.mjs finish --shot /tmp/tp.png   # one scenario, pictured
 ```
+
+`check-transport.mjs` presses the real transport buttons against the built page
+and reads back what a person would see: the time readout, the scrub bar's width,
+the play icon, and the cursor's actual place on the page. It encodes one rule —
+*sitting at the start with nothing playing looks like a fresh load, so there is
+no cursor* — and applies it to every state the buttons can reach. The module
+suites stub the audio engine and cannot see any of this; it is what found the
+piece parking at the last bar after it finished, and Stop leaving a cursor on
+the first note that was not there before you pressed anything.
 
 `check-sampler-audio.mjs` serves the repository over http, loads the actual
 4.6 MB pack, renders every instrument offline and reports its peak, how late its

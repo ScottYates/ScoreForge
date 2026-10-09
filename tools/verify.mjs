@@ -27,13 +27,25 @@ if (typeof WebSocket === 'undefined') {
   process.exit(2);
 }
 
+// Resolves with { out, err, code } and rejects on a non-zero exit, so a caller
+// can print the output before deciding. Returning the code matters: a result
+// that resolves without one and is then compared against 0 reports failure
+// having passed, which is worse than not checking at all.
+//
+// `allowFail` resolves on a non-zero exit instead of rejecting. A check that
+// finds a bug is an expected outcome here, not an exception -- without it the
+// process dies on an unhandled rejection and prints a stack trace instead of
+// the failure it found.
 function run(cmd, args, opts = {}) {
   return new Promise((res, rej) => {
     const p = spawn(cmd, args, { cwd: root, stdio: 'pipe', ...opts });
     let out = '', err = '';
     p.stdout.on('data', (d) => { out += d; if (opts.echo) process.stdout.write(d); });
-    p.stderr.on('data', (d) => { err += d; if (opts.echo) process.stderr.write(d); });
-    p.on('close', (code) => (code === 0 ? res({ out, err }) : rej(new Error(`${cmd} exited ${code}\n${err || out}`))));
+    p.stderr.on('data', (d) => { err += d; });
+    p.on('close', (code) => {
+      if (code === 0 || opts.allowFail) return res({ out, err, code });
+      rej(new Error(`${cmd} exited ${code}\n${err || out}`));
+    });
   });
 }
 
@@ -106,6 +118,17 @@ const cursor = await new Promise((res) => {
 console.log(cursor.out.trim());
 if (cursor.code !== 0) {
   failures.push('cursor check: ' + (cursor.out.trim().split('\n').pop() || cursor.err.trim()));
+}
+
+// The transport buttons. The module suites stub the audio engine, so they cannot
+// see where the notation cursor ends up when someone presses Stop, or whether a
+// finished piece rewinds -- both of which were wrong and neither of which any
+// existing assertion could have caught.
+const transport = await run(process.execPath, [path.join(root, 'tools/check-transport.mjs')],
+  { allowFail: true });
+console.log(transport.out.trim());
+if (transport.code !== 0) {
+  failures.push('transport: ' + (transport.out.trim().split('\n').pop() || transport.err.trim()));
 }
 
 if (report) console.log(`self-test: ${report.result} — ${report.pass} passed, ${report.fail} failed`);
