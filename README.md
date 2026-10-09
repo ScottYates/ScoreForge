@@ -240,6 +240,20 @@ sudo SKIP_PYTHON_FETCH=1 ./deploy/install.sh   # never download a Python
 sudo SKIP_WEB=1 ./deploy/install.sh             # backend only, no page service
 ```
 
+The install does **not** transcribe a test score by default. That check runs CPU
+inference, which is minutes per fixture, and it makes an install that has
+nothing else to do take that long. It is also the only part of the install that
+proves homr can actually *read* a score rather than merely import — the health
+check covers the rest — so it is skipped rather than deleted:
+
+```bash
+sudo SKIP_SMOKE=0 ./deploy/install.sh   # transcribe a fixture end to end
+```
+
+Worth doing on a first install on a new machine, and after changing anything in
+`backend/requirements.txt`. The install's summary says which of the two it did,
+so a skipped check is never silent.
+
 `deploy/release.sh` is also the upgrade path: pull, rebuild, install, in one
 step. Or run `deploy/install.sh` on its own — it leaves
 `/etc/scoreforge/scoreforge.env` alone (backing it up to `.bak`).

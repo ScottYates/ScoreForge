@@ -11,6 +11,13 @@
 #   PYTHON_VERSION=3.12                 (version to fetch if none is found)
 #   SKIP_WEB=1                          (backend only, no static page service)
 #   SKIP_PYTHON_FETCH=1                 (fail instead of fetching a Python)
+#   SKIP_SMOKE=0                        (also transcribe a fixture end to end;
+#                                        skipped by default -- see below)
+#
+# The end-to-end transcription check is off by default because it is by far the
+# slowest thing here: it runs CPU inference, which is minutes per fixture. Set
+# SKIP_SMOKE=0 when recognition itself is what you are installing to verify --
+# a first install on a new machine, or after changing the pinned versions.
 #
 # This never changes the machine's Python. No system package manager is invoked,
 # nothing is written to /usr/bin or /usr/local/bin, and no shell profile is
@@ -51,6 +58,11 @@ WEB_ROOT="$PREFIX/www"
 DEFAULT_WEB_PORT=8080
 SKIP_WEB="${SKIP_WEB:-0}"   # SKIP_WEB=1 installs the backend only
 SKIP_PYTHON_FETCH="${SKIP_PYTHON_FETCH:-0}"   # 1 = never download anything
+# Inverted default on purpose: SKIP_SMOKE=0 is the opt-*in*. Unlike the other two
+# this is the slow step rather than a dangerous one, so the useful default is to
+# leave it off -- but it stays available, because it is the only thing in the
+# install that proves homr can read a score rather than merely import.
+SKIP_SMOKE="${SKIP_SMOKE:-1}"
 # requirements.txt pins numpy==2.5.3, which needs Python >= 3.12 (homr itself
 # allows 3.11-3.15, so 3.11 passes homr's check but cannot install numpy).
 PY_MIN="3.12"; PY_MAX="3.15"
@@ -245,7 +257,9 @@ if [ -z "${NUMPY_SPEC:-}" ] && [ "$(uname -m)" = x86_64 ] && ! grep -qw sse4_2 /
     NUMPY_SPEC="numpy==2.3.5"
     warn "CPU lacks SSE4.2 (x86-64-v2); using $NUMPY_SPEC instead of the pinned numpy."
     warn "homr declares numpy>=2.4.2, so pip check will report that as a conflict. It is"
-    warn "expected here. The end of this install transcribes a real score as the actual test."
+    warn "expected here. The end of this install transcribes a real score as the actual"
+    warn "test -- but only when SKIP_SMOKE=0, which is off by default, so run it that way"
+    warn "if this is a first install and you want the conflict exercised rather than assumed."
 fi
 if [ -n "${NUMPY_SPEC:-}" ]; then
     sed -i -E "s/^[[:space:]]*numpy[=<>~! ].*/$NUMPY_SPEC/" "$REQ_REST"
@@ -379,8 +393,13 @@ fi
 curl -fsS "http://127.0.0.1:$port/api/health"; echo
 
 # Importing cleanly is not the same as working inference, and the numpy pin above
-# is deliberately below what homr declares. So measure it: transcribe a fixture
-# through the running service and report what came back.
+# is deliberately below what homr declares. So when asked for, measure it:
+# transcribe a fixture through the running service and report what came back.
+#
+# A function rather than an inline `if`, because the block is long and did not
+# indent cleanly when wrapped -- and an unindented body inside a conditional is
+# how a reader ends up believing the guard covers less than it does.
+smoke_test() {
 say "Transcribing a test score end to end"
 smoke=""
 # tiny first: one stave, one bar, four quarter notes inside the stave. It is
@@ -437,6 +456,20 @@ if [ -n "$want" ]; then
     echo "    read ${smoke##*/}: $notes notes, matching the fixture exactly"
 else
     echo "    read ${smoke##*/}: $notes notes"
+fi
+}
+
+# Off unless SKIP_SMOKE=0, because CPU inference is minutes per fixture and this
+# is by far the slowest thing here. The health check above still proves the
+# service imports and serves; what this adds is that homr can actually read a
+# score on this machine. So it stays available rather than being deleted -- a
+# first install, or a change to the pinned versions, is exactly when you want it.
+if [ "$SKIP_SMOKE" != 0 ]; then
+    say "Skipping the end-to-end transcription (run with SKIP_SMOKE=0 to include it)"
+    smokeline="  recognition  not verified -- re-run the install with SKIP_SMOKE=0"
+else
+    smoke_test
+    smokeline="  recognition  a fixture transcribed end to end"
 fi
 
 web_on=1
@@ -496,6 +529,7 @@ $webline
   API docs  http://127.0.0.1:$port/api/docs
   install   $PREFIX
   python    $PYTHON_REAL
+$smokeline
   config    $ETC_DIR/scoreforge.env
   systemctl status scoreforge
   journalctl -u scoreforge -f
