@@ -133,8 +133,7 @@ export async function transcribe(file, opts = {}) {
   } catch (e) {
     if (e && e.name === 'AbortError') throw e;
     throw new Error(
-      `Could not reach the recognition backend at ${base || 'this page’s origin'}. ` +
-      'Start it with: python backend/app.py'
+      `The recognition service is not running at ${base || 'this page’s origin'}.`
     );
   }
 

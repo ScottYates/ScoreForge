@@ -266,9 +266,8 @@ export class App {
       const health = await backendHealth();
       if (!health.reachable) {
         toast(
-          'No recognition backend',
-          'Start it with  python backend/app.py  to read notes from photos and PDFs. ' +
-          'The scan will be attached for reference instead.', 'warn'
+          'Recognition service not running',
+          'The scan is attached for reference instead.', 'warn'
         );
       } else {
         this._setBusy(`Reading ${scans.length === 1 ? scans[0].name : `${scans.length} scans`}…`);
@@ -352,20 +351,20 @@ export class App {
       if (fmt) fmt.innerHTML = `<b>Scans</b> .png .jpg .webp .pdf — read on the CPU by ${health.engine}`;
       if (hint) {
         hint.innerHTML = 'MusicXML and MIDI are read in this page. ' +
-          'Scans and PDFs are sent to your local recognition service on this machine.';
+          'Photos and PDFs are read by the recognition service.';
       }
     } else {
       if (badge) {
         badge.classList.add('off');
         badge.textContent = 'OFFLINE';
         badge.title = health.reachable
-          ? `Backend reachable but not ready: ${health.error || 'engine not initialised'}`
-          : `No backend at ${health.base} — start it with: python backend/app.py`;
+          ? `Recognition service reachable but not ready: ${health.error || 'engine not initialised'}`
+          : `Recognition service is not running at ${health.base}`;
       }
-      if (fmt) fmt.innerHTML = '<b>Reference</b> .png .jpg .pdf — needs the recognition service';
+      if (fmt) fmt.innerHTML = '<b>Reference</b> .png .jpg .pdf — recognition service not running';
       if (hint) {
-        hint.innerHTML = 'Everything runs locally in this page. ' +
-          'Start <code>python backend/app.py</code> to have photos and PDFs transcribed into notes.';
+        hint.innerHTML = 'MusicXML and MIDI are read in this page. ' +
+          'Photos and PDFs are attached as reference images, because no recognition service is running.';
       }
     }
     this._loadAccuracy(health);

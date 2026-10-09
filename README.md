@@ -287,6 +287,51 @@ Add `music.example.com` to both `SCOREFORGE_ALLOWED_HOSTS` and
 `SCOREFORGE_ALLOWED_ORIGINS` in the env file, or the browser will refuse the
 page's API calls.
 
+### Page and API on separate subdomains
+
+The two do not have to share a hostname or a port. Put the page on one subdomain
+and the API on another, and the page tells the backend where to find it with
+`?api=`:
+
+```
+page   https://music.example.com/ScoreForge.html
+API    https://api.music.example.com
+```
+
+```nginx
+# the page
+server {
+    listen 443 ssl;
+    server_name music.example.com;
+    root /opt/scoreforge/www;
+}
+
+# the API
+server {
+    listen 443 ssl;
+    server_name api.music.example.com;
+
+    client_max_body_size 40m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+```bash
+SCOREFORGE_PORT=8000                       # still loopback, behind the proxy
+SCOREFORGE_ALLOWED_ORIGINS=https://music.example.com
+SCOREFORGE_ALLOWED_HOSTS=api.music.example.com
+```
+
+Two things are easy to get backwards here. `SCOREFORGE_ALLOWED_ORIGINS` takes the
+**page's** origin, because that is what the browser sends; `SCOREFORGE_ALLOWED_HOSTS`
+takes the **API's** hostname, because that is the Host header nginx forwards. Then
+open the page with `?api=https://api.music.example.com` on every URL you hand
+out — it is not remembered between loads.
+
 ### What the service exposes
 
 Only the page at `/` and the `/api/` routes. The project directory is not served,

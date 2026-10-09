@@ -1,0 +1,28 @@
+Page reports service status only, and document a split-subdomain deployment
+
+The page told users to run `python backend/app.py` in four places. It now states
+whether the recognition service is running and nothing more: the badge title,
+the scan toast, the file-type line, the drop hint, the reference-panel note in
+index.html, and the error thrown when an upload cannot reach the service. A page
+served from a subdomain has no way to act on that advice anyway.
+
+Verified against the built file: no occurrence of app.py, "Start it with",
+"python backend" or "Start the service" remains in ScoreForge.html. The old
+build.mjs check was what found the index.html one; the JS was already clean.
+
+The wording no longer assumes the service is on the same machine, since it may
+not be under a subdomain split.
+
+For the deployment side: the page and the API can sit on different ports and
+different subdomains. The README gained a worked two-server nginx example and the
+env example spells out the one genuinely confusing part -- ALLOWED_ORIGINS takes
+the PAGE's origin because that is what the browser sends, while ALLOWED_HOSTS
+takes the API's hostname because that is the Host header nginx forwards. Getting
+those two the wrong way round is the obvious failure.
+
+Verified with the backend on 9200 configured as api.music.example.com behind a
+page on 3000: correct host and origin returns 200 with the ACAO header, a second
+comma-separated origin is allowed, a wrong origin gets no ACAO, a wrong Host
+returns 400, and loopback still works. In the browser, the page on 3000 reached
+the API on 9200 via ?api= and showed HOMR; pointing it at a dead port showed
+OFFLINE with the status-only title. Self-test 38/38, suites 595/595.
