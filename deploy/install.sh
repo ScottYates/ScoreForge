@@ -20,6 +20,16 @@
 # it moved.
 #
 # Re-run to upgrade. The install is read-only at runtime; weights are fetched here.
+# This script creates users, writes under /opt and drives systemd. Sourcing it
+# would do all of that inside your interactive shell, where `set -e`, the ERR
+# trap and the umask below would outlive the script -- and the first `exit`
+# would close the shell you were sitting in. Run it as a program.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+    printf 'error: run this as a program, not with source\n' >&2
+    printf '         sudo %s\n' "${BASH_SOURCE[0]}" >&2
+    return 1   # not `exit`: that would close the shell the user is sitting in
+fi
+
 set -Eeuo pipefail
 umask 022   # uv/venv inherit this: a 077 root umask makes /opt/python unreadable to SVC_USER
 

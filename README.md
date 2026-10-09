@@ -142,6 +142,10 @@ npm install && npm run build     # writes ScoreForge.html
 sudo ./deploy/install.sh
 ```
 
+Run it as a program. It creates users, writes under `/opt` and drives systemd, so
+`source`-ing it would do all of that inside your interactive shell and close the
+shell on the first error — the script refuses if you try.
+
 That installs to `/opt/scoreforge`, creates an unprivileged `scoreforge` system
 user, installs the Python dependencies, downloads the ONNX weights, and starts
 two systemd services. `ScoreForge.html` is copied there too, so it works
