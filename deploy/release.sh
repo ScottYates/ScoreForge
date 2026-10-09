@@ -116,6 +116,33 @@ if [ "$SKIP_INSTALL" != 1 ]; then
 fi
 
 say "Done"
-echo "  page   http://127.0.0.1:8080/     (scoreforge-web.service)"
-echo "  api    http://127.0.0.1:8000/     (scoreforge.service)"
-echo "  status systemctl status scoreforge scoreforge-web"
+# The ports are whatever the last install resolved, which is not always 8080
+# and 8000 -- scoreforge.env can name any of them. They are read back from the
+# record install.sh left, rather than restated here, so the two summaries
+# cannot disagree.
+INSTALL_STATE=/etc/scoreforge/installed.env
+
+state_get() {   # state_get KEY -- value, or empty if the key is absent
+    grep -E "^$1=" "$INSTALL_STATE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '[:space:]' || true
+}
+
+if [ "$SKIP_INSTALL" = 1 ]; then
+    echo "  install skipped (SKIP_INSTALL=1)"
+elif [ -r "$INSTALL_STATE" ]; then
+    api_port="$(state_get SCOREFORGE_PORT)"
+    web_port="$(state_get SCOREFORGE_WEB_PORT)"
+    web_on="$(state_get SCOREFORGE_WEB)"
+    if [ -n "$api_port" ]; then
+        echo "  page      http://127.0.0.1:$api_port/     (scoreforge.service)"
+        echo "  API docs  http://127.0.0.1:$api_port/api/docs"
+        if [ "$web_on" = 1 ] && [ -n "$web_port" ]; then
+            echo "  web page  http://127.0.0.1:$web_port/     (scoreforge-web.service)"
+        fi
+    else
+        warn "$INSTALL_STATE has no SCOREFORGE_PORT; not printing URLs."
+    fi
+    echo "  status    systemctl status scoreforge scoreforge-web"
+else
+    warn "$INSTALL_STATE is missing or unreadable, so the ports are unknown here."
+    echo "  the summary printed by deploy/install.sh above has them"
+fi

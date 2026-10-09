@@ -409,7 +409,9 @@ else
     echo "    read ${smoke##*/}: $notes notes"
 fi
 
+web_on=1
 if [ "$SKIP_WEB" = 1 ]; then
+    web_on=0
     webline="  web page  (skipped -- SKIP_WEB=1)"
 else
     say "Waiting for the web service on port $webport"
@@ -437,6 +439,24 @@ SYS_PY_AFTER="$(sys_py_snapshot)"
 echo "    machine python3 unchanged: $SYS_PY_AFTER"
 
 apihint="  override     append ?api=http://127.0.0.1:$port to the page URL to point it at this backend"
+
+# What this install actually used, so deploy/release.sh can print the same
+# numbers instead of a hardcoded guess. Built from the same two variables as
+# the summary below, so the two cannot drift apart.
+#
+# World-readable on purpose: scoreforge.env is 0640 root:scoreforge, and
+# release.sh runs as the invoking user, so it cannot read that one.
+state_tmp="$(mktemp)"
+cat > "$state_tmp" <<EOF
+# Written by deploy/install.sh after a successful install.
+# Read by deploy/release.sh to print its summary. Port numbers only -- no
+# secrets -- which is why this is world-readable.
+SCOREFORGE_PORT=$port
+SCOREFORGE_WEB_PORT=$webport
+SCOREFORGE_WEB=$web_on
+EOF
+install -m 0644 "$state_tmp" "$ETC_DIR/installed.env"
+rm -f "$state_tmp"
 
 cat <<MSG
 
