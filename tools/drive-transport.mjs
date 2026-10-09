@@ -20,6 +20,7 @@
  * this drives the buttons instead of calling the engine.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -127,7 +128,7 @@ const body = `
   return true;
 `;
 
-const startFile = path.join(process.env.TEMP, `transport-${scenario}.js`);
+const startFile = path.join(os.tmpdir(), `transport-${scenario}.js`);
 fs.writeFileSync(startFile, `(async () => {${body}})()`, 'utf8');
 
 const args = [

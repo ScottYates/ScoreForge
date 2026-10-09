@@ -21,6 +21,7 @@
  * anything at all.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -170,7 +171,7 @@ const start = `(async () => {
   return true;
 })()`;
 
-const startFile = path.join(process.env.TEMP, `ui-start-${mode}.js`);
+const startFile = path.join(os.tmpdir(), `ui-start-${mode}.js`);
 fs.writeFileSync(startFile, start, 'utf8');
 
 const page = pathToFileURL(path.join(root, 'index.html')).href;

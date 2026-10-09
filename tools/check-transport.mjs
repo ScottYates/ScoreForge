@@ -17,6 +17,7 @@
  * Exits non-zero on the first failure.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -227,7 +228,7 @@ const start = `(async () => {
   return true;
 })()`;
 
-const startFile = path.join(process.env.TEMP, 'check-transport.js');
+const startFile = path.join(os.tmpdir(), 'check-transport.js');
 fs.writeFileSync(startFile, start, 'utf8');
 
 const r = spawnSync(process.execPath, [

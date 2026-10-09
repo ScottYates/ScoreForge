@@ -7,10 +7,11 @@
  *   node tools/survey-samples.mjs
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { readWav, peakOf, envelope } from './lib/wav.mjs';
 
-const dir = process.argv[2] || path.join(process.env.TEMP, 'sf-sample-cache');
+const dir = process.argv[2] || path.join(os.tmpdir(), 'sf-sample-cache');
 const files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.wav'));
 
 /** MIDI note number from a VCSL pitch token like C#4, A#-1, D#5. */

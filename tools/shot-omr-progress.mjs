@@ -10,13 +10,14 @@
  * Needs `python backend/app.py` running on 127.0.0.1:8000.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const root = process.cwd();
 const fixture = process.argv[2] || 'fixtures/ode.png';
-const out = process.argv[3] || path.join(process.env.TEMP, 'omr-progress.png');
+const out = process.argv[3] || path.join(os.tmpdir(), 'omr-progress.png');
 
 const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.pdf': 'application/pdf' }[
   path.extname(fixture).toLowerCase()
@@ -34,7 +35,7 @@ const start = `(async () => {
   return true;
 })()`;
 
-const startFile = path.join(process.env.TEMP, 'omr-shot-start.js');
+const startFile = path.join(os.tmpdir(), 'omr-shot-start.js');
 fs.writeFileSync(startFile, start, 'utf8');
 
 const args = [

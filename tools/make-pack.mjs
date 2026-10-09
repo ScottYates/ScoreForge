@@ -27,6 +27,7 @@
  *    nearest real sample at a shifted rate rather than by dropping the key.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readWav, peakOf, envelope } from './lib/wav.mjs';
@@ -106,7 +107,7 @@ const flag = (name, dflt) => {
   return i >= 0 ? args[i + 1] : dflt;
 };
 const DRY = args.includes('--dry-run');
-const SRC = flag('src', path.join(process.env.TEMP, 'sf-sample-cache'));
+const SRC = flag('src', path.join(os.tmpdir(), 'sf-sample-cache'));
 const OUT = path.resolve(repo, flag('out', 'pack'));
 
 /* ------------------------------------------------------------------ utils */

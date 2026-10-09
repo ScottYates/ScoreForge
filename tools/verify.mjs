@@ -91,6 +91,31 @@ const appState = (() => { try { return JSON.parse(JSON.parse(shot.out).value); }
 if (appState) console.log('app state:', JSON.stringify(appState));
 
 const failures = [];
+
+// A scan, not a test: these tools only run on the author's Windows box, so a
+// platform assumption in them is invisible until CI fails. The TEMP/TMP
+// environment variable is the one that bit -- undefined on Linux, so
+// path.join(undefined, ...) threw before anything was measured. os.tmpdir() is
+// the portable form.
+{
+  const toolsDir = path.join(root, 'tools');
+  const offenders = [];
+  // Assembled from pieces, because this file is scanned too and its own report
+  // strings name the variable. Skipped outright instead: a file that reports the
+  // pattern cannot usefully scan for it, and verify.mjs has no real use of it.
+  const WINDOWS_ONLY = new RegExp(['process', 'env', '(T' + 'EMP|T' + 'MP)\\b'].join('\\.'));
+  for (const name of fs.readdirSync(toolsDir)) {
+    if (name === path.basename(fileURLToPath(import.meta.url))) continue;
+    if (!name.endsWith('.mjs') && !name.endsWith('.js')) continue;
+    const src = fs.readFileSync(path.join(toolsDir, name), 'utf8');
+    if (WINDOWS_ONLY.test(src)) offenders.push(name);
+  }
+  console.log(offenders.length
+    ? `platform scan: ${offenders.length} file(s) assume process.env.TEMP`
+    : 'platform scan: no process.env.TEMP assumptions');
+  if (offenders.length) failures.push(`tools using process.env.TEMP (use os.tmpdir()): ${offenders.join(', ')}`);
+}
+
 if (!parsed || parsed.ready !== true) failures.push('self-test never completed');
 if (parsed && parsed.console && parsed.console.some((l) => l.startsWith('[exception]'))) {
   failures.push('uncaught exception in page');
