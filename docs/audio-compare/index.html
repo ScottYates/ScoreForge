@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WAV vs MP3 &mdash; the same recording, two formats</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font: 15px/1.55 ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+    margin: 0 auto; max-width: 46rem; padding: 2rem 1.25rem 4rem;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1rem; margin: 2rem 0 .5rem; }
+  p, li { margin: .4rem 0; }
+  .lede { margin-top: 0; opacity: .8; }
+  .buttons { display: flex; gap: .75rem; flex-wrap: wrap; margin: 1.25rem 0; }
+  button {
+    font: inherit; font-weight: 600; padding: .7rem 1.1rem; cursor: pointer;
+    border: 1px solid #8888; border-radius: 8px; background: #8881; color: inherit;
+  }
+  button:hover { background: #8883; }
+  button:disabled { opacity: .5; cursor: default; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid #8883; vertical-align: top; }
+  th { font-weight: 600; width: 12.5rem; opacity: .75; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .name { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .86rem; }
+  ul { padding-left: 1.15rem; }
+  li { opacity: .85; }
+  code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .88em; }
+  .bad { color: #c0392b; font-weight: 600; }
+  #status { margin-top: .75rem; font-size: .9rem; opacity: .8; min-height: 1.4em; }
+</style>
+</head>
+<body>
+
+<h1>The same recording, played two ways</h1>
+<p class="lede">
+  One sample. Button <b>A</b> plays the original WAV. Button <b>B</b> plays an MP3
+  encoded straight from that same WAV &mdash; no trimming, no normalisation, no
+  resampling, nothing between the two files but the encoder.
+  If A and B sound the same, the recording survives the conversion and anything
+  you hear missing from the instrument pack is the pack, not the codec.
+</p>
+
+<div class="buttons">
+  <button id="playWav">A &mdash; original WAV</button>
+  <button id="playMp3">B &mdash; MP3 from that WAV</button>
+</div>
+<div id="status">Ready.</div>
+
+<h2>Last played</h2>
+<table id="readout">
+  <tr><th>file</th><td class="name" id="r-file">&mdash;</td></tr>
+  <tr><th>format</th><td id="r-format">&mdash;</td></tr>
+  <tr><th>playbackRate</th><td class="num" id="r-rate">&mdash;</td></tr>
+  <tr><th>detune</th><td class="num" id="r-detune">&mdash;</td></tr>
+  <tr><th>loop</th><td id="r-loop">&mdash;</td></tr>
+  <tr><th>start offset</th><td class="num" id="r-offset">&mdash;</td></tr>
+  <tr><th>stop scheduled</th><td id="r-stop">&mdash;</td></tr>
+  <tr><th>decoded</th><td class="num" id="r-decoded">&mdash;</td></tr>
+  <tr><th>peak of decoded</th><td class="num" id="r-peak">&mdash;</td></tr>
+  <tr><th>source nodes live</th><td class="num" id="r-live">0</td></tr>
+</table>
+
+<h2>What is deliberately not happening</h2>
+<ul>
+  <li>No oscillator, no additive or FM synthesis, no generated waveform. The
+      sound is decoded PCM from a file that was recorded.</li>
+  <li>No attack/sustain/release envelope. Nothing is connected between the
+      source node and the speakers but the source itself.</li>
+  <li>No looping, <code>loop = false</code>, and no loop points exist in either
+      file &mdash; there is nothing to invent them from.</li>
+  <li>No <code>stop()</code>. The sample is started at its first sample and left
+      to finish on its own, at whatever length the recording is.</li>
+  <li>No gain change. The level you hear is the level in the recording; the WAV
+      peaks at full scale as it stands.</li>
+  <li><code>playbackRate = 1</code> and <code>detune = 0</code>: the file plays at
+      the pitch it was recorded at.</li>
+  <li>Every click makes a new <code>AudioBufferSourceNode</code> and nothing is
+      ever stopped, so repeated clicks overlap instead of cutting each other off.</li>
+</ul>
+
+<script type="module">
+const FILES = {
+  wav: { url: 'A2vL-original.wav', label: 'A2vL-original.wav', kind: 'WAV (the reference)' },
+  mp3: { url: 'A2vL-direct-192k.mp3', label: 'A2vL-direct-192k.mp3', kind: 'MP3 @ 192 kbps, encoded from the WAV above' },
+};
+
+let ctx = null;
+const live = [];   // every source we ever made, so none of them is stopped
+
+function audio() {
+  // One context for the page, created on the first click so the browser has a
+  // user gesture to start it with.
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+function peakOf(buffer) {
+  let peak = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const d = buffer.getChannelData(c);
+    for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; }
+  }
+  return peak;
+}
+
+async function play(id) {
+  const file = FILES[id];
+  const ac = audio();
+  const status = document.getElementById('status');
+  status.textContent = `Decoding ${file.label}…`;
+
+  // decodeAudioData takes the ArrayBuffer apart, so every click needs its own
+  // copy or the second click fails.
+  const bytes = await (await fetch(file.url)).arrayBuffer();
+  const buffer = await ac.decodeAudioData(bytes.slice(0));
+
+  const src = ac.createBufferSource();
+  src.buffer = buffer;
+  src.playbackRate.value = 1;
+  src.detune.value = 0;
+  src.loop = false;
+  src.connect(ac.destination);
+
+  // No start(offset), no stop(): from the first sample, then let it run out.
+  const at = ac.currentTime;
+  // Read the offset back off the call rather than printing what we meant to
+  // pass. A readout that says "starts at 0" because the source code says 0 is
+  // not evidence -- it is the source code again, and it passes just as happily
+  // when start() is handed a number that skips the hammer.
+  let usedOffset = null;
+  const realStart = src.start.bind(src);
+  src.start = function (when, offset) { usedOffset = offset || 0; return realStart(when, offset); };
+  src.start(at);
+  live.push(src);
+
+  const peak = peakOf(buffer);
+  document.getElementById('r-file').textContent = file.label;
+  document.getElementById('r-format').textContent = file.kind;
+  document.getElementById('r-rate').textContent = src.playbackRate.value;
+  document.getElementById('r-detune').textContent = src.detune.value;
+  document.getElementById('r-loop').textContent = String(src.loop);
+  document.getElementById('r-offset').textContent =
+    `${usedOffset} s (${usedOffset === 0 ? 'the first sample' : 'NOT the first sample'})`;
+  document.getElementById('r-stop').textContent = 'never scheduled';
+  document.getElementById('r-decoded').textContent =
+    `${buffer.sampleRate} Hz · ${buffer.numberOfChannels} ch · ${buffer.duration.toFixed(3)} s`
+    + (buffer.sampleRate !== ac.sampleRate ? `  (context runs at ${ac.sampleRate} Hz)` : '');
+  document.getElementById('r-peak').textContent = peak.toFixed(5);
+  document.getElementById('r-live').textContent = String(live.length);
+
+  status.textContent = `Playing ${file.label} · ${buffer.duration.toFixed(2)} s · finishes on its own`;
+  return { file: file.label, duration: buffer.duration, peak, sampleRate: buffer.sampleRate,
+    channels: buffer.numberOfChannels, playbackRate: src.playbackRate.value,
+    detune: src.detune.value, loop: src.loop };
+}
+
+document.getElementById('playWav').onclick = () => play('wav');
+document.getElementById('playMp3').onclick = () => play('mp3');
+
+/* ---------------------------------------------------------------- self test */
+
+/**
+ * Render both files offline through the same node settings the buttons use, and
+ * report what came out. This is what the harness runs, because a headless
+ * browser has no speakers and would otherwise prove nothing: it still tells you
+ * whether the decode worked, whether the sound starts at the first sample, and
+ * whether the two formats agree.
+ */
+window.__selfTest = async function () {
+  const out = {};
+  for (const id of ['wav', 'mp3']) {
+    const file = FILES[id];
+    const bytes = await (await fetch(file.url)).arrayBuffer();
+    const probe = new OfflineAudioContext(2, 128, 44100);
+    const buffer = await probe.decodeAudioData(bytes.slice(0));
+    const secs = buffer.duration + 0.5;
+    const off = new OfflineAudioContext(2, Math.ceil(buffer.sampleRate * secs), buffer.sampleRate);
+    const src = off.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = 1;
+    src.detune.value = 0;
+    src.loop = false;
+    src.connect(off.destination);
+    const t0 = off.currentTime;
+    src.start(t0);                       // from the beginning, no stop()
+    const rendered = await off.startRendering();
+    // Across every channel, not just the left one. This sample is hard panned --
+    // its overall peak lives in the right channel -- so reading channel 0 alone
+    // would compare a whole-file peak against half of it.
+    let peak = 0;
+    for (let c = 0; c < rendered.numberOfChannels; c++) {
+      const d = rendered.getChannelData(c);
+      for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; }
+    }
+    let onset = -1;
+    const left = rendered.getChannelData(0);
+    const win = Math.max(1, Math.round(rendered.sampleRate * 0.0015));
+    const thr = peak * 0.02;
+    for (let w = 0; w + win <= left.length; w += win) {
+      let s = 0;
+      for (let i = w; i < w + win; i++) s += left[i] * left[i];
+      if (Math.sqrt(s / win) > thr) { onset = w / rendered.sampleRate; break; }
+    }
+    out[id] = {
+      file: file.label,
+      decodedSeconds: +buffer.duration.toFixed(4),
+      sampleRate: buffer.sampleRate,
+      channels: buffer.numberOfChannels,
+      decodedPeak: +peakOf(buffer).toFixed(5),
+      renderedPeak: +peak.toFixed(5),
+      onsetMs: +(onset * 1000).toFixed(2),
+      playbackRate: src.playbackRate.value,
+      detune: src.detune.value,
+      loop: src.loop,
+      bufferedSeconds: +secs.toFixed(4),
+      renderedSeconds: +rendered.duration.toFixed(4),
+    };
+  }
+  out.wavVsMp3LengthDeltaMs =
+    +((out.wav.decodedSeconds - out.mp3.decodedSeconds) * 1000).toFixed(3);
+  out.wavVsMp3OnsetDeltaMs = +(out.wav.onsetMs - out.mp3.onsetMs).toFixed(3);
+  return out;
+};
+/**
+ * Press the real buttons.
+ *
+ * The self test above renders offline, which proves the files and the settings
+ * but not the live path: an AudioContext, a fetch, two clicks in a row and a
+ * readout filled in from the node that was actually made. This does that, and
+ * reads the values back off the page rather than trusting the click to have
+ * worked.
+ */
+window.__clickTest = async function () {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const seen = [];
+  for (const id of ['playWav', 'playMp3']) {
+    document.getElementById(id).click();
+    await wait(600);
+    const text = (el) => document.getElementById(el).textContent.trim();
+    seen.push({
+      button: id,
+      file: text('r-file'),
+      rate: text('r-rate'),
+      detune: text('r-detune'),
+      loop: text('r-loop'),
+      offset: text('r-offset'),
+      stop: text('r-stop'),
+      decoded: text('r-decoded'),
+      live: text('r-live'),
+      status: text('status'),
+    });
+  }
+  return { seen, contextState: ctx ? ctx.state : 'none', liveSources: live.length };
+};
+</script>
+</body>
+</html>
