@@ -1135,19 +1135,21 @@ const ROSTER = [
   /* tools/freepats-banks.mjs, which is also where the licence terms come  */
   /* from -- do not repeat a credit here.                                   */
   /* ---------------------------------------------------------------------- */
-  /* --- FreePats: Piano --- */
+  /* --- FreePats: Piano (recorded) --- */
   { id: 'rec-fp-upright', name: 'Upright Piano (recorded)', group: 'Recorded · Piano', engine: 'sampled',
     pack: 'fp-upright', fallback: 'felt-piano', cap: 48,
-    description: 'A sampled Upright Piano from the FreePats collection.' },
+    description: 'A sampled Upright Piano from the FreePats collection. Struck strings, two hammers per key, no sustain loop — the note decays and stops.' },
   { id: 'rec-fp-honky-tonk', name: 'Honky-Tonk Piano (recorded)', group: 'Recorded · Piano', engine: 'sampled',
     pack: 'fp-honky-tonk', fallback: 'felt-piano', cap: 48,
     description: 'A sampled Honky-Tonk Piano from the FreePats collection.' },
-  { id: 'rec-fp-fm-piano-1', name: 'FM Piano I (recorded)', group: 'Recorded · Piano', engine: 'sampled',
+
+  /* --- FreePats: synthesised, so grouped with the synths --- */
+  { id: 'rec-fp-fm-piano-1', name: 'FM Piano I (synthesised)', group: 'Recorded · Synth', engine: 'sampled',
     pack: 'fp-fm-piano-1', fallback: 'rhodes', cap: 48,
-    description: 'A sampled FM Piano I from the FreePats collection.' },
-  { id: 'rec-fp-fm-piano-2', name: 'FM Piano II (recorded)', group: 'Recorded · Piano', engine: 'sampled',
+    description: 'An FM-synthesised piano from the FreePats collection — generated, not a recording of an instrument.' },
+  { id: 'rec-fp-fm-piano-2', name: 'FM Piano II (synthesised)', group: 'Recorded · Synth', engine: 'sampled',
     pack: 'fp-fm-piano-2', fallback: 'rhodes', cap: 48,
-    description: 'A sampled FM Piano II from the FreePats collection.' },
+    description: 'An FM-synthesised piano from the FreePats collection — generated, not a recording of an instrument.' },
 
   /* --- FreePats: Organ --- */
   { id: 'rec-fp-church-organ', name: 'Church Organ (recorded)', group: 'Recorded · Organ', engine: 'sampled',

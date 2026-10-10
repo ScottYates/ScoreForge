@@ -99,7 +99,10 @@ for (const b of FREEPATS_BANKS) {
     bank: b.slug,
     name: b.name,
     stereo: undefined,   // read from the WAV's channel count
-    loop: undefined,     // taken from the SFZ's own loop points
+    // undefined: take the loop points from the SFZ, which is right for anything
+    // bowed, blown or driven. false: never loop, for a struck string that has to
+    // decay. The bank's entry is what says which, and a piano sets it to false.
+    loop: b.loop,
     maxHits: FP_HITS,
     maxSec: b.maxSec ?? 4.0,
     target: b.target ?? 0.45,
@@ -187,12 +190,41 @@ function changesFor(cfg, built) {
   bits.push(built.anyLoop
     ? (cfg.bank ? 'loop points taken from the bank\'s SFZ as published' : 'loop points added for held notes')
     : 'no loop points');
-  bits.push('peak-normalised per instrument');
+  // Per take, not per instrument: prepare() scales every note to the family
+  // target so the piano sits next to a xylophone without vanishing.
+  bits.push('peak-normalised per note');
   bits.push(`encoded to MP3 at ${built.stereo ? BITRATE.stereo : BITRATE.mono} kbps`);
   return bits.join('; ') + '.';
 }
 
 /* ------------------------------------------------------------------ utils */
+
+/**
+ * Write a file, retrying a few times if the OS will not open it.
+ *
+ * Windows hands out UNKNOWN errno -4094 on open() when something else -- a
+ * virus scanner walking the directory, an indexer, a sync client -- is holding
+ * the file for a moment. A build that writes four thousand files is going to
+ * meet that, and dying half an hour in on a transient lock loses the half
+ * hour. Anything that is not a share violation or a resource shortage is
+ * rethrown immediately rather than retried, so a real failure still fails.
+ */
+function writeOut(file, data) {
+  const TRANSIENT = new Set(['UNKNOWN', 'EBUSY', 'EPERM', 'EAGAIN']);
+  let wait = 50;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      fs.writeFileSync(file, data);
+      return;
+    } catch (e) {
+      if (attempt >= 8 || !TRANSIENT.has(e.code)) throw e;
+      // Blocking sleep, deliberately: the builder is synchronous and there is
+      // nothing else to yield to.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, wait);
+      wait = Math.min(wait * 2, 2000);
+    }
+  }
+}
 
 /** Trim leading and trailing silence. Returns the useful frame range. */
 function trimSilence(wav, floorDb = -50) {
@@ -379,8 +411,18 @@ function prepare(wav, from, to, cfg) {
   const len = Math.max(1, to - from);
   const out = cfg.stereo ? [new Float32Array(len), new Float32Array(len)] : [new Float32Array(len)];
   for (let i = 0; i < len; i++) {
+    // Keep the two channels the recording actually has.
+    //
+    // This used to put (L+R)/2 in the left and R in the right. That is not stereo,
+    // it is a mono fold-down with one microphone still sitting in it: the image
+    // collapses toward the middle and, because the two mics carry different
+    // amounts of top octave, averaging them acts as a low-pass on the left. On the
+    // FreePats upright that measured 6.6 dB less energy at 5-10 kHz than the left
+    // microphone had on its own, and the piano stopped sounding struck.
+    //
+    // If the take is mono there is nothing to preserve, so it is copied to both.
     if (cfg.stereo) {
-      out[0][i] = (wav.data[0][from + i] + (wav.data[1] ? wav.data[1][from + i] : wav.data[0][from + i])) * 0.5;
+      out[0][i] = wav.data[0][from + i];
       out[1][i] = (wav.data[1] ? wav.data[1][from + i] : wav.data[0][from + i]);
     } else {
       let s = 0;
@@ -392,7 +434,31 @@ function prepare(wav, from, to, cfg) {
   for (const ch of out) for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(ch[i]));
   const gain = peak > 0 ? cfg.target / peak : 1;
   for (const ch of out) for (let i = 0; i < len; i++) ch[i] *= gain;
-  return { channels: out, gain, len };
+
+  // How wide the recording actually is: the side signal against the mid, in dB.
+  // Side is (L-R)/2 and mid is (L+R)/2 over the same samples.
+  //
+  // Recorded so the app's copy can be measured against the recording's own and
+  // not against a number somebody guessed. Several FreePats banks are near
+  // dual-mono and legitimately measure about 0 dB, which is why an absolute
+  // "are these channels different enough" threshold gets the honest answer
+  // wrong in both directions.
+  let sideMid = null;
+  if (cfg.stereo && wav.data.length > 1) {
+    let ss = 0;
+    let mm = 0;
+    for (let i = 0; i < len; i++) {
+      const l = wav.data[0][from + i];
+      const r = wav.data[1] ? wav.data[1][from + i] : l;
+      const side = (l - r) * 0.5;
+      const mid = (l + r) * 0.5;
+      ss += side * side;
+      mm += mid * mid;
+    }
+    sideMid = +(10 * Math.log10((ss + 1e-12) / (mm + 1e-12))).toFixed(2);
+  }
+
+  return { channels: out, gain, len, sideMid };
 }
 
 /** Prefix the marker silence so the app can find the true onset after decoding. */
@@ -427,6 +493,28 @@ function withMarker(channels, marker) {
  *
  * Returns the same shape collect() produces: MIDI -> ordered takes.
  */
+/**
+ * Which hammer struck a take, read from the bank's own filename.
+ *
+ * FreePats names its layers vL / vM / vH, or with a MIDI velocity number, and
+ * the upright piano ships two of them per key. Returns 0..1, or null when the
+ * name says nothing about velocity -- which is most banks, and is fine: with one
+ * layer there is nothing to choose between.
+ *
+ * The `v` must follow a non-letter, so "Choir" and "Envelope2" are not read as
+ * velocity markers.
+ */
+function velocityOf(sample) {
+  const m = /(?:^|[^A-Za-z])v(\d+|L|M|H)(?=[^A-Za-z]|$)/i.exec(path.basename(sample || ''));
+  if (!m) return null;
+  const t = m[1].toUpperCase();
+  if (t === 'L') return 0.2;
+  if (t === 'M') return 0.5;
+  if (t === 'H') return 0.85;
+  const n = Number(t);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n / 127)) : null;
+}
+
 function collectFreepats(cfg) {
   const bankDir = path.join(FP, cfg.bank, 'extracted');
   if (!fs.existsSync(bankDir)) return new Map();
@@ -478,6 +566,8 @@ function collectFreepats(cfg) {
         rank: i,
         centre: keyCentreOf(r),
         tune: Number(r.tune) || 0,
+        // Which hammer this is, when the bank recorded more than one per key.
+        vel: velocityOf(r.sample),
         // Frame numbers in the SOURCE file; the builder rebases them onto the
         // trimmed take once it knows where that starts.
         loop: loopsRegion(r) && r.loop_start != null && r.loop_end != null
@@ -620,8 +710,15 @@ function main() {
           stereo ? BITRATE.stereo : BITRATE.mono);
 
         const name = `${String(midi).padStart(3, '0')}-${i}.mp3`;
-        if (!DRY) fs.writeFileSync(path.join(OUT, cfg.pack, name), mp3);
+        if (!DRY) writeOut(path.join(OUT, cfg.pack, name), mp3);
         familyBytes += mp3.length;
+
+        // Rate from the pitch this take was actually recorded at, plus the bank's
+        // detune. A FreePats group often spans a range with every take recorded at
+        // one pitch, so without this every key but the centre plays the wrong note.
+        const centre = entry.centre == null ? midi : entry.centre;
+        const cents = (entry.tune || 0) / 100;
+        const rate = Math.pow(2, (midi - centre + cents) / 12);
 
         hits.push({
           f: `${cfg.pack}/${name}`,
@@ -635,15 +732,23 @@ function main() {
           dur: +(prepared.len / wav.sampleRate).toFixed(3),
           // Fractions of this take, so they hold at any playbackRate.
           loop: loop ? [+loop.start.toFixed(4), +loop.end.toFixed(4)] : null,
+          // This take's own rate. It used to live once per key, written by every
+          // take in turn, so the last one won and the others played at whatever
+          // suited their neighbour -- on the FreePats upright, 7 of 176 takes came
+          // out up to 119 cents off, a semitone of wrong note in the middle of a
+          // chord. Two takes covering one key can have different keycentres, so
+          // the rate belongs to the take, not to the key.
+          r: +rate.toFixed(6),
+          // Which hammer struck it, when the bank recorded more than one. Null
+          // when the bank has only one layer, which is the common case.
+          vel: entry.vel ?? null,
+          // How wide the recording was, measured from its own channels. Null for
+          // a mono take. tools/check-recording-fidelity.mjs decodes the shipped
+          // file and compares this against what is actually in it.
+          sm: prepared.sideMid,
         });
 
-        // Rate from the pitch the sample was actually recorded at, plus the
-        // bank's detune. A FreePats group often spans a range with every take
-        // recorded at one pitch, so without this every key but the centre plays
-        // the wrong note.
-        const centre = entry.centre == null ? midi : entry.centre;
-        const cents = (entry.tune || 0) / 100;
-        rates.set(midi, Math.pow(2, (midi - centre + cents) / 12));
+        rates.set(midi, rate);
       });
       if (hits.length && !rates.has(midi)) rates.set(midi, 1);
       if (hits.length) samples.set(midi, hits);

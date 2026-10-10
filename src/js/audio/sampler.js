@@ -497,6 +497,18 @@ export function createSampledInstrument(packId, ctx, outputNode) {
   let roundRobin = 0;
 
   /**
+   * Which take comes next, for banks that have only one layer per key.
+   *
+   * Its own counter, NOT the one the voice generation is numbered from. They
+   * used to be the same variable, which meant `generation` advanced the take
+   * index between noteOns: with two takes per key the index went 0, 2, 4 and
+   * every note played the first take. The second hammer of a piano was
+   * unreachable, which is why the velocity test could not see a difference
+   * between reverting to round-robin and getting it right.
+   */
+  let takeIndex = 0;
+
+  /**
    * Take this voice out of the pack's live count, at most once.
    *
    * The count is what stops the decode cache evicting a pack that is about to be
@@ -527,6 +539,35 @@ export function createSampledInstrument(packId, ctx, outputNode) {
     return best;
   }
 
+  /**
+   * Which take to play.
+   *
+   * When a bank recorded more than one hammer per key -- the FreePats upright
+   * ships a vL and a vH for most of them -- velocity picks the layer. That is
+   * what the layers are for, and alternating them instead meant a written
+   * crescendo changed the volume but not the timbre, and the same note in the
+   * same passage came back with a different hammer each time.
+   *
+   * Round-robin is kept for the banks that record one layer, because there the
+   * variety is all the variation there is.
+   */
+  function pickHit(hits, velocity) {
+    const layered = hits.length > 1 && hits.every((h) => h.vel != null);
+    const next = () => hits[takeIndex++ % hits.length];
+    if (!layered) return next();
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const h of hits) { lo = Math.min(lo, h.vel); hi = Math.max(hi, h.vel); }
+    if (hi - lo < 0.01) return next();
+    let best = hits[0];
+    let bestD = Infinity;
+    for (const h of hits) {
+      const d = Math.abs(h.vel - velocity);
+      if (d < bestD) { bestD = d; best = h; }
+    }
+    return best;
+  }
+
   function noteOn(ev) {
     const e = ev || {};
     const rawMidi = Number(e.midi);
@@ -542,7 +583,7 @@ export function createSampledInstrument(packId, ctx, outputNode) {
       warnings.push(`noteOn: no sample for ${midi}`);
       return null;
     }
-    const hit = entry.hits[roundRobin++ % entry.hits.length];
+    const hit = pickHit(entry.hits, velocity);
     const decoded = pack.buffers.get(hit.f);
     if (!decoded) {
       warnings.push(`noteOn: "${hit.f}" decoded but missing from the pack`);
@@ -559,11 +600,16 @@ export function createSampledInstrument(packId, ctx, outputNode) {
     // Rate comes from the key that was ASKED FOR, not from the key that was
     // found. The two differ whenever a bank does not cover the whole keyboard:
     // a Kalimba runs 48..84, and playing key 60 against its own entry would
-    // sound the Kalimba's key 60 rather than the one requested. The entry's
-    // rate already carries that sample's own detune, so the interval from the
-    // entry's key to the requested one is added on top of it.
+    // sound the Kalimba's key 60 rather than the one requested. The take's own
+    // rate already carries its detune and its pitch_keycenter, so the interval
+    // from the entry's key to the requested one is added on top of it.
+    //
+    // The rate is per take, not per key. Two takes covering one key can have
+    // different keycentres -- the FreePats upright pairs an F#2vH with an A2vL
+    // on middle A -- and one shared rate left whichever lost the race a
+    // semitone out of tune.
     const entryKey = keyFor(midi);
-    const rate = (entry.rate || 1) * Math.pow(2, (midi - entryKey) / 12);
+    const rate = (hit.r ?? entry.rate ?? 1) * Math.pow(2, (midi - entryKey) / 12);
 
     const src = ctx.createBufferSource();
     src.buffer = decoded.buffer;

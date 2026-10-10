@@ -197,6 +197,20 @@ if (budget.code !== 0) {
   if (!budget.out.includes('FAIL')) failures.push('decode budget: ' + (budget.err.trim() || 'check failed'));
 }
 
+// Is the pack still the instrument that was recorded? A player-side check cannot
+// answer that: folding the stereo, storing one rate per key, looping a piano or
+// alternating its two hammers all leave the sampler working perfectly on samples
+// that no longer sound like themselves. Decoding the shipped files settles it.
+const fidelity = await run(process.execPath, [path.join(root, 'tools/check-recording-fidelity.mjs')],
+  { allowFail: true });
+console.log(fidelity.out.trim());
+if (fidelity.code !== 0) {
+  for (const line of fidelity.out.split('\n')) {
+    if (line.trim().startsWith('<-')) failures.push(line.trim());
+  }
+  if (!fidelity.out.includes('<-')) failures.push('recording fidelity: ' + (fidelity.err.trim() || 'check failed'));
+}
+
 if (report) console.log(`self-test: ${report.result} - ${report.pass} passed, ${report.fail} failed`);
 
 if (failures.length) {

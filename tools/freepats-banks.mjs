@@ -20,15 +20,27 @@
  */
 
 /** @typedef {{slug:string, pack:string, name:string, fallback:string,
- *            target?:number, maxSec?:number, maxHits?:number}} Bank */
+ *            target?:number, maxSec?:number, maxHits?:number,
+ *            loop?:boolean, group?:string}} Bank */
 
 /** @type {Bank[]} */
 export const FREEPATS_BANKS = [
   // -- keyboards ------------------------------------------------------------
-  { slug: 'upright-piano-kw', pack: 'fp-upright', name: 'Upright Piano (recorded)', fallback: 'felt-piano' },
-  { slug: 'old-piano-fb', pack: 'fp-honky-tonk', name: 'Honky-Tonk Piano (recorded)', fallback: 'felt-piano', target: 0.42 },
-  { slug: 'fm-synthesized-piano-1', pack: 'fp-fm-piano-1', name: 'FM Piano I (recorded)', fallback: 'rhodes' },
-  { slug: 'fm-synthesized-piano-2', pack: 'fp-fm-piano-2', name: 'FM Piano II (recorded)', fallback: 'rhodes' },
+  // A piano is struck, not bowed. Its bank's SFZ does declare loop points, and
+  // honouring them turned every note held longer than a few seconds into a
+  // drone that jumped back up to full level. The string has to be allowed to
+  // decay and stop, and it needs long enough to get there: an A2 on this bank
+  // is still audible at 4 s, which is exactly where the 4 s cut used to land.
+  { slug: 'upright-piano-kw', pack: 'fp-upright', name: 'Upright Piano (recorded)',
+    fallback: 'felt-piano', maxSec: 10, loop: false },
+  { slug: 'old-piano-fb', pack: 'fp-honky-tonk', name: 'Honky-Tonk Piano (recorded)',
+    fallback: 'felt-piano', target: 0.42, maxSec: 10, loop: false },
+  // FreePats names these "FM Synthesized Piano". They are synthesis, and saying
+  // "(recorded)" next to them sent people looking for a piano that was not there.
+  { slug: 'fm-synthesized-piano-1', pack: 'fp-fm-piano-1', name: 'FM Piano I (synthesised)',
+    fallback: 'rhodes', group: 'Synth' },
+  { slug: 'fm-synthesized-piano-2', pack: 'fp-fm-piano-2', name: 'FM Piano II (synthesised)',
+    fallback: 'rhodes', group: 'Synth' },
 
   // -- organs ---------------------------------------------------------------
   { slug: 'church-organ-emulation', pack: 'fp-church-organ', name: 'Church Organ (recorded)', fallback: 'pipe-organ', target: 0.42 },
@@ -108,7 +120,8 @@ export function freepatsBank(slug) {
  */
 const GROUPS = {
   'fp-upright': 'Piano', 'fp-honky-tonk': 'Piano',
-  'fp-fm-piano-1': 'Piano', 'fp-fm-piano-2': 'Piano',
+  // Synthesised, so they belong with the synths even though they play piano keys.
+  'fp-fm-piano-1': 'Synth', 'fp-fm-piano-2': 'Synth',
 
   'fp-church-organ': 'Organ', 'fp-drawbar-organ': 'Organ',
   'fp-percussive-organ': 'Organ', 'fp-rock-organ': 'Organ',
@@ -139,7 +152,14 @@ const GROUPS = {
   'fp-sweep-pad': 'Synth', 'fp-new-age': 'Synth', 'fp-synth-crystal': 'Synth',
 };
 
-/** The picker group a pack belongs to. */
+/**
+ * The picker group a pack belongs to.
+ *
+ * A bank may set `group` on its own entry to override the table, which is how an
+ * instrument moves between sections without editing the map in two places.
+ */
 export function groupFor(pack) {
+  const override = FREEPATS_BANKS.find((b) => b.pack === pack && b.group);
+  if (override) return override.group;
   return GROUPS[pack] || 'Other';
 }

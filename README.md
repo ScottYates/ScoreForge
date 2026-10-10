@@ -481,6 +481,7 @@ tools/
   check-loop-seam.mjs   does a held recorded note gate at its loop point
   check-codec-delay.mjs measure MP3 encode+decode latency
   check-sampler-audio.mjs  render the real pack and measure it
+  check-recording-fidelity.mjs is a take still the recording it was cut from
   check-cursor.mjs      is the playback cursor the colour we chose, where it should be
   check-transport.mjs   press Play / Stop / Back-to-start and read the UI back
   check-piano-voice.mjs measure the synth piano against the recorded one
@@ -561,11 +562,19 @@ piece parking at the last bar after it finished, and Stop leaving a cursor on
 the first note that was not there before you pressed anything.
 
 `check-sampler-audio.mjs` serves the repository over http, loads the actual
-4.6 MB pack, renders every instrument offline and reports its peak, how late its
+131 MB pack, renders every instrument offline and reports its peak, how late its
 attack lands and whether a held note outlives its sample — then renders the same
 chord through the app's own `renderToBuffer` export path. The fast suite uses
 synthetic buffers and cannot tell you whether the encoded pack is audible; this
 can, and it is what found the two facts above about codec delay and levels.
+
+`check-recording-fidelity.mjs` asks the other question: is the pack still the
+instrument that was recorded? It decodes shipped takes and measures what is in
+them against what the manifest says they should contain — the stereo width of
+the recording it was cut from, and the pitch the take was filed under. A player
+check cannot catch that class of fault, because folding the stereo, sharing one
+rate between two takes recorded a tone apart, or looping a piano all leave the
+sampler working perfectly on samples that no longer sound like themselves.
 
 `drive-omr` needs the backend running (`python backend/app.py`) and drives the
 built page in a headless browser. It watches the progress card the way a person
@@ -618,10 +627,19 @@ is fetched at runtime.
   page the pack cannot be fetched and the `Recorded` instruments fall back to
   their modelled equivalents.
 - The recorded pack has one dynamic layer per instrument, so dynamics come from
-  the sampler's gain curve rather than from velocity-layered samples.
-- The piano, harpsichord and koto loop their quietest sustain region, so a held
-  note is markedly quieter than the attack. That is honest to the recording; it
-  is not what a sampled piano usually does.
+  the sampler's gain curve rather than from velocity-layered samples. The
+  upright piano is the exception: its bank ships two hammers per key and
+  velocity picks between them, so a crescendo changes the timbre and not only
+  the loudness. Banks that record one layer keep round-robin alternation, which
+  is all the variation there is.
+- The piano banks do not loop. A struck string has to decay, and the FreePats
+  SFZ does declare loop points for it; honouring them turned every note held
+  past a few seconds into a drone that jumped back up to full level. Its takes
+  are also kept to 10 s rather than the 4 s the other families get, because an
+  A2 on that bank is still audible at four.
+- The two FM pianos are labelled *synthesised* and sit with the synths. FreePats
+  calls them "FM Synthesized Piano"; calling them recorded put a keyboard that
+  was never played next to the ones that were.
 - A key with no recording of its own is played by resampling its nearest
   neighbour, up to three semitones. Marimba and xylophone have gaps wide enough
   to need the full three, so those keys are a resample rather than a real take.

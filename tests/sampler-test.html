@@ -127,6 +127,35 @@ async function render(ctx, seconds, play) {
   return { peak, onset, buf, d, inst };
 }
 
+/**
+ * Dominant frequency of a stretch of rendered audio, by zero crossings.
+ *
+ * Enough for the test buffers, which are decaying sines. It counts the sign
+ * changes rather than the raw rate so the DC that a ramped gain leaves behind
+ * does not count as a crossing.
+ *
+ * A sine crosses zero TWICE per period, so the crossings are halved before they
+ * become a frequency, and the one between the first and the last is not a whole
+ * period: last-minus-first spans crossings-1 gaps, not crossings. Leaving either
+ * of those out returns something very near, but not, the truth -- which reads
+ * as an octave problem in the sampler under test rather than a division in the
+ * measuring tape.
+ */
+function dominantHz(d, sr, from = 0, to = d.length) {
+  let crossings = 0;
+  let first = -1;
+  let last = -1;
+  for (let i = Math.max(1, from); i < to; i++) {
+    if ((d[i - 1] <= 0 && d[i] > 0) || (d[i - 1] >= 0 && d[i] < 0)) {
+      crossings++;
+      if (first < 0) first = i;
+      last = i;
+    }
+  }
+  const periods = (crossings - 1) / 2;
+  return periods > 0 && last > first ? (periods * sr) / (last - first) : 0;
+}
+
 const ctx = new OfflineAudioContext(1, 128, SR);
 
 /* =============================================== the guard against silence == */
@@ -306,6 +335,95 @@ try {
     ok('four strikes on one key all produce a handle', seen.every((g) => g != null), JSON.stringify(seen));
     ok('each strike is a fresh voice', new Set(seen).size === 4, JSON.stringify(seen));
     ok('and the repeat still makes sound', r.peak > 0.02, `peak ${r.peak.toFixed(5)}`);
+  }
+
+  /* ===================================================== velocity and rate == */
+
+  head('hammer and tuning');
+
+  {
+    // Two hammers recorded for one key, an octave apart so this can tell which
+    // one was played. Picking between them by round robin meant a written
+    // crescendo changed the volume and not the timbre, and the same note in the
+    // same bar came back with a different hammer each time it was repeated.
+    __clearPacks();
+    const lo = 'v/60-L.mp3';
+    const hi = 'v/60-H.mp3';
+    __setPack({
+      id: 'testkit', name: 'Test Kit', lo: 60, hi: 72, sustains: false,
+      buffers: {
+        [lo]: fakeBuffer(ctx, { freq: 261.63, seconds: 0.5 }),
+        [hi]: fakeBuffer(ctx, { freq: 523.25, seconds: 0.5 }),
+      },
+      notes: {
+        60: {
+          rate: 1,
+          hits: [
+            { f: lo, g: 1, dur: 0.5, loop: null, vel: 0.2 },
+            { f: hi, g: 1, dur: 0.5, loop: null, vel: 0.85 },
+          ],
+        },
+      },
+    });
+
+    const soft = await render(ctx, 0.6, (inst) => inst.noteOn({ midi: 60, velocity: 0.15, when: 0.02, duration: 0.4 }));
+    const hard = await render(ctx, 0.6, (inst) => inst.noteOn({ midi: 60, velocity: 0.95, when: 0.02, duration: 0.4 }));
+    const sr = soft.buf.sampleRate;
+    const softHz = dominantHz(soft.d, sr);
+    const hardHz = dominantHz(hard.d, sr);
+    ok('a soft note picks the soft hammer', Math.abs(softHz - 261.63) < 15, `${softHz.toFixed(1)} Hz`);
+    ok('a hard note picks the hard hammer', Math.abs(hardHz - 523.25) < 15, `${hardHz.toFixed(1)} Hz`);
+    ok('the same key can play two different hammers', Math.abs(hardHz - softHz) > 200,
+      `${softHz.toFixed(1)} vs ${hardHz.toFixed(1)} Hz`);
+  }
+
+  {
+    // Two takes of one key, recorded a tone apart, each carrying its own rate.
+    // The rate used to be stored once per key and written by every take in turn,
+    // so whichever came last decided the pitch for both -- and on the FreePats
+    // upright that left 7 of 176 takes up to 119 cents out.
+    __clearPacks();
+    const a = 'v/60-a.mp3';
+    const b = 'v/60-b.mp3';
+    const RATE_B = Math.pow(2, -2 / 12);
+    __setPack({
+      id: 'testkit', name: 'Test Kit', lo: 60, hi: 72, sustains: false,
+      buffers: {
+        [a]: fakeBuffer(ctx, { freq: 261.63, seconds: 0.3 }),
+        [b]: fakeBuffer(ctx, { freq: 293.66, seconds: 0.3 }),
+      },
+      notes: {
+        60: {
+          rate: 1,
+          hits: [
+            { f: a, g: 1, dur: 0.3, loop: null, r: 1 },
+            { f: b, g: 1, dur: 0.3, loop: null, r: RATE_B },
+          ],
+        },
+      },
+    });
+
+    // Two notes in one render, because round-robin has to advance between them and
+    // only one render advances it. They are 0.4 s apart so each one's tone has
+    // finished before the other's measuring window opens -- and the first must
+    // still be alive at the second noteOn, or reap() drops it, drop() disconnects
+    // it, and in an OfflineAudioContext that disconnect takes effect for the
+    // whole render rather than from the moment it happens. The first note came
+    // back as pure silence until the gap was closed.
+    const SECOND = 0.40;
+    const r = await render(ctx, 1.1, (inst) => {
+      inst.noteOn({ midi: 60, velocity: 0.8, when: 0.02, duration: 0.05 });
+      inst.noteOn({ midi: 60, velocity: 0.8, when: SECOND, duration: 0.05 });
+    });
+    const sr = r.buf.sampleRate;
+    // The test buffers carry 48 ms of leading silence standing in for the marker
+    // and the codec delay, so a window starts after that, not at the moment the
+    // note was scheduled. First tone runs 0.07-0.37, second 0.45-0.75.
+    const first = dominantHz(r.d, sr, Math.floor(sr * 0.12), Math.floor(sr * 0.30));
+    const second = dominantHz(r.d, sr, Math.floor(sr * (SECOND + 0.10)), Math.floor(sr * (SECOND + 0.28)));
+    ok('each take plays at its own rate, so both land on the same pitch',
+      Math.abs(first - 261.63) < 12 && Math.abs(second - 261.63) < 12,
+      `${first.toFixed(1)} then ${second.toFixed(1)} Hz, expected 261.6`);
   }
 
   /* =============================================================== release == */
