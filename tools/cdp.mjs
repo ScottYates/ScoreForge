@@ -30,6 +30,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { claimTree, removeOwnedTree, ROOT } from './lib/guard.mjs';
 
 // Talking to Chrome uses the global WebSocket, which Node only gained in 22.
 // The build runs on Node 18; these browser-driven checks do not.
@@ -151,7 +152,16 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const width = parseInt(arg('width', '1600'), 10);
   const height = parseInt(arg('height', '1000'), 10);
 const delay = parseInt(arg('delay', '0'), 10);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-profile-'));
+  // The browser profile used to be a mkdtemp under os.tmpdir(), deleted on the way
+// out. That is a delete outside the working folder, which is exactly what the
+// guardrails forbid: a temp directory is shared territory, and a stray run that
+// guessed the prefix could empty somebody else's session. It lives inside the
+// repo now, and only because claimTree() marks it as ours does the guard let the
+// cleanup below remove it.
+const profile = claimTree(
+  path.join(ROOT, '.tmp', 'cdp-profile-' + process.pid + '-' + Date.now().toString(36)),
+  'Chrome/Edge user-data-dir for one tools/cdp.mjs run.'
+);
 
   const port = await freePort();
   const args = [
@@ -169,9 +179,36 @@ const delay = parseInt(arg('delay', '0'), 10);
   let stderrBuf = '';
   proc.stderr.on('data', d => { stderrBuf += d.toString(); });
 
-  const cleanup = () => {
-    try { proc.kill(); } catch {}
-    try { fs.rmSync(profile, { recursive: true, force: true }); } catch {}
+  // Waits for the browser to actually exit before touching the profile.
+  //
+  // proc.kill() only asks; the process is still holding its user-data-dir when
+  // the signal is delivered. Deleting then failed on the locked files, and the
+  // bare `catch {}` below swallowed it -- so every run left a profile behind and
+  // the "cleanup" was decorative. Invisible while the profile lived in the system
+  // temp directory; obvious the moment the guardrails moved it into the repo.
+  const cleanup = async () => {
+    try {
+      proc.kill();
+      if (proc.exitCode === null && proc.signalCode === null) {
+        await Promise.race([
+          new Promise((res) => proc.once('exit', res)),
+          sleep(5000),
+        ]);
+      }
+    } catch {}
+    // Swallowed on purpose: cleanup runs on the failure path too, and a guard
+    // refusal here would replace the real error (browser crashed, port taken)
+    // with a complaint about a directory. The guard has already refused at
+    // startup if anything about this path was wrong.
+    //
+    // Reported rather than swallowed silently, because a leftover profile is a
+    // real leak and a silent catch is how the previous version of this hid one.
+    // It goes to stderr so it cannot corrupt the JSON envelope on stdout.
+    try {
+      removeOwnedTree(profile, 'remove browser profile');
+    } catch (e) {
+      console.error('cdp: ' + e.message);
+    }
   };
 
   try {
@@ -320,12 +357,12 @@ const delay = parseInt(arg('delay', '0'), 10);
     }, null, 2));
 
     ws.close();
-    cleanup();
+    await cleanup();
     process.exit(ready ? 0 : 1);
   } catch (e) {
     console.error('HARNESS ERROR: ' + e.message);
     console.error(stderrBuf.slice(-2000));
-    cleanup();
+    await cleanup();
     process.exit(3);
   }
 })();

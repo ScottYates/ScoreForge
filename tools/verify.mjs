@@ -211,6 +211,23 @@ if (fidelity.code !== 0) {
   if (!fidelity.out.includes('<-')) failures.push('recording fidelity: ' + (fidelity.err.trim() || 'check failed'));
 }
 
+// Deletion guardrails. Two rules -- never delete what this repository did not
+// create, never delete outside the working folder -- that have both been broken
+// already, once by a builder clearing its own output directory and once by a
+// browser profile in the temp directory. Checked first because it is the one that
+// protects everything the checks below are about to write.
+const guard = await run(process.execPath, [path.join(root, 'tools/check-no-unguarded-deletes.mjs')],
+  { allowFail: true });
+console.log(guard.out.trim());
+if (guard.code !== 0) {
+  for (const line of guard.out.split('\n')) {
+    if (line.startsWith('FAIL ') || line.startsWith('GUARDRAILS FAILED')) failures.push(line.trim());
+  }
+  if (!guard.out.includes('FAIL ') && !guard.out.includes('GUARDRAILS FAILED')) {
+    failures.push('guardrails: ' + (guard.err.trim() || 'check failed'));
+  }
+}
+
 if (report) console.log(`self-test: ${report.result} - ${report.pass} passed, ${report.fail} failed`);
 
 if (failures.length) {

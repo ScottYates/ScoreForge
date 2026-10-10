@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { readWav, peakOf } from './lib/wav.mjs';
 import { encodeMp3 } from './lib/lame.mjs';
 import { parseSfz, regionsForKey, keyCentreOf } from './lib/sfz.mjs';
+import { claimTree, removeOwnedTree } from './lib/guard.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
@@ -114,8 +115,11 @@ for (const r of regions) {
 // which is the directory the hand-written page and README live in -- running
 // the builder once quietly took the page with it, and the next run of the check
 // then reported a decode failure that had nothing to do with audio.
-fs.rmSync(path.join(OUT, 'samples'), { recursive: true, force: true });
-fs.mkdirSync(path.join(OUT, 'samples'), { recursive: true });
+//
+// removeOwnedTree() refuses unless the marker claimTree() wrote is still there,
+// so a mistyped --out cannot reach a directory this tool never created.
+removeOwnedTree(path.join(OUT, 'samples'), 'clear generated samples');
+claimTree(path.join(OUT, 'samples'), 'MP3 encodings written by make-sampled-instrument.mjs.');
 
 // ---- encode every take once, straight from its WAV -------------------------
 const takes = new Map();     // sample path -> { file, durSec, onsetSec, peak, vel, centre }

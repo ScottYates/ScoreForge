@@ -16,7 +16,6 @@ import io
 import os
 import re
 import sys
-import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -28,6 +27,7 @@ from typing import List, Optional
 import cv2
 import numpy as np
 
+from guard import owned_tree, remove_owned_file, ROOT
 from preprocess import Page, Variant, build_variants, encode_png, trim_border
 
 ENGINE_NAME = "homr"
@@ -186,8 +186,10 @@ def _run_variant(variant: Variant, workdir: Path,
     src = workdir / "page.png"
     cv2.imwrite(str(src), variant.image)
     out_xml = workdir / "page.musicxml"
-    if out_xml.exists():
-        out_xml.unlink()
+    # Clear a result left behind by a crashed run, so it cannot be read back as
+    # this pass's output. Goes through the guard rather than Path.unlink: the
+    # file is inside a tree we claimed, and the guard is what proves that.
+    remove_owned_file(out_xml, "clear stale inference result")
 
     log = _LineForwarder(on_line)
     t0 = time.perf_counter()
@@ -383,10 +385,24 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
             # hundred milliseconds later never sees which rendering is running.
             report(_base + _span * _state["moved"], f"{_name}: {text}")
 
-        with tempfile.TemporaryDirectory() as td:
-            workdir = Path(td)
-            # Serialise inference: one ONNX session per process, not per request.
-            with _omr_lock:
+        # Serialise inference: one ONNX session per process, not per request.
+        #
+        # The lock covers the scratch directory's whole lifetime, not just the
+        # inference call inside it. A uniquely named temporary directory was safe
+        # to share the lock's scope with -- each request had its own path -- but
+        # a fixed name inside the working folder is only safe if creation, use and
+        # removal are serialised together. Narrowing the lock to the inner `with`
+        # would let one request delete the directory another was still reading.
+        with _omr_lock:
+            # Scratch for this one inference pass. It used to be a
+            # tempfile.TemporaryDirectory, which is a delete outside the working
+            # folder on every request, against a shared system directory, with
+            # nothing to say the path was ours. owned_tree() puts it inside the
+            # repo with a receipt on disk, so removing it is claim-backed.
+            with owned_tree(
+                ROOT / ".tmp" / "omr-work",
+                "Scratch for one homr inference pass.",
+            ) as workdir:
                 text, log_lines = _run_variant(variant, workdir, on_line=on_line)
         count = _note_count(text)
         report(base + span, f"{variant.name} read {count} notes")

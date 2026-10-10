@@ -16,6 +16,11 @@ Thumbs.db
 # The curated set in docs/screenshots/ IS committed.
 tools/*.png
 
+# Browser profiles and probe directories created by the tooling. Every one of
+# these is claimed with a .scoreforge-owned marker so tools/lib/guard.mjs will
+# let the run that made it delete it again -- see tools/check-no-unguarded-deletes.mjs.
+.tmp/
+
 # Scratch output from the accuracy suite. Regenerate with:
 #   npm run fixtures
 #   python tools/score_omr.py --write fixtures/accuracy.json
