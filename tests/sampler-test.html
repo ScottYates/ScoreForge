@@ -656,6 +656,38 @@ try {
     }
   }
 
+  /* ============== an offline render keeps the notes it already scheduled == */
+
+  head('a note scheduled early survives the scheduling of a later one');
+
+  {
+    // The export path schedules a whole piece while the offline clock still
+    // reads 0. By the last note, every earlier voice is already "finished" on
+    // the timeline, and reap() retires it -- which must not detach its nodes
+    // from the graph, because none of them has rendered a sample yet. When it
+    // did, an exported MP3 kept only the notes still ringing at the end of
+    // the piece: 34 seconds of silence, then the close. Two notes that do not
+    // overlap are the whole bug: scheduling the second reaps the first.
+    installPack(ctx);
+    const r = await render(ctx, 2.4, (inst) => {
+      const h = inst.noteOn({ midi: 60, velocity: 0.8, when: 0.05, duration: 0.1 });
+      inst.noteOff(h, 0.15);
+      inst.noteOn({ midi: 64, velocity: 0.8, when: 1.8, duration: 0.3 });
+    });
+    const sr = r.buf.sampleRate;
+    const peakIn = (a, b) => {
+      let p = 0;
+      for (let i = Math.floor(a * sr); i < Math.min(r.d.length, Math.floor(b * sr)); i++) p = Math.max(p, Math.abs(r.d[i]));
+      return p;
+    };
+    const early = peakIn(0.05, 0.5);
+    const late = peakIn(1.8, 2.3);
+    ok('the first note is audible', early > 0.02, `peak ${early.toFixed(5)} in [0.05, 0.5]`);
+    ok('and so is the second', late > 0.02, `peak ${late.toFixed(5)} in [1.8, 2.3]`);
+    ok('and the gap between them is really a gap', peakIn(0.9, 1.7) < 1e-4,
+      `peak ${peakIn(0.9, 1.7).toFixed(6)} in [0.9, 1.7]`);
+  }
+
   head('housekeeping');
 
   {

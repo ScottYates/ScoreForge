@@ -347,6 +347,40 @@ async function run() {
     }
   }
 
+  /* ------------------------- offline scheduling keeps every note's audio */
+  //
+  // An offline render schedules the whole piece while the clock reads 0, so a
+  // voice can be retired -- reaped, or dropped by a re-strike of its own key --
+  // before one of its samples has rendered. Detaching its nodes at that
+  // moment silences the note entirely: an exported MP3 of the demo kept
+  // little more than its final chord, and every per-note assertion above
+  // still passed, because each one renders its subject in isolation.
+  {
+    const peakIn = (a, from, to) => {
+      let p = 0;
+      for (let i = Math.floor(from * SR); i < Math.min(a.length, Math.floor(to * SR)); i++) {
+        const v = Math.abs(a[i]);
+        if (v > p) p = v;
+      }
+      return p;
+    };
+
+    // Two notes that do not overlap: scheduling the second reaps the first.
+    const seq = await render('grand',
+      [{ midi: 60, when: 0.05, duration: 0.15, off: 0.2 }, { midi: 64, when: 2.0, duration: 0.3, off: 2.3 }], 3.0);
+    check('offline: an early note survives a later one being scheduled',
+      peakIn(seq.a, 0.05, 0.7) > 0.01 && peakIn(seq.a, 2.0, 2.7) > 0.01,
+      { early: r4(peakIn(seq.a, 0.05, 0.7)), late: r4(peakIn(seq.a, 2.0, 2.7)) });
+
+    // The same key struck again while it still rings reuses the voice, which
+    // drops the old nodes -- that must not erase the first strike.
+    const re = await render('grand',
+      [{ midi: 60, when: 0.05, duration: 0.2, off: 0.25 }, { midi: 60, when: 1.2, duration: 0.3, off: 1.5 }], 2.6);
+    check('offline: a re-struck key keeps its first strike',
+      peakIn(re.a, 0.05, 0.7) > 0.01 && peakIn(re.a, 1.2, 1.9) > 0.01,
+      { first: r4(peakIn(re.a, 0.05, 0.7)), second: r4(peakIn(re.a, 1.2, 1.9)) });
+  }
+
   /* ------------------------------------------------------------- report */
   const failed = checks.filter((c) => !c.ok);
   const summary = {

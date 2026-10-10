@@ -811,8 +811,23 @@ export function createSampledInstrument(packId, ctx, outputNode) {
       },
       drop() {
         uncount();
-        for (const n of [src, amp]) { try { n.disconnect(); } catch (e) { /* gone */ } }
         stats.nodes -= 2;
+        // Forgetting a voice and detaching its nodes are two different acts,
+        // and only the first may run ahead of the clock. An offline render
+        // schedules the whole piece while ctx.currentTime still reads 0, so by
+        // the time the last notes are placed, every earlier voice is already
+        // "finished" *on the timeline* -- reap() sees hardStopAt <= when and
+        // retires it -- while not one of its samples has rendered. Detaching
+        // it then removes it from the graph entirely, and the note never
+        // sounds: an exported MP3 kept only the notes still ringing at the end
+        // of the piece, which read as a silent file with a blip at the close.
+        // So the nodes are detached only once the clock itself has passed the
+        // stop. Before that they stay in the graph, where the stop that is
+        // already scheduled ends them, and -- no longer referenced from here --
+        // they are collected on their own.
+        if (ctx.currentTime >= this.hardStopAt) {
+          for (const n of [src, amp]) { try { n.disconnect(); } catch (e) { /* gone */ } }
+        }
       },
     };
 

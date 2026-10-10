@@ -137,6 +137,33 @@ const script = (mode) => `(async () => {
     } else {
       check('and says it fell back to the modelled instruments, and why', /^Modelled .*unavailable/.test(factVal), factVal);
     }
+
+    // Listen to the export, not just its paperwork. The render schedules the
+    // whole piece on an offline clock stuck at 0, and a voice reaped during
+    // that scheduling used to be detached before it had rendered a sample --
+    // an export of sequential notes kept only the final ones, and every
+    // assertion above still passed. So: decode the preview's own bytes and
+    // require the music to start at the start.
+    const audioEl = document.querySelector('.modal audio');
+    check('the export preview carries audio', !!(audioEl && audioEl.src));
+    if (audioEl && audioEl.src) {
+      const raw = await (await fetch(audioEl.src)).arrayBuffer();
+      const dctx = new OfflineAudioContext(1, 128, 44100);
+      const dec = await dctx.decodeAudioData(raw);
+      const d = dec.getChannelData(0);
+      const sr2 = dec.sampleRate;
+      const peakIn = (a, b) => {
+        let pk = 0;
+        for (let i = Math.max(0, Math.floor(a * sr2)); i < Math.min(d.length, Math.floor(b * sr2)); i++) pk = Math.max(pk, Math.abs(d[i]));
+        return pk;
+      };
+      const headPeak = peakIn(0, 3);
+      const wholePeak = peakIn(0, d.length / sr2);
+      out.facts.exportHeadPeak = +headPeak.toFixed(4);
+      check('the exported audio begins at the beginning, not only at the end',
+        wholePeak > 0.01 && headPeak > wholePeak * 0.1,
+        'first 3 s peak ' + headPeak.toFixed(4) + ', whole-file peak ' + wholePeak.toFixed(4));
+    }
   } catch (e) {
     check('no exception', false, String((e && e.stack) || e));
   }

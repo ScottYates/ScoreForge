@@ -194,10 +194,22 @@ function initVoice(kit) {
       return s;
     },
 
-    /** Detach everything and hand the shell back to the pool. */
+    /** Forget everything and hand the shell back to the pool. */
     drop() {
+      // Detaching is only safe once the clock has passed this voice's end.
+      // Scheduling runs ahead of the clock: an offline render places the whole
+      // piece while ctx.currentTime still reads 0, so reap() retires voices --
+      // and a re-struck key drops the ringing voice it reuses -- long before
+      // their samples have rendered. Disconnecting them then removes them from
+      // the graph and those notes never sound: an exported MP3 of the demo
+      // kept little more than its final chord. A voice only ever reaches here
+      // with its stops scheduled (release, hardStop, or the family's own
+      // start), so forgetting it is enough -- the nodes end on their own and,
+      // unreferenced, are collected. The sampler's drop() makes the same
+      // promise for the same reason.
+      const detach = ctx.currentTime >= this.freeAt;
       for (let i = 0; i < this.nodes.length; i++) {
-        try { this.nodes[i].disconnect(); } catch (e) { /* already detached */ }
+        if (detach) { try { this.nodes[i].disconnect(); } catch (e) { /* already detached */ } }
         kit.stats.nodes--;
       }
       this.nodes.length = 0;

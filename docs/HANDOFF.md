@@ -71,6 +71,23 @@ end (including restoring the `Object.entries` bug).
 - `check-recording-fidelity` / `check-pack-is-unprocessed` need the FreePats
   WAVs and were skipped, as before; the pack itself is untouched.
 
+**Addendum, same evening (two more commits).** `a346ba7`: vocal parts (a part
+named Voice/Choir/Soprano, GM 52-54) route to the recorded upright, never to
+the synth-pad bank -- Scott's vocal book was the test case. Then the real find:
+**offline renders dropped every note that did not overlap the end of the
+piece**, in BOTH engines. `scheduleAll` places a whole piece while the offline
+clock reads 0; `reap()` (and a re-strike of a ringing key) then retires voices
+whose end lies before the note being scheduled, and `drop()` detached their
+nodes from the graph before one sample had rendered. An exported MP3 kept
+little beyond its final notes -- Scott heard his file as "silent", and he was
+right. Every suite passed throughout, because each test rendered its subject
+in isolation and the export check never decoded what it exported. Both
+`drop()`s now detach only once `ctx.currentTime` has passed the voice's stop;
+before that they just forget the nodes, whose stops are already scheduled.
+Covered by: sampler-test "a note scheduled early survives...", instruments-test
+"offline: ..." (x2), and check-default-samples now decodes the exported audio
+and requires the music to begin at the beginning. All mutation-checked.
+
 ---
 
 ## 1. What happened in this session
