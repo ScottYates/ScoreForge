@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Routing tests</title>
+<style>
+  body { background:#111; color:#ddd; font:12px ui-monospace,Consolas,monospace; margin:0; padding:12px; }
+  #out { white-space:pre-wrap; }
+  .pass { color:#7fd18a; }
+  .fail { color:#ff6b6b; font-weight:bold; }
+</style>
+</head>
+<body>
+<div id="out">running.</div>
+
+<!--
+  Which sound a part gets when nobody picks one.
+
+  The answer is a recording. Every route into the roster -- a MIDI program, a
+  MusicXML instrument name, the default for a part the file says nothing
+  about, an engine channel created without an id -- must land on a sampled
+  instrument. The modelled instruments are reached only as a recorded
+  instrument's own fallback when its pack cannot be had, which on this page
+  (file://) is always: so the last section checks that the fallback still
+  makes a sound, because samples-by-default must not mean silence-offline.
+
+  These assert against INSTRUMENTS' own `sampled` flag rather than an "rec-"
+  prefix, so a recorded entry that was quietly turned modelled is caught.
+-->
+<script type="module">
+import { INSTRUMENTS, DEFAULT_INSTRUMENT, createInstrument, packFor } from '../src/js/audio/instruments.js';
+import { instrumentForProgram, instrumentForName, GM_PROGRAMS, GAPS } from '../src/js/audio/gm.js';
+import { Engine } from '../src/js/audio/engine.js';
+import { AudioBus } from '../src/js/audio/fx.js';
+import { __clearPacks, prepare } from '../src/js/audio/sampler.js';
+
+const lines = [];
+let pass = 0, fail = 0;
+const failures = [];
+const out = document.getElementById('out');
+function head(t) { lines.push('', '== ' + t + ' ' + '='.repeat(Math.max(0, 56 - t.length))); }
+function ok(name, cond, detail = '') {
+  if (cond) { pass++; lines.push(`  PASS  ${name}`); }
+  else { fail++; failures.push(name); lines.push(`<span class="fail">  FAIL  ${name}${detail ? '  - ' + detail : ''}</span>`); }
+}
+
+const BY_ID = new Map(INSTRUMENTS.map((i) => [i.id, i]));
+const isRecorded = (id) => !!BY_ID.get(id)?.sampled;
+
+try {
+  __clearPacks();
+
+  head('the default is a recording');
+  ok('DEFAULT_INSTRUMENT is a roster entry', BY_ID.has(DEFAULT_INSTRUMENT), DEFAULT_INSTRUMENT);
+  ok('and it is sampled, not modelled', isRecorded(DEFAULT_INSTRUMENT), DEFAULT_INSTRUMENT);
+
+  head('every General MIDI program lands on a recording');
+  ok('the table covers all 128 programs', GM_PROGRAMS.length === 128, `${GM_PROGRAMS.length}`);
+  const modelled = [];
+  for (let p = 0; p < 128; p++) {
+    const id = instrumentForProgram(p);
+    if (!isRecorded(id)) modelled.push(`${p}->${id}`);
+  }
+  ok('no program routes to a modelled instrument', modelled.length === 0, modelled.slice(0, 10).join(', '));
+  for (const bad of [undefined, null, -1, 128, 999, NaN, 'piano']) {
+    ok(`program ${String(bad)} falls back to the recorded default`,
+      instrumentForProgram(bad) === DEFAULT_INSTRUMENT, instrumentForProgram(bad));
+  }
+  // Spot checks on the families a reader will reach for first.
+  const spot = {
+    0: 'rec-fp-upright', 3: 'rec-fp-honky-tonk', 19: 'rec-fp-church-organ', 21: 'rec-fp-accordion',
+    24: 'rec-fp-nylon-guitar', 25: 'rec-fp-steel-guitar', 33: 'rec-fp-bass-guitar', 46: 'rec-fp-harp',
+    47: 'rec-fp-timpani', 66: 'rec-fp-tenor-sax', 71: 'rec-fp-clarinet', 74: 'rec-fp-recorder',
+    79: 'rec-fp-ocarina', 109: 'rec-fp-bagpipe', 14: 'rec-fp-tubular-bells', 13: 'rec-fp-xylophone',
+  };
+  for (const [p, want] of Object.entries(spot)) {
+    ok(`program ${p} -> ${want}`, instrumentForProgram(Number(p)) === want, instrumentForProgram(Number(p)));
+  }
+
+  head('the families with no recording use the nearest recording');
+  for (const [family, id] of Object.entries(GAPS)) {
+    ok(`${family} stands in as a recording (${id})`, isRecorded(id), id);
+    ok(`and the GM table actually uses ${id}`, GM_PROGRAMS.includes(id));
+  }
+
+  head('instrument names route to recordings');
+  const names = {
+    'Piano': 'rec-fp-upright',
+    'Grand Piano': 'rec-fp-upright',
+    'Piano (right hand)': 'rec-fp-upright',
+    // "e piano" inside ordinary words must not become an electric piano.
+    'The Piano': 'rec-fp-upright',
+    'Grande piano': 'rec-fp-upright',
+    'Electric Piano': 'rec-fp-fm-piano-1',
+    'E-Piano': 'rec-fp-fm-piano-1',
+    'E. Piano': 'rec-fp-fm-piano-1',
+    'Honky-tonk Piano': 'rec-fp-honky-tonk',
+    // harpsichord contains "harp"; it is a keyboard, not a harp.
+    'Harpsichord': 'rec-fp-honky-tonk',
+    'Harp': 'rec-fp-harp',
+    'Jaw Harp': 'rec-fp-jaw-harp',
+    'Violin I': 'rec-fp-synth-strings-1',
+    'Violoncello': 'rec-fp-synth-strings-1',
+    'Contrabass': 'rec-fp-synth-strings-1',
+    'Double Bass': 'rec-fp-bass-guitar',
+    'Bass Guitar': 'rec-fp-bass-guitar',
+    'Synth Bass': 'rec-fp-synth-bass-1',
+    'Trumpet in Bb': 'rec-fp-synth-brass-1',
+    'French Horn': 'rec-fp-synth-brass-1',
+    // "horn" is brass, but an English horn is an oboe.
+    'English Horn': 'rec-fp-clarinet',
+    'Clarinet in A': 'rec-fp-clarinet',
+    'Alto Saxophone': 'rec-fp-tenor-sax',
+    'Flute': 'rec-fp-recorder',
+    'Ocarina': 'rec-fp-ocarina',
+    'Choir Aahs': 'rec-fp-synth-pad-choir',
+    'Acoustic Guitar': 'rec-fp-steel-guitar',
+    'Electric Guitar': 'rec-fp-eg-clean',
+    'the guitar': 'rec-fp-nylon-guitar',
+    // "steel" alone is not a guitar.
+    'Steel Drums': 'rec-fp-hang',
+    'Glockenspiel': 'rec-fp-xylophone',
+    'Celesta': 'rec-fp-kalimba',
+    'Timpani': 'rec-fp-timpani',
+    'Organ': 'rec-fp-church-organ',
+    'Accordion': 'rec-fp-accordion',
+  };
+  for (const [name, want] of Object.entries(names)) {
+    const got = instrumentForName(name);
+    ok(`"${name}" -> ${want}`, got === want, String(got));
+  }
+  for (const silent of ['', 'Melody', 'Part 1', 'Alto', 'Bass']) {
+    ok(`"${silent}" says nothing, so the program decides`, instrumentForName(silent) === null,
+      String(instrumentForName(silent)));
+  }
+
+  head('the picker lists recordings first');
+  const firstModelled = INSTRUMENTS.findIndex((i) => !i.sampled);
+  const lastRecorded = INSTRUMENTS.map((i) => i.sampled).lastIndexOf(true);
+  ok('the first entry is the default recording', INSTRUMENTS[0].id === DEFAULT_INSTRUMENT, INSTRUMENTS[0].id);
+  ok('every recording is listed before any modelled instrument', lastRecorded < firstModelled,
+    `last recorded at ${lastRecorded}, first modelled at ${firstModelled}`);
+  const unlabelled = INSTRUMENTS.filter((i) => !i.sampled && !/^Synthesised /.test(i.group)).map((i) => i.id);
+  ok('every modelled instrument is grouped as synthesised', unlabelled.length === 0, unlabelled.join(','));
+  const mislabelled = INSTRUMENTS.filter((i) => i.sampled && /^Synthesised /.test(i.group)).map((i) => i.id);
+  ok('no recording is grouped as synthesised', mislabelled.length === 0, mislabelled.join(','));
+
+  head('preparing a recorded instrument reaches the sampler');
+  {
+    // The seam that broke: instruments.js tells the sampler which pack each
+    // roster id plays. When that table came through empty, prepare() of a
+    // recorded id resolved at once having done nothing, and the part played
+    // the modelled fallback with no error anywhere. With no pack on this page
+    // the honest answer is a rejection that names the pack.
+    let err = null, resolved = false;
+    try { await prepare([DEFAULT_INSTRUMENT], [60]); resolved = true; } catch (e) { err = e; }
+    ok('prepare() of the recorded default asks the sampler for its pack', !resolved && !!err,
+      resolved ? 'resolved without preparing anything' : '');
+    ok('and the refusal names that pack', !!err && err.message.includes(packFor(DEFAULT_INSTRUMENT)),
+      err ? err.message : '');
+    let modelledErr = null;
+    try { await prepare(['grand'], [60]); } catch (e) { modelledErr = e; }
+    ok('a modelled instrument needs no pack and prepares as a no-op', !modelledErr,
+      modelledErr && modelledErr.message);
+  }
+
+  head('a channel created without an instrument gets the default');
+  {
+    const off = new OfflineAudioContext(2, 4410, 44100);
+    const engine = new Engine(off, { bus: new AudioBus(off, off.destination), offline: true });
+    engine.setPartMix('p1', { gain: 1 });
+    const got = engine._channels.get('p1').inst.id;
+    // With no pack on this page, the default resolves to its own modelled
+    // fallback. Ask the roster what that is rather than writing it down here.
+    const want = createInstrument(DEFAULT_INSTRUMENT, new OfflineAudioContext(1, 128, 44100)).id;
+    ok('the engine resolves an unset part through DEFAULT_INSTRUMENT', got === want, `got ${got}, want ${want}`);
+    ok('not through the modelled grand directly', got !== 'grand', got);
+  }
+
+  head('with no pack, the default still makes a sound');
+  {
+    // file:// has no pack, so this is the real offline path, not a stub.
+    const off = new OfflineAudioContext(1, 44100, 44100);
+    const inst = createInstrument(DEFAULT_INSTRUMENT, off, off.destination);
+    inst.noteOn({ midi: 60, velocity: 0.8, when: 0.02, duration: 0.5 });
+    const d = (await off.startRendering()).getChannelData(0);
+    let peak = 0;
+    for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+    ok('the recorded default falls back to an audible instrument', peak > 0.02, `peak ${peak.toFixed(4)}`);
+  }
+} catch (e) {
+  fail++;
+  failures.push('EXCEPTION');
+  lines.push('', `<span class="fail">EXCEPTION ${(e && e.stack) || e}</span>`);
+  console.error(e);
+}
+
+const summary = `${pass} passed, ${fail} failed`;
+lines.unshift(`<span class="${fail ? 'fail' : 'pass'}">ROUTING TESTS: ${summary}</span>`);
+out.innerHTML = lines.join('\n');
+window.__RESULT__ = { passed: pass, failed: fail, summary, fatal: null, failures };
+window.__DONE__ = true;
+document.title = `routing ${summary}`;
+</script>
+</body>
+</html>

@@ -11,7 +11,7 @@
 import { resolveScore, describeScore, keyNameFromFifths } from '../score/model.js';
 import { readScoreFiles } from '../io/files.js';
 import { backendHealth, describePage, describeQueue, resolveBase, probeHealth, setBase, configuredBase } from '../io/omr.js';
-import { INSTRUMENTS, createInstrument } from '../audio/instruments.js';
+import { INSTRUMENTS, DEFAULT_INSTRUMENT, createInstrument, packFor } from '../audio/instruments.js';
 import { packState, packCredits, prepare } from '../audio/sampler.js';
 import { instrumentForProgram, instrumentForName } from '../audio/gm.js';
 import { Engine } from '../audio/engine.js';
@@ -876,7 +876,7 @@ export class App {
     // Choose an instrument per part from whatever the file told us.
     this.partInstruments = new Map();
     score.parts.forEach((p, i) => {
-      const id = instrumentForName(p.name) || instrumentForProgram(p.midiProgram) || 'grand';
+      const id = instrumentForName(p.name) || instrumentForProgram(p.midiProgram) || DEFAULT_INSTRUMENT;
       this.partInstruments.set(p.id, id);
       if (!this._partColors.has(p.id)) this._partColors.set(p.id, PALETTE[i % PALETTE.length]);
     });
@@ -1025,7 +1025,13 @@ export class App {
         el.textContent = `recorded samples unavailable - ${e.message}`;
         el.className = 'hint bad';
       }
-      toast('Recorded samples unavailable - playing modelled instruments instead.');
+      // Once per reason, not once per Play. Samples are the default, so on a
+      // page that cannot have them (opened from file://) every piece lands
+      // here; the status line above keeps saying so for as long as it is true.
+      if (this._sampleFallbackToasted !== e.message) {
+        this._sampleFallbackToasted = e.message;
+        toast('Recorded samples unavailable - playing modelled instruments instead.');
+      }
     }
     if (token !== this._playToken) return;   // paused again while decoding
     if (wasReady) this._paintPackProgress();
@@ -1226,7 +1232,7 @@ export class App {
         for (const i of items) og.appendChild(el('option', { value: i.id, text: i.name }));
         sel.appendChild(og);
       }
-      sel.value = this.partInstruments.get(p.id) || 'grand';
+      sel.value = this.partInstruments.get(p.id) || DEFAULT_INSTRUMENT;
 
       const mute = el('button', {
         class: 'mini mute' + (p.muted ? ' on' : ''), text: 'M', title: 'Mute',
@@ -1333,6 +1339,19 @@ export class App {
 
   /* -------------------------------------------------------------- export */
 
+  /**
+   * What the parts will actually sound as: recordings, the modelled
+   * instruments, or a mix, given whether the samples could be prepared.
+   * `fallbackWhy` is the reason preparing failed, or null when it did not.
+   */
+  _soundSourceLabel(fallbackWhy) {
+    const ids = [...this.partInstruments.values()];
+    const recorded = ids.filter((id) => packFor(id)).length;
+    if (!recorded) return 'Modelled (synthesised)';
+    if (fallbackWhy) return 'Modelled \u2014 recorded samples unavailable: ' + fallbackWhy;
+    return recorded === ids.length ? 'Recorded samples' : `Recorded samples (${recorded} of ${ids.length} parts)`;
+  }
+
   async openExport() {
     if (!this.score) { this.dom.fileInput.click(); return; }
     this.ensureAudio();
@@ -1361,6 +1380,7 @@ export class App {
         this._exportAbort = new AbortController();
         try {
           status('Synthesising…', 0.04);
+          let sampleFallback = null;
           const buffer = await renderToBuffer({
             resolved: this.resolved,
             partInstruments: this.partInstruments,
@@ -1374,6 +1394,7 @@ export class App {
             },
             signal: this._exportAbort.signal,
             onProgress: (p) => status(p.message, p.ratio),
+            onSampleFallback: (why) => { sampleFallback = why; },
           });
 
           const enc = await encodeMp3(buffer, {
@@ -1402,6 +1423,10 @@ export class App {
           facts.appendChild(f('Peak', `${linToDb(enc.peak).toFixed(1)} dBFS${enc.appliedGainDb > 0.05 ? ` (+${enc.appliedGainDb.toFixed(1)} dB)` : ''}`));
           facts.appendChild(f('MPEG frames', `${check.frames}${check.badSync ? ` · ${check.badSync} resyncs` : ''}`));
           facts.appendChild(f('Channels', enc.channels === 2 ? 'Stereo' : 'Mono'));
+          // Which sound went into the file. Samples are the default, so a render
+          // that had to use the modelled instruments says so here, beside the
+          // result, rather than passing a synthesised MP3 off as the recording.
+          facts.appendChild(f('Instruments', this._soundSourceLabel(sampleFallback)));
 
           out.innerHTML = '';
           out.appendChild(el('div', { class: 'result' },

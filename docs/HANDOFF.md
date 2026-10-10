@@ -11,6 +11,68 @@ When the two disagree, trust `git log`.
 
 ---
 
+## 0. Later the same day: samples by default
+
+Scott's ask: *the sounds should be samples rather than synthesised.* One
+commit after `2426a73`. Read this section, then the rest still stands.
+
+**Why the app sounded synthesised.** Two reasons, the second worse than the
+first:
+
+1. Every route into the roster led to the model. New parts, all 128 GM
+   programs and every MusicXML name mapped to a modelled instrument; samples
+   played only if picked by hand.
+2. **Picking one by hand did not work either, since `6ceee06`.**
+   `instruments.js` passes the sampler a `Map`; `__registerPackOf` read it with
+   `Object.entries()`, which is `[]` for a Map. The sampler's roster-to-pack
+   table was always empty, so `prepare()` decoded nothing and every recorded
+   instrument silently played its modelled fallback. All 1038 suite assertions
+   passed throughout — the sampler checks call `preparePack` with pack ids and
+   never cross that seam.
+
+**What is true now.**
+
+- Every route lands on a recording: `DEFAULT_INSTRUMENT` (`rec-fp-upright`) in
+  `instruments.js`, the GM and name tables in `gm.js`. Families the pack has no
+  recording of go to the nearest recording; `GAPS` in `gm.js` lists them.
+- The picker lists recordings first; modelled groups read "Synthesised · …".
+- Packs are registered when the manifest arrives, not when all 277 MB have.
+  `preparePack` fetches missing keys at high priority; the background fetch
+  stands aside while it does. One missing file no longer fails the whole load.
+- `Engine.prepare` replaces a channel that was built as the fallback before its
+  samples existed (one press of mute before the first Play used to lock a part
+  to the model for the session).
+- Export no longer fails when samples cannot be had; the dialog's
+  *Instruments* line says recorded or modelled, and why.
+- `tools/check-default-samples.mjs` (in `npm test`) drives the built page:
+  over http against the real, throttled pack, and from `file://`.
+
+**Verified here.** Suites 1145 / 0 (routing-test new, sampler-test 46 → 60).
+`npm test` green except `check-omr-queue.py`, which needs FastAPI. 21 mutations,
+each red for the predicted assertion: 6 sampler loading, 9 routing, 6 end to
+end (including restoring the `Object.entries` bug).
+
+**Not verified, and why.**
+
+- **Run on Linux headless Chromium, not on Scott's Windows Chrome/Edge.** The
+  egress policy here blocks PyPI and the npm registry. `check-omr-queue.py` and
+  the homr checks did not run; nothing in this change touches the backend.
+- **The committed `index.html` was built with esbuild 0.28.2 compiled from its
+  GitHub source, and fflate 0.8.3 bundled from its TypeScript source** rather
+  than npm's prebuilt ESM. Building the *previous* commit that way reproduced
+  the committed file byte for byte except the app bundle's minified names
+  (+502 bytes, all fflate). The `.mxl` suites pass. A normal `npm ci && npm run
+  build` on the host will produce a slightly different app bundle; that is
+  expected, not a regression.
+- **Nobody has listened to it.** The checks prove which instrument each channel
+  built and that the export renders; whether, say, synth brass is an acceptable
+  stand-in for a trumpet is a judgement for a person with ears. Changing a
+  substitution is a one-line edit in `gm.js` plus its row in `routing-test`.
+- `check-recording-fidelity` / `check-pack-is-unprocessed` need the FreePats
+  WAVs and were skipped, as before; the pack itself is untouched.
+
+---
+
 ## 1. What happened in this session
 
 Six commits, in order. Each was pushed directly to `main`; no PRs, no tags, no

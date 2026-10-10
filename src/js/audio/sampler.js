@@ -77,6 +77,7 @@ const KEY_RELEASE = 0.12;
 
 const packs = new Map();   // packId -> Pack
 let loadPromise = null;
+let baseOverride = null;  // test seam, see __setPackBase
 
 /**
  * Decoded PCM, by file, shared across packs.
@@ -92,6 +93,7 @@ let clock = 0;
 
 /** Where the pack lives, or null when this page cannot reach one. */
 export function packBase() {
+  if (baseOverride) return baseOverride;
   try {
     const q = new URLSearchParams(location.search).get('pack');
     if (q) return q.replace(/\/+$/, '');
@@ -150,8 +152,11 @@ let loadError = null;
  * @returns {Promise<Map<string, object>>}
  */
 export function loadPack(onProgress) {
-  if (packs.size) return Promise.resolve(packs);
+  // The in-flight load first: packs are registered as soon as the manifest
+  // arrives, long before the background fetch finishes, so `packs.size` alone
+  // would hand a second caller an early "done" instead of joining the load.
   if (loadPromise) return loadPromise;
+  if (packs.size) return Promise.resolve(packs);
 
   const base = packBase();
   if (!base) {
@@ -161,10 +166,20 @@ export function loadPack(onProgress) {
   }
 
   loadState = 'loading';
+  let manifestSettled;
+  manifestReady = new Promise((resolve) => { manifestSettled = resolve; });
+
   loadPromise = (async () => {
-    const res = await fetch(`${base}/manifest.json`, { cache: 'force-cache' });
-    if (!res.ok) throw new Error(`manifest ${res.status} ${res.statusText}`);
-    const manifest = await res.json();
+    let manifest;
+    try {
+      const res = await fetch(`${base}/manifest.json`, { cache: 'force-cache' });
+      if (!res.ok) throw new Error(`manifest ${res.status} ${res.statusText}`);
+      manifest = await res.json();
+    } finally {
+      // Waiters look at `packs` afterwards; a failed manifest leaves it empty
+      // and they reject with the load's own error.
+      manifestSettled();
+    }
 
     // Every distinct file, so a take shared by several pitches is fetched once.
     const wanted = new Set();
@@ -174,6 +189,22 @@ export function loadPack(onProgress) {
       }
     }
     const files = [...wanted];
+
+    // Register every pack now, before a single sample has arrived. Samples are
+    // the default sound, so a piece played in the first seconds after the page
+    // opens must not wait for 277 MB to finish downloading -- or worse, find no
+    // pack and quietly play the synthesiser. preparePack() fetches whatever
+    // keys it needs that the background fetch has not reached yet.
+    fetchBase = base;
+    for (const [id, inst] of Object.entries(manifest.instruments)) {
+      packs.set(id, {
+        id, ...inst, credits: manifest.credits?.[id] || [],
+        files: fetched,      // rel -> compressed ArrayBuffer, shared and filling
+        fetch: fetchFile,    // rel -> Promise<ArrayBuffer>, for keys not here yet
+        buffers: null,       // rel -> {buffer, onset}; null until prepared
+        live: 0,             // voices currently holding this pack's PCM
+      });
+    }
 
     let done = 0;
     const report = () => {
@@ -186,17 +217,25 @@ export function loadPack(onProgress) {
     // 4.3 GB of PCM it decodes to is not something a tab can do at all. These
     // stay in the HTTP cache anyway, so a later decode that has been evicted
     // does not cost a second network round trip.
-    const bytes = new Map();
+    //
+    // This runs behind any on-demand fetch: while preparePack() is waiting on
+    // the network, the background workers stand aside, so the notes someone
+    // is about to hear are not queued behind a xylophone nobody asked for.
     let next = 0;
-
+    const failures = [];
     const worker = async () => {
       for (;;) {
         const i = next++;
         if (i >= files.length) return;
-        const rel = files[i];
-        const r = await fetch(`${base}/${rel}`, { cache: 'force-cache' });
-        if (!r.ok) throw new Error(`${rel}: ${r.status} ${r.statusText}`);
-        bytes.set(rel, await r.arrayBuffer());
+        while (demand > 0) await demandIdle();
+        try {
+          await fetchFile(files[i], 'low');
+        } catch (e) {
+          // One missing file costs that take, not the whole pack. The rest
+          // still loads, and preparePack reports the missing one if a piece
+          // actually needs it.
+          failures.push(e && e.message ? e.message : String(e));
+        }
         done++;
         report();
       }
@@ -204,16 +243,13 @@ export function loadPack(onProgress) {
 
     await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, files.length) }, worker));
 
-    for (const [id, inst] of Object.entries(manifest.instruments)) {
-      packs.set(id, {
-        id, ...inst, credits: manifest.credits?.[id] || [],
-        files: bytes,        // rel -> compressed ArrayBuffer
-        buffers: null,       // rel -> {buffer, onset}; null until prepared
-        live: 0,             // voices currently holding this pack's PCM
-      });
-    }
     loadProgress = 1;
-    loadState = 'ready';
+    if (failures.length) {
+      loadState = 'failed';
+      loadError = `${failures.length} of ${files.length} sample files could not be fetched (first: ${failures[0]})`;
+    } else {
+      loadState = 'ready';
+    }
     return packs;
   })().catch((e) => {
     loadState = 'failed';
@@ -223,6 +259,58 @@ export function loadPack(onProgress) {
   });
 
   return loadPromise;
+}
+
+/**
+ * Compressed sample bytes, shared by every pack, filled by the background
+ * fetch and by preparePack() asking for a key early. One map, so a take shared
+ * by two packs -- or asked for by both paths at once -- is fetched once.
+ */
+const fetched = new Map();     // rel -> ArrayBuffer
+const fetching = new Map();    // rel -> Promise<ArrayBuffer>
+let fetchBase = null;
+/** Resolves once the manifest has been read (or has failed). Null before loadPack. */
+let manifestReady = null;
+
+/** On-demand fetches in progress; the background fetch waits while this is > 0. */
+let demand = 0;
+let idleWaiters = [];
+function demandIdle() {
+  return new Promise((resolve) => idleWaiters.push(resolve));
+}
+function demandDone() {
+  demand = Math.max(0, demand - 1);
+  if (demand === 0) {
+    const w = idleWaiters;
+    idleWaiters = [];
+    for (const resolve of w) resolve();
+  }
+}
+
+/**
+ * The compressed bytes of one sample file, fetched at most once.
+ *
+ * @param {string} rel  path inside the pack, as the manifest names it
+ * @param {'high'|'low'} [priority]
+ */
+function fetchFile(rel, priority = 'high') {
+  const have = fetched.get(rel);
+  if (have) return Promise.resolve(have);
+  const inflight = fetching.get(rel);
+  if (inflight) return inflight;
+  if (!fetchBase) return Promise.reject(new Error(`${rel}: no sample pack to fetch from`));
+
+  const url = `${fetchBase}/${rel.split('/').map(encodeURIComponent).join('/')}`;
+  const p = (async () => {
+    const r = await fetch(url, { cache: 'force-cache', priority });
+    if (!r.ok) throw new Error(`${rel}: ${r.status} ${r.statusText}`);
+    const buf = await r.arrayBuffer();
+    fetched.set(rel, buf);
+    return buf;
+  })();
+  fetching.set(rel, p);
+  p.then(() => fetching.delete(rel), () => fetching.delete(rel));
+  return p;
 }
 
 /* ---------------------------------------------------------------- prepare */
@@ -308,7 +396,14 @@ export function __setDecodeBudget(bytes) {
  * @param {(p:{done:number,total:number})=>void} [onProgress]
  */
 export async function preparePack(packId, midis, onProgress) {
-  const pack = packs.get(packId);
+  let pack = packs.get(packId);
+  // Asked before the manifest has arrived -- Play pressed the moment the page
+  // opened. The manifest is a few kilobytes; wait for it rather than giving up
+  // on samples for this piece.
+  if (!pack && manifestReady && loadState === 'loading') {
+    await manifestReady;
+    pack = packs.get(packId);
+  }
   if (!pack) {
     return Promise.reject(new Error(
       `sample pack "${packId}" is not loaded (${loadState}: ${loadError || 'no detail'})`
@@ -334,6 +429,29 @@ export async function preparePack(packId, midis, onProgress) {
   if (inflight) return inflight.then(() => preparePack(packId, midis, onProgress));
 
   const promise = (async () => {
+    // Bytes first. Whatever the background fetch has not reached yet is fetched
+    // now, at high priority, with the background standing aside until it is in.
+    const missing = todo.filter((rel) => !pack.files.get(rel));
+    if (missing.length && pack.fetch) {
+      demand++;
+      try {
+        let got = 0;
+        let nextMissing = 0;
+        const fetcher = async () => {
+          for (;;) {
+            const i = nextMissing++;
+            if (i >= missing.length) return;
+            await pack.fetch(missing[i]);
+            got++;
+            onProgress && onProgress({ done: got, total: missing.length, label: 'fetching samples' });
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, missing.length) }, fetcher));
+      } finally {
+        demandDone();
+      }
+    }
+
     const decodeCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 128, 44100);
     const keep = new Set(todo);
     let done = 0;
@@ -419,7 +537,14 @@ export async function prepare(ids, midis, onProgress) {
 const PACK_OF = new Map();
 export function __registerPackOf(map) {
   PACK_OF.clear();
-  for (const [k, v] of Object.entries(map)) PACK_OF.set(k, v);
+  // instruments.js passes a Map. Object.entries() of a Map is [] -- it has no
+  // own enumerable properties -- and reading it that way left this table empty,
+  // so prepare() decoded nothing and every recorded instrument quietly played
+  // its modelled fallback, including one picked by hand from the Recorded list.
+  // Both shapes are accepted so the caller's choice of container cannot do
+  // that again.
+  const entries = map instanceof Map ? map.entries() : Object.entries(map || {});
+  for (const [k, v] of entries) PACK_OF.set(k, v);
 }
 
 /**
@@ -882,11 +1007,26 @@ export function __setFetchedPack({ id, name, lo, hi, sustains, notes, files = ne
   return packs.get(id);
 }
 
+/**
+ * Test seam: where loadPack() fetches from, for a page that has no pack of its
+ * own (the suites run from file://). Pair it with a stubbed `fetch`. Null puts
+ * packBase() back to reading the page's own location.
+ */
+export function __setPackBase(base) {
+  baseOverride = base ? String(base).replace(/\/+$/, '') : null;
+}
+
 /** Undo __setPack, so one test cannot leave a pack behind for the next. */
 export function __clearPacks() {
   packs.clear();
   decodedFiles.clear();
   preparing.clear();
+  fetched.clear();
+  fetching.clear();
+  fetchBase = null;
+  manifestReady = null;
+  demand = 0;
+  idleWaiters = [];
   decodedBytes = 0;
   clock = 0;
   loadState = 'idle';

@@ -13,7 +13,7 @@
  * is forced to 0 for export.
  */
 
-import { createInstrument } from './instruments.js';
+import { createInstrument, DEFAULT_INSTRUMENT, packFor } from './instruments.js';
 import { prepare as prepareInstruments } from './sampler.js';
 
 const TIMER_MS = 25;
@@ -97,6 +97,19 @@ export class Engine {
     if (!ids.length) return;
     const midis = [...new Set(this.notes.map((n) => n.midi))];
     await prepareInstruments(ids, midis, onProgress);
+
+    // A part's channel can exist before its samples did: touching mute, solo
+    // or gain builds it, and built then it could only be the modelled
+    // fallback. Nothing rebuilt it afterwards, so one press of mute before the
+    // first Play meant the synthesiser for the rest of the session. Now that
+    // the samples are in, swap any such channel for the recording.
+    // setPartInstrument keeps its level, mute and solo.
+    if (this._channels) {
+      for (const [partId, id] of this.partInstruments) {
+        const ch = this._channels.get(partId);
+        if (ch && packFor(id) && !ch.inst.sampled) this.setPartInstrument(partId, id);
+      }
+    }
   }
 
   /**
@@ -154,7 +167,7 @@ export class Engine {
     if (!ch) {
       if (!this._channels) this._channels = new Map();
       const ctx = this.ctx;
-      const inst = createInstrument(instrumentId || 'grand', ctx, this.bus.input);
+      const inst = createInstrument(instrumentId || DEFAULT_INSTRUMENT, ctx, this.bus.input);
       const gain = ctx.createGain();
       const pan = ctx.createStereoPanner
         ? ctx.createStereoPanner()

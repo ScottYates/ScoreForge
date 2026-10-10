@@ -1303,11 +1303,43 @@ const ROSTER = [
 // 50 instruments in 6 groups
 ];
 
-/** The list the UI renders. `defaults` are the live parameter set. */
-export const INSTRUMENTS = ROSTER.map((r) => ({
+/**
+ * The picker group an entry is listed under.
+ *
+ * The modelled instruments are a fallback now, not the sound of the app, so
+ * their groups say what they are: "Synthesised · Pianos" rather than "Pianos"
+ * sitting above the recordings and reading as the real thing.
+ */
+function groupLabel(r) {
+  return r.engine === 'sampled' ? r.group : `Synthesised \u00b7 ${r.group}`;
+}
+
+/**
+ * The list the UI renders, recordings first. `defaults` are the live
+ * parameter set.
+ *
+ * Ordered here rather than in ROSTER, because ROSTER is grouped by how each
+ * instrument is built and its comments follow that; the picker's order is a
+ * separate decision -- the sound people should reach for first.
+ */
+const LISTED = (() => {
+  const sampled = ROSTER.filter((r) => r.engine === 'sampled');
+  // Recorded groups in the order they first appear, except the synth banks,
+  // which go after every real instrument: they are recordings of synthesisers,
+  // and the FM pianos would otherwise pull them up to second place.
+  const rank = new Map();
+  for (const r of sampled) if (!rank.has(r.group)) rank.set(r.group, rank.size);
+  const last = (g) => (/Synth$/.test(g) ? Infinity : rank.get(g));
+  const ordered = sampled
+    .map((r, i) => [r, i])
+    .sort((a, b) => (last(a[0].group) - last(b[0].group)) || (a[1] - b[1]))
+    .map(([r]) => r);
+  return [...ordered, ...ROSTER.filter((r) => r.engine !== 'sampled')];
+})();
+export const INSTRUMENTS = LISTED.map((r) => ({
   id: r.id,
   name: r.name,
-  group: r.group,
+  group: groupLabel(r),
   description: r.description,
   sampled: r.engine === 'sampled',
   // Which pack a recorded instrument plays, so this can be checked against what
@@ -1323,6 +1355,18 @@ const BY_ID = new Map(ROSTER.map((r) => [r.id, r]));
 
 /** Just the ids — cheap enough for a module-level constant. */
 export const INSTRUMENT_IDS = ROSTER.map((r) => r.id);
+
+/**
+ * What a part plays when nothing in the file says otherwise.
+ *
+ * A recording, not the model. Every route into the roster -- a new part, a
+ * MIDI program, an instrument name, an engine channel created without an id --
+ * lands on a sampled instrument, and the modelled one is reached only as that
+ * instrument's `fallback` when its pack cannot be had (a page opened from
+ * file://, or a pack that failed to fetch). Stated once, here; everything else
+ * imports it.
+ */
+export const DEFAULT_INSTRUMENT = 'rec-fp-upright';
 
 /**
  * Roster id -> pack id, for the ones that are recorded.
@@ -1645,7 +1689,7 @@ export function createInstrument(id, ctx, outputNode) {
   const api = {
     id,
     name: entry.name,
-    group: entry.group,
+    group: groupLabel(entry),
     noteOn,
     noteOff,
     setSustain,

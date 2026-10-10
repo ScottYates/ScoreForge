@@ -11,8 +11,11 @@ optical music recognition and hands back a score you can edit, transpose and
 export like any other. It runs on the CPU, so there is no graphics card
 requirement.
 
-`index.html` is the build output: 1.7 MB with the notation engine, MP3
-encoder, zip reader and 21 instruments inlined. It runs from `file://`.
+Every part plays recorded samples by default — real FreePats instruments,
+fetched from `pack/` when the page is served over http. `index.html` is the
+build output: 1.7 MB with the notation engine, MP3 encoder, zip reader and 22
+modelled instruments inlined, so it also runs from `file://`, where there is no
+pack to fetch and the parts fall back to those (see [Instruments](#instruments)).
 
 ![ScoreForge with a score loaded](docs/screenshots/app.png)
 
@@ -125,9 +128,22 @@ page engraved without interior barlines can come back as one long bar instead of
 
 ## Instruments
 
-There are two kinds, and both are in the same per-part list.
+There are two kinds, and both are in the same per-part list: the recordings
+first, then the modelled instruments under groups labelled *Synthesised*.
 
-**Synthesised** (22 instruments, the default). No audio samples. A convincing grand
+**Which one a part gets.** A recording, always. A part's MusicXML instrument
+name, its MIDI program, or — when the file says neither — the default all lead
+to a recorded instrument (`src/js/audio/gm.js`; the default, the upright piano,
+is `DEFAULT_INSTRUMENT` in `instruments.js`). All 128 General MIDI programs land
+on one. The pack has no recording of some families — bowed strings, brass,
+flute, choir, the tuned mallets, harpsichord — and those go to the nearest
+recording rather than to the model: synth strings for a violin, the recorder
+for a flute. The substitutions are listed once, as `GAPS` in `gm.js`.
+
+A modelled instrument is reached in two ways only: you pick one, or a recorded
+instrument's pack cannot be had and it plays its own modelled `fallback`.
+
+**Synthesised** (22 instruments, the fallback). No audio samples. A convincing grand
 piano as samples runs to tens of megabytes, which would break the one-file idea.
 Each instrument is synthesis written directly against the Web Audio API instead.
 
@@ -172,12 +188,18 @@ shifts at all, while the button accordion claims the whole MIDI range but has 16
 real takes, so its extremes are transposed by nearly four octaves.
 
 These need the pack fetched once, so they are **not** available from a page
-opened as a `file://` URL — pick one there and it falls back to the modelled
-instrument of the same family, and Settings says so. Over http the backend
-serves `pack/` from its own origin.
+opened as a `file://` URL. There, every part is still assigned its recording,
+and plays that recording's modelled fallback instead: the status line in
+Settings says why, a toast says it once (not on every Play), and an MP3 export
+completes and lists its *Instruments* as modelled, with the reason, rather than
+passing a synthesised file off as the recording. Over http the backend serves
+`pack/` from its own origin.
 
 **Fetching and decoding are separate.** The whole pack is fetched once, in
-compressed form, at start-up. The decoded PCM is not: that much MP3 is several
+compressed form, in the background from start-up. Nothing waits for it to
+finish: the instruments are known as soon as the few-kilobyte manifest arrives,
+and a piece played before the download is done fetches its own keys first, at
+high priority, while the background download stands aside. The decoded PCM is not: that much MP3 is several
 gigabytes of 32-bit float, which no browser tab can be asked to hold before
 playing the first note. So a pack's PCM is decoded the first time an instrument
 that needs it is selected — only the keys the piece actually uses — and the
@@ -466,7 +488,7 @@ npm install
 npm run build      # -> index.html (minified)
 npm run dev        # -> index.html (readable)
 npm test           # build + headless self-test + screenshot
-npm run test:suites   # the six module suites
+npm run test:suites   # the seven module suites
 npm run serve      # start the recognition backend
 npm run test:omr   # recogniser accuracy, all three conditions
 ```
@@ -521,6 +543,7 @@ tools/
   guard.py             the same rule for the Python backend
   check-cursor.mjs      is the playback cursor the colour we chose, where it should be
   check-transport.mjs   press Play / Stop / Back-to-start and read the UI back
+  check-default-samples.mjs  load a score, press Play at once: is it the recording?
   check-piano-voice.mjs measure the synth piano against the recorded one
   drive-omr.mjs         drives the built page against a live backend
   drive-transport.mjs   one transport scenario, optionally with a screenshot
@@ -593,9 +616,9 @@ node tools/cdp.mjs --url "file:///$(pwd)/tests/musicxml-test.html" \
 ```
 
 In PowerShell use `file:///$PWD/tests/musicxml-test.html`. `npm run test:suites`
-runs all six at once: `musicxml-test.html` (179 assertions), `smf-test.html`
-(97), `instruments-test.html` (250 checks), `mscx-test.html` (125),
-`omr-test.html` (33) and `sampler-test.html` (31). Each publishes a
+runs all seven at once: `musicxml-test.html` (179 assertions), `smf-test.html`
+(97), `instruments-test.html` (544), `mscx-test.html` (125), `omr-test.html`
+(47), `sampler-test.html` (60) and `routing-test.html` (93). Each publishes a
 `{passed, failed, fatal}` verdict; a suite that publishes none is treated as a
 failure rather than a pass.
 
@@ -605,7 +628,17 @@ pitch with no sample falls back instead of going quiet, that a release scheduled
 *ahead* of the note still lets it sustain, and that an unloaded pack is refused
 rather than returning a voice that cannot sound. It is mutation-checked —
 deleting the `src.start()` in `noteOn` turns it red, and restoring the old
-`src.loop = false` on release turns it red.
+`src.loop = false` on release turns it red. It also runs `loadPack()` for real
+against a stubbed fetch serving WAV bytes, and judges it by the request log: a
+pack prepares before its download finishes (even before the manifest), the
+background starts nothing new while an on-demand key is in the air, no file is
+fetched twice, and one missing file costs that take rather than the pack.
+
+`routing-test.html` is which sound a part gets when nobody picks one: every GM
+program and a table of instrument names land on a recording, the picker lists
+recordings first, an engine channel created without an id gets the default,
+`prepare()` of a recorded id actually reaches the sampler, and with no pack the
+default still makes a sound.
 
 Two checks need something the fast suites do not:
 
@@ -619,6 +652,17 @@ node tools/drive-omr.mjs run   fixtures/tiny.png
 node tools/drive-omr.mjs abort fixtures/ode.pdf
 node tools/drive-transport.mjs finish --shot /tmp/tp.png   # one scenario, pictured
 ```
+
+`check-default-samples.mjs` is the one that answers "does the app play
+samples?" in the built page against the real pack. Served over http with every
+sample file slowed down, it loads the demo, mutes and unmutes the part (which
+builds its channel before the samples exist), presses Play while the download
+is still running, and reads back which instrument each channel actually built;
+then exports and reads the dialog's *Instruments* line. From `file://` it checks
+the fallback instead: modelled, audible, announced once, and an export that
+completes and says so. Every module suite passed while the app played the
+synthesiser for every part — the sampler's roster table arrived empty — and
+this is the check that would have shown it.
 
 `check-transport.mjs` presses the real transport buttons against the built page
 and reads back what a person would see: the time readout, the scrub bar's width,
@@ -692,8 +736,11 @@ is fetched at runtime.
   bit-identical only because "humanise" is forced off for renders.
 - Very long scores render the notation view progressively as you scroll.
 - The recorded instruments need the page to be served over http. From a `file://`
-  page the pack cannot be fetched and the `Recorded` instruments fall back to
-  their modelled equivalents.
+  page the pack cannot be fetched and every part plays its recording's modelled
+  fallback, which the page and the export both say.
+- The pack has no recorded bowed strings, brass, flute, choir, tuned mallets or
+  harpsichord. Those parts play the nearest recording (`GAPS` in `gm.js`), which
+  for strings and brass is a synthesiser that was recorded, not the instrument.
 - The recorded pack has one dynamic layer per instrument, so dynamics come from
   the sampler's gain curve rather than from velocity-layered samples. The
   upright piano is the exception: its bank ships two hammers per key and

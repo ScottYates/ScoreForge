@@ -32,6 +32,7 @@
 import {
   createSampledInstrument, findOnset, __setPack, __setFetchedPack, __clearPacks,
   hasPack, isPackDecoded, filesForKeys,
+  loadPack, preparePack, packState, __setPackBase,
 } from '../src/js/audio/sampler.js';
 
 /* ===================================================== assertion harness === */
@@ -515,6 +516,145 @@ try {
   }
 
   /* ================================================================= housekeeping */
+
+  /* ======================= samples are usable before the pack has arrived == */
+
+  // Samples are the default sound, so the common case is a piece played while
+  // the 277 MB background fetch is still running. Before this, preparePack
+  // refused any pack until every file of every pack had arrived, and the piece
+  // quietly played the synthesiser. These run loadPack() for real against a
+  // stubbed fetch serving genuine WAV bytes, and judge it by the request log --
+  // what was asked for, in what order, and how often -- not by timing.
+
+  head('samples are usable before the whole pack has downloaded');
+
+  {
+    const BASE = 'http://pack.test/pack';
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    /** A short 16-bit mono WAV of a decaying sine: real bytes for decodeAudioData. */
+    function wavBytes(freq, seconds = 0.25) {
+      const n = Math.round(SR * seconds);
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE');
+      str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, SR, true); v.setUint32(28, SR * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      str(36, 'data'); v.setUint32(40, n * 2, true);
+      for (let i = 0; i < n; i++) {
+        const s = Math.sin(2 * Math.PI * freq * (i / SR)) * Math.exp(-6 * i / SR) * 0.8;
+        v.setInt16(44 + i * 2, Math.round(s * 32767), true);
+      }
+      return buf;
+    }
+
+    // Two packs: one big enough that its background fetch takes many rounds,
+    // and one carrying a file the server will not serve.
+    const KEYS = Array.from({ length: 48 }, (_, i) => 36 + i);
+    const manifest = { version: 2, credits: {}, instruments: {} };
+    const body = new Map();
+    for (const id of ['big', 'other']) {
+      const notes = {};
+      for (const k of KEYS) {
+        const f = `${id}/${k}.wav`;
+        body.set(f, wavBytes(440 * Math.pow(2, (k - 69) / 12)));
+        notes[k] = { rate: 1, hits: [{ f, g: 1, dur: 0.25, loop: null }] };
+      }
+      manifest.instruments[id] = { name: id, lo: KEYS[0], hi: KEYS[KEYS.length - 1], sustains: false, notes };
+    }
+    const MISSING = 'other/40.wav';
+
+    const log = [];
+    const realFetch = window.fetch;
+    window.fetch = async (url, init = {}) => {
+      const rel = decodeURIComponent(String(url).slice(BASE.length + 1));
+      const priority = init.priority || null;
+      log.push({ ev: 'start', rel, priority });
+      await sleep(rel === 'manifest.json' ? 60 : 25);
+      log.push({ ev: 'end', rel, priority });
+      if (rel === 'manifest.json') return new Response(JSON.stringify(manifest), { status: 200 });
+      if (rel === MISSING || !body.has(rel)) return new Response('', { status: 404, statusText: 'Not Found' });
+      return new Response(body.get(rel).slice(0), { status: 200 });
+    };
+
+    try {
+      __clearPacks();
+      __setPackBase(BASE);
+
+      const lp = loadPack();
+      ok('a second loadPack while loading joins the same load', loadPack() === lp);
+
+      // Asked for before the manifest has even arrived.
+      const askedBeforeManifest = !hasPack('big');
+      let early = null, earlyErr = null, stateWhenReady = null;
+      try {
+        early = await preparePack('big', [60]);
+        stateWhenReady = packState().state;
+      } catch (e) { earlyErr = e; }
+
+      ok('preparePack was called before the manifest had arrived', askedBeforeManifest);
+      ok('it waits for the manifest instead of refusing the pack', !!early && !earlyErr,
+        earlyErr && earlyErr.message);
+      ok('and is ready while the background fetch is still running', stateWhenReady === 'loading',
+        `state when prepare finished: ${stateWhenReady}`);
+      ok('the pack is decoded for the key asked for', isPackDecoded('big'));
+      // Packs are registered now, mid-load. A loadPack that read "packs exist"
+      // as "loaded" would hand this caller an early, already-resolved answer.
+      ok('a loadPack after the packs are registered still joins the running load',
+        packState().state === 'loading' && loadPack() === lp);
+
+      // A sampled instrument, not a refusal and not the model: it plays.
+      let peak = 0, playErr = null;
+      try {
+        const off = new OfflineAudioContext(1, Math.ceil(SR * 0.4), SR);
+        const inst = createSampledInstrument('big', off, off.destination);
+        inst.noteOn({ midi: 60, velocity: 0.8, when: 0.02, duration: 0.2 });
+        const d = (await off.startRendering()).getChannelData(0);
+        for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+      } catch (e) { playErr = e; }
+      ok('the early-prepared key plays from the recording', !playErr && peak > 0.02,
+        playErr ? playErr.message : `peak ${peak.toFixed(4)}`);
+
+      // While the on-demand fetch was in the air, the background must not have
+      // started anything new: the key someone is about to hear goes first.
+      const hiStart = log.findIndex((e) => e.ev === 'start' && e.priority === 'high');
+      let hiEnd = -1;
+      log.forEach((e, i) => { if (e.ev === 'end' && e.priority === 'high') hiEnd = i; });
+      const bgStartsDuring = log.slice(hiStart + 1, hiEnd)
+        .filter((e) => e.ev === 'start' && e.priority === 'low').length;
+      ok('the key being prepared was fetched on demand, at high priority', hiStart >= 0 && hiEnd > hiStart,
+        `high-priority fetches: ${log.filter((e) => e.ev === 'start' && e.priority === 'high').map((e) => e.rel).join(',')}`);
+      ok('the background fetch starts nothing new until it has arrived', bgStartsDuring === 0,
+        `${bgStartsDuring} background fetch(es) started during the on-demand one`);
+
+      await lp;
+
+      const starts = new Map();
+      for (const e of log) if (e.ev === 'start') starts.set(e.rel, (starts.get(e.rel) || 0) + 1);
+      const twice = [...starts].filter(([, n]) => n > 1).map(([r]) => r);
+      ok('no file is fetched twice, on demand and in the background', twice.length === 0, twice.join(','));
+      ok('every file was eventually fetched', starts.size === body.size + 1,
+        `${starts.size} distinct requests for ${body.size} files + manifest`);
+
+      const st = packState();
+      ok('one missing file marks the load failed, and says how much is missing',
+        st.state === 'failed' && /^1 of 96 sample files/.test(st.error || ''), `${st.state}: ${st.error}`);
+
+      let stillOk = null, stillErr = null;
+      try { stillOk = await preparePack('big', [72]); } catch (e) { stillErr = e; }
+      ok('but the rest of the pack still prepares', !!stillOk && !stillErr, stillErr && stillErr.message);
+
+      let missErr = null;
+      try { await preparePack('other', [40]); } catch (e) { missErr = e; }
+      ok('a piece that needs the missing take is told which file it was',
+        !!missErr && missErr.message.includes(MISSING), missErr ? missErr.message : 'resolved');
+    } finally {
+      window.fetch = realFetch;
+      __setPackBase(null);
+      __clearPacks();
+    }
+  }
 
   head('housekeeping');
 

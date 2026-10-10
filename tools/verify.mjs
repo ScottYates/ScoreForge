@@ -156,6 +156,20 @@ if (transport.code !== 0) {
   failures.push('transport: ' + (transport.out.trim().split('\n').pop() || transport.err.trim()));
 }
 
+// Samples are the default sound. Every module suite passed while the app
+// played the synthesiser for every part -- the sampler's roster table came
+// through empty, so prepare() decoded nothing and each recorded instrument fell
+// back without a word. This loads the built page against the real pack, presses
+// Play while the pack is still downloading, and reads back which instrument
+// each part actually built; then does the same from file://, where the honest
+// answer is the model, said once, with an export that still completes.
+const defaults = await run(process.execPath, [path.join(root, 'tools/check-default-samples.mjs')],
+  { allowFail: true });
+console.log(defaults.out.trim());
+if (defaults.code !== 0) {
+  failures.push('default samples: ' + (defaults.out.trim().split('\n').pop() || defaults.err.trim()));
+}
+
 // The Concert Grand used to get *brighter* as it rang, which no struck string
 // does. It passes the module suites either way -- they assert what the config
 // says, not what came out of the speaker -- so it is measured from rendered

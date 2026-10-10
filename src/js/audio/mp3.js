@@ -78,15 +78,28 @@ export async function renderToBuffer(o) {
   // synchronous, so a sample that is still decoding when its turn comes is a
   // note that never sounds. renderToBuffer is async, so this is a real
   // boundary rather than a promise buried under a synchronous scheduler.
-  await engine.prepare((p) => {
-    // A recorded instrument's first use decodes real PCM, which on a cold cache
-    // is long enough that a progress bar frozen at "starting" reads as a hang.
-    onProgress?.({
-      phase: 'prepare',
-      ratio: 0.02 + 0.03 * (p.done / Math.max(1, p.total)),
-      message: 'Preparing recorded samples…',
+  //
+  // Recorded instruments are the default, so on a page with no pack -- opened
+  // from file://, or a pack that failed -- this rejects for an ordinary piece.
+  // That must not make the export fail: playback falls back to the modelled
+  // instruments, and the render does the same. It is reported through
+  // `onSampleFallback` so the caller can say so beside the result, rather than
+  // handing over a synthesised MP3 as if it were the recording.
+  try {
+    await engine.prepare((p) => {
+      // A recorded instrument's first use decodes real PCM, which on a cold cache
+      // is long enough that a progress bar frozen at "starting" reads as a hang.
+      onProgress?.({
+        phase: 'prepare',
+        ratio: 0.02 + 0.03 * (p.done / Math.max(1, p.total)),
+        message: 'Preparing recorded samples…',
+      });
     });
-  });
+  } catch (e) {
+    const why = e && e.message ? e.message : String(e);
+    console.warn('recorded samples unavailable for the render, using modelled instruments:', e);
+    o.onSampleFallback?.(why);
+  }
   if (signal?.aborted) throw new RenderCancelled();
   engine.metronome = !!o.metronome;
   // Exports must be bit-reproducible: no performance jitter.
