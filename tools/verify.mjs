@@ -228,6 +228,33 @@ if (guard.code !== 0) {
   }
 }
 
+// Does the installer still re-download 157 MB of model weights on every run?
+// It rebuilds the venv each time -- correctly, since a venv whose bin/python
+// dangles cannot be repaired in place -- and homr keeps its weights inside its
+// own installed package, so the rebuild used to take them with it. Nothing
+// crashed; the install just paid the bandwidth forever. Checked against a
+// simulated venv rather than a real install, which needs a systemd host.
+{
+  const win = process.platform === 'win32';
+  const py = path.join(root, 'backend', '.venv', win ? 'Scripts' : 'bin',
+    win ? 'python.exe' : 'python');
+  const sysPy = win ? 'python' : 'python3';
+  const exe = fs.existsSync(py) ? py : sysPy;
+  const r = await run(exe, [path.join(root, 'tools/check-model-cache.py')],
+    { allowFail: true });
+  console.log(r.out.trim() || r.err.trim() || 'model cache: no output');
+  if (r.code !== 0) {
+    for (const line of r.out.split('\n')) {
+      if (line.trim().startsWith('FAIL ') || line.startsWith('MODEL CACHE FAILED')) {
+        failures.push(line.trim());
+      }
+    }
+    if (!r.out.includes('FAIL ') && !r.out.includes('MODEL CACHE FAILED')) {
+      failures.push('model cache: ' + (r.err.trim() || `check exited ${r.code}`));
+    }
+  }
+}
+
 // Is the pack still just the recordings? The fidelity check above asks whether
 // the samples came through intact; this asks the prior question -- whether they
 // were touched at all. The builder used to trim, normalise, prepend a marker

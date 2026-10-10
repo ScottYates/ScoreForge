@@ -52,6 +52,11 @@ WEB_UNIT_SRC="$REPO/deploy/scoreforge-web.service"
 ENV_SRC="$REPO/deploy/scoreforge.env.example"
 ETC_DIR="/etc/scoreforge"
 VENV="$PREFIX/.venv"
+# homr stores its ONNX weights inside its own installed package, so they live
+# inside $VENV and are destroyed by every rebuild below. This sits outside the
+# venv so they can be carried across it. Deliberately not under $VENV, and not
+# under $WEB_ROOT (which is served to browsers).
+MODEL_CACHE="${MODEL_CACHE:-$PREFIX/share/homr-models}"
 # The page is served from its own directory, never from $PREFIX, which also holds
 # backend/*.py and the fixtures.
 WEB_ROOT="$PREFIX/www"
@@ -80,6 +85,7 @@ for f in app.py omr_engine.py preprocess.py requirements.txt; do
     [ -f "$REPO/backend/$f" ] || die "missing $REPO/backend/$f"
 done
 [ -f "$UNIT_SRC" ] && [ -f "$ENV_SRC" ] || die "missing deploy/scoreforge.service or scoreforge.env.example"
+[ -f "$REPO/deploy/model_cache.py" ] || die "missing deploy/model_cache.py"
 [ "$SKIP_WEB" = 1 ] || [ -f "$WEB_UNIT_SRC" ] || die "missing deploy/scoreforge-web.service"
 
 # ---------------------------------------------------------------- interpreter
@@ -225,7 +231,12 @@ fi
 say "Creating the virtual environment at $VENV"
 # Always rebuild: a venv whose bin/python points at a moved or removed
 # interpreter (dangling symlink) cannot be repaired in place.
+# That rebuild is also what used to re-download 157 MB of model weights every
+# run: homr puts them inside its own installed package, so they went with the
+# venv, and download_weights() is written to skip files that are already there.
+# Lift them out first and put them back after the install.
 if [ -e "$VENV" ] || [ -L "$VENV" ]; then
+    "$PYTHON_REAL" "$REPO/deploy/model_cache.py" save --venv "$VENV" --cache "$MODEL_CACHE"
     rm -rf --one-file-system "$VENV"
 fi
 # A stray venv from the README workflow is never used by the unit; say so.
@@ -306,13 +317,26 @@ print(f"    python {sys.version.split()[0]}  numpy {numpy.__version__}  opencv {
 PY
 "${PIP[@]}" check 2>&1 | sed 's/^/    pip check: /' | grep -v 'opencv-python-headless' || true
 
-say "Fetching model weights (~37 MB, once)"
+say "Fetching model weights"
+# Restore first, download second. download_weights() skips anything already
+# present, so whatever the cache put back costs nothing to keep, and only the
+# genuinely missing files are fetched. On a repeat install this is a no-op.
+"$PYTHON_REAL" "$REPO/deploy/model_cache.py" restore --venv "$VENV" --cache "$MODEL_CACHE"
 "$VPY" - <<'PY'
 from homr.main import download_weights
 download_weights(False, False, False)
 from homr.title_detection import download_ocr_weights
 download_ocr_weights()
 print("    weights ready")
+PY
+# What the weights cost, measured rather than quoted: 157.5 MB of .onnx on top of
+# rapidocr's, which ships inside its own wheel. The old "~37 MB, once" was both
+# wrong about the size and wrong about the "once" -- they were fetched every run.
+"$VPY" - <<'PY'
+from pathlib import Path
+import homr
+w = sorted(Path(homr.__file__).parent.rglob("*.onnx"))
+print(f"    {len(w)} weight file(s), {sum(f.stat().st_size for f in w) / 1e6:.1f} MB in {Path(homr.__file__).parent}")
 PY
 
 chown -R root:root "$PREFIX"

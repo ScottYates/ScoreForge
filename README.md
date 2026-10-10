@@ -73,7 +73,10 @@ http://127.0.0.1:8000/ is the easiest place to work. Opening the HTML file
 directly works too; the page points at 127.0.0.1:8000 only when it needs to
 transcribe something.
 
-The first run downloads about 37 MB of ONNX weights.
+The first run downloads 157 MB of ONNX weights. homr keeps them inside its own
+installed package, so a development venv that gets deleted takes them with it;
+`deploy/model_cache.py` lifts them out and puts them back, which is what keeps a
+repeat `deploy/install.sh` from fetching them again.
 
 Given a scan, the service decodes it (respecting EXIF rotation) or rasterises
 each PDF page, builds four renderings of the page (as-is, contrast lifted,
@@ -496,6 +499,7 @@ tools/
   check-recording-fidelity.mjs is a take still the recording it was cut from
   check-pack-is-unprocessed.mjs is the pack still just the recordings
   check-no-unguarded-deletes.mjs nothing deletes outside guard.mjs / guard.py
+  check-model-cache.py    weights survive the installer's venv rebuild
   lib/guard.mjs        the only file allowed to delete anything (JS side)
   guard.py             the same rule for the Python backend
   check-cursor.mjs      is the playback cursor the colour we chose, where it should be
@@ -537,6 +541,13 @@ PowerShell, then exercises both guards' refusals for real — outside the worksp
 the workspace itself, a shared-prefix sibling, an unmarked directory, a file
 outside any claimed tree — because a guard that has never been seen to refuse is
 only known to exist.
+
+The scan covers `tools/` and `backend/`, not `deploy/`. `install.sh` deletes its
+own `$PREFIX/.venv`, which it created on an earlier run and which is not
+recoverable in place if the interpreter behind it has moved — a real delete, and
+a legitimate one, but it is a bash `rm -rf` outside the eight shapes the scan
+looks for. It is the one place in the repository that deletes without asking the
+guard, and it is called out here rather than left to look covered.
 
 This is not ceremony. The pack builder once cleared its own output directory,
 which also held a hand-written page; the browser harness kept its profile in a
