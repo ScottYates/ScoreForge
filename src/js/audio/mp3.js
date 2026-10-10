@@ -74,6 +74,20 @@ export async function renderToBuffer(o) {
 
   const engine = new Engine(ctx, { bus, offline: true });
   engine.load(resolved, { partInstruments });
+  // Decoding has to finish before scheduleAll(), not during it: noteOn is
+  // synchronous, so a sample that is still decoding when its turn comes is a
+  // note that never sounds. renderToBuffer is async, so this is a real
+  // boundary rather than a promise buried under a synchronous scheduler.
+  await engine.prepare((p) => {
+    // A recorded instrument's first use decodes real PCM, which on a cold cache
+    // is long enough that a progress bar frozen at "starting" reads as a hang.
+    onProgress?.({
+      phase: 'prepare',
+      ratio: 0.02 + 0.03 * (p.done / Math.max(1, p.total)),
+      message: 'Preparing recorded samples…',
+    });
+  });
+  if (signal?.aborted) throw new RenderCancelled();
   engine.metronome = !!o.metronome;
   // Exports must be bit-reproducible: no performance jitter.
   engine.humanize = 0;

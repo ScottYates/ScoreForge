@@ -30,7 +30,8 @@
 -->
 <script type="module">
 import {
-  createSampledInstrument, findOnset, __setPack, __clearPacks, hasPack,
+  createSampledInstrument, findOnset, __setPack, __setFetchedPack, __clearPacks,
+  hasPack, isPackDecoded, filesForKeys,
 } from '../src/js/audio/sampler.js';
 
 /* ===================================================== assertion harness === */
@@ -142,6 +143,72 @@ try {
     !!threw && /testkit/.test(threw.message) && /not loaded/.test(threw.message),
     threw && threw.message);
   ok('hasPack is false before loading', !hasPack('testkit'));
+
+  /* ============================ fetched is not the same as decoded ======== */
+
+  head('a pack that was fetched but never decoded must be refused by name');
+
+  {
+    // Real page state between loadPack() and prepare(). If this were allowed
+    // through, the roster would fall back to the modelled twin, make a sound,
+    // and nothing anywhere would say the recording was never used.
+    const notes = {};
+    for (let m = 60; m <= 72; m++) {
+      notes[m] = { rate: 1, hits: [{ f: `t/${m}-0.mp3`, g: 1, dur: 0.5, loop: null }] };
+    }
+    __setFetchedPack({
+      id: 'testkit', name: 'Test Kit', lo: 60, hi: 72, sustains: false, notes,
+      files: new Map([['t/60-0.mp3', new ArrayBuffer(8)]]),
+    });
+    ok('hasPack is true once fetched', hasPack('testkit'));
+    ok('isPackDecoded is false until prepare has run', !isPackDecoded('testkit'));
+
+    let e2 = null;
+    try { createSampledInstrument('testkit', ctx, ctx.destination); } catch (e) { e2 = e; }
+    ok('createSampledInstrument throws when the pack is not decoded', !!e2, String(e2 && e2.message));
+    ok('the refusal names preparePack, not a fetch that already succeeded',
+      !!e2 && /preparePack/.test(e2.message), e2 && e2.message);
+    ok('the refusal still names the pack', !!e2 && /testkit/.test(e2.message), e2 && e2.message);
+  }
+
+  /* =================================== only the keys that will be played == */
+
+  head('preparing a pack decodes the keys asked for, and no others');
+
+  {
+    __clearPacks();
+    installPack(ctx);
+    const pack = __setPack({
+      id: 'keys', name: 'Keys', lo: 60, hi: 72, sustains: false, buffers: {},
+      notes: Object.fromEntries([60, 64, 67, 72].map((m) => [m, {
+        rate: 1, hits: [{ f: `k/${m}.mp3`, g: 1, dur: 0.5, loop: null }],
+      }])),
+    });
+
+    const all = filesForKeys(pack).sort();
+    ok('with no key list, every key is included', all.length === 4, all.join(','));
+
+    const some = filesForKeys(pack, [60, 67]).sort();
+    ok('only the requested keys are included',
+      some.length === 2 && some[0] === 'k/60.mp3' && some[1] === 'k/67.mp3', some.join(','));
+
+    // The rule that has to agree with noteOn's: a bank that does not cover the
+    // whole keyboard plays its nearest key. If prepare resolved a missing key
+    // differently from noteOn, the missing note would be silent.
+    const nearest = filesForKeys(pack, [61]).sort();
+    ok('a key the bank does not have resolves to its nearest neighbour',
+      nearest.length === 1 && nearest[0] === 'k/60.mp3', nearest.join(','));
+
+    const nearestHi = filesForKeys(pack, [70]).sort();
+    ok('and the same at the top of the range',
+      nearestHi.length === 1 && nearestHi[0] === 'k/72.mp3', nearestHi.join(','));
+
+    const shared = filesForKeys(pack, [60, 61, 62]).sort();
+    ok('several keys landing on one sample ask for it once', shared.length === 1, shared.join(','));
+
+    ok('an empty key list decodes nothing rather than everything',
+      filesForKeys(pack, []).length === 4, 'no keys means every key of the bank');
+  }
 
   /* ================================================================ onset == */
 

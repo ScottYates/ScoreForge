@@ -19,9 +19,26 @@ export const END = '<!-- END generated credits -->';
 /** The licence string that means "you owe nothing", used to spot the rest. */
 export const PUBLIC_DOMAIN = 'CC0 1.0 Universal (public domain)';
 
-/** Licences that require a visible credit wherever the work is used. */
+/**
+ * What a licence actually demands, which is not the same question as whether
+ * it is CC0.
+ *
+ * Forty-nine of the fifty packs are CC0 and owe nothing. The FSS steel-string
+ * guitar is GPL-3+ with the sample exception, which asks for the terms to be
+ * conveyed and leaves the sample files under that licence -- a different
+ * obligation, and describing it as "attribution required" would understate it.
+ */
+export function obligationOf(licence) {
+  if (!licence) return 'unstated';
+  if (licence === PUBLIC_DOMAIN) return 'none';
+  if (/\bGPL\b/i.test(licence)) return 'copyleft-with-exception';
+  return 'attribution';
+}
+
+/** Does this licence require a visible credit? True for everything but CC0. */
 export function needsAttribution(licence) {
-  return !!licence && licence !== PUBLIC_DOMAIN;
+  const o = obligationOf(licence);
+  return o === 'attribution' || o === 'copyleft-with-exception';
 }
 
 /**
@@ -75,8 +92,22 @@ export function noticeBlock(manifest) {
   if (owed.length) {
     lines.push('');
     for (const r of owed) {
-      lines.push(`\`${r.title}\` is licensed **${escapeMd(r.licence)}** and requires attribution. ` +
-        `Author: ${escapeMd(r.author)}. Source: <${r.url}>.`);
+      const kind = obligationOf(r.licence);
+      if (kind === 'copyleft-with-exception') {
+        lines.push(`\`${r.title}\` is licensed **${escapeMd(r.licence)}**. The sample files in`);
+        lines.push('this pack are distributed under those terms, and the terms are part of the');
+        lines.push('pack:');
+        lines.push('');
+        lines.push('> As a special exception, if you create a composition which uses these sounds,');
+        lines.push('> and mix these sounds or unaltered portions of these sounds into the');
+        lines.push('> composition, these sounds do not by themselves cause the entire composition');
+        lines.push('> as a whole to be covered by the GNU General Public License.');
+        lines.push('');
+        lines.push(`Author: ${escapeMd(r.author)}. Source: <${r.url}>.`);
+      } else {
+        lines.push(`\`${r.title}\` is licensed **${escapeMd(r.licence)}** and requires attribution. ` +
+          `Author: ${escapeMd(r.author)}. Source: <${r.url}>.`);
+      }
       if (r.changes) lines.push('', `Changes made to the recordings: ${r.changes}`);
       lines.push('');
     }

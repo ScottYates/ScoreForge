@@ -6,7 +6,7 @@
  * which sound like themselves rather than like an approximation. Both are in the
  * roster and the user picks.
  *
- * ── Why everything is decoded up front ──────────────────────────────────────
+ * ── Why the bytes come up front but the PCM does not ────────────────────────
  *
  * noteOn is synchronous. The transport calls it up to SCHEDULE_AHEAD seconds
  * before a note sounds, so a voice must be able to place its whole graph in one
@@ -17,9 +17,24 @@
  * transport, and played nothing at all -- every fetch returned 200 and every
  * decode succeeded, but no source node was ever started.
  *
- * So loadPack() fetches and decodes the entire pack before any instrument is
- * created, and noteOn only ever touches objects that are already in memory.
- * `createSampledInstrument` throws if its pack is not loaded rather than
+ * So decoding has to happen at an async boundary *before* the first note. How
+ * much of it happens there is the question. Decoding the whole pack up front was
+ * fine for nine families (about 40 MiB) and impossible for sixty: the fifty
+ * FreePats banks are 2.2 GB of MP3, which decode to 4.3 GB of floating-point
+ * PCM, and a browser tab cannot be asked to sit on all of that before playing
+ * the first note.
+ *
+ * Hence the split:
+ *
+ *   loadPack()    fetches every file once, in compressed form, and stops there.
+ *                 Compressed is the cheap half -- the bytes sit in the HTTP
+ *                 cache as well, so "fetched once" is still true afterwards.
+ *   prepare()     decodes only the keys a piece is about to use, the first
+ *                 time that instrument is selected, and keeps a byte budget of
+ *                 decoded PCM with least-recently-used eviction.
+ *
+ * noteOn still only ever touches objects that are already in memory, and
+ * `createSampledInstrument` still throws if its pack is not loaded rather than
  * quietly returning a voice that will never make a sound.
  *
  * ── Why every buffer gets its onset measured ────────────────────────────────
@@ -36,6 +51,21 @@
 /** How many files to fetch and decode at once. */
 const FETCH_CONCURRENCY = 8;
 
+/**
+ * How much decoded PCM to keep, in bytes.
+ *
+ * A WAV on disk is 16-bit and a decoded AudioBuffer is 32-bit float with the
+ * same channel count, so decoded bytes are exactly twice the file. All sixty
+ * packs together are about 4.3 GB that way; this holds a useful working set of
+ * ordinary instruments instead of all of them.
+ *
+ * The budget is a target, not a cap: one family is allowed to overshoot it, so
+ * that picking a single very large instrument still works. `distorted electric
+ * guitar` alone is 1.2 GB decoded, and refusing to play it would be a worse
+ * answer than letting the budget go over for it.
+ */
+let DECODE_BUDGET_BYTES = 1024 * 1024 * 1024;
+
 /** A voice never rings longer than this, whatever the note says. */
 const MAX_RING_SECONDS = 12;
 
@@ -46,6 +76,18 @@ const KEY_RELEASE = 0.12;
 
 const packs = new Map();   // packId -> Pack
 let loadPromise = null;
+
+/**
+ * Decoded PCM, by file, shared across packs.
+ *
+ * Separate from `packs` because it is the part that has a size limit: a take
+ * belongs to one pack but the budget is global. `used` is a clock reading, not
+ * a timestamp -- it only has to order evictions.
+ */
+const decodedFiles = new Map();  // rel -> { buffer, onset, bytes, pack, used }
+const preparing = new Map(); // packId -> Promise, so two callers share one decode
+let decodedBytes = 0;
+let clock = 0;
 
 /** Where the pack lives, or null when this page cannot reach one. */
 export function packBase() {
@@ -61,9 +103,25 @@ export function packBase() {
   return new URL('pack/', location.href).href.replace(/\/+$/, '');
 }
 
-/** True once `packId` has a fully decoded pack behind it. */
+/** True once `packId`'s bytes have been fetched. Decoding is a separate step. */
 export function hasPack(packId) {
   return packs.has(packId);
+}
+
+/** True once `packId` also has decoded PCM behind it. */
+export function isPackDecoded(packId) {
+  const p = packs.get(packId);
+  return !!p && !!p.buffers;
+}
+
+/** What the decode cache is holding, for the UI and for tests. */
+export function decodeState() {
+  return {
+    bytes: decodedBytes,
+    budget: DECODE_BUDGET_BYTES,
+    files: decodedFiles.size,
+    packs: [...packs.values()].filter((p) => p.buffers).map((p) => ({ id: p.id, live: p.live })),
+  };
 }
 
 /** Progress of the one in-flight load, for the UI. */
@@ -82,10 +140,10 @@ let loadState = 'idle';   // idle | loading | ready | failed | unavailable
 let loadError = null;
 
 /**
- * Fetch and decode the whole pack.
+ * Fetch the whole pack, compressed. Decoding is `prepare`'s job.
  *
  * Idempotent: the first call does the work and every later one joins it, so a
- * boot sequence that calls this from two places does not fetch 5 MB twice.
+ * boot sequence that calls this from two places does not fetch the bytes twice.
  *
  * @param {(p:{done:number,total:number,label:string})=>void} [onProgress]
  * @returns {Promise<Map<string, object>>}
@@ -123,8 +181,11 @@ export function loadPack(onProgress) {
     };
     report();
 
-    const decodeCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 128, 44100);
-    const buffers = new Map();
+    // Compressed bytes only. Holding 2.2 GB of MP3 is expensive; holding the
+    // 4.3 GB of PCM it decodes to is not something a tab can do at all. These
+    // stay in the HTTP cache anyway, so a later decode that has been evicted
+    // does not cost a second network round trip.
+    const bytes = new Map();
     let next = 0;
 
     const worker = async () => {
@@ -134,11 +195,7 @@ export function loadPack(onProgress) {
         const rel = files[i];
         const r = await fetch(`${base}/${rel}`, { cache: 'force-cache' });
         if (!r.ok) throw new Error(`${rel}: ${r.status} ${r.statusText}`);
-        const bytes = await r.arrayBuffer();
-        // decodeAudioData detaches the buffer it is given, so never hand it one
-        // that is still referenced elsewhere.
-        const buf = await decodeCtx.decodeAudioData(bytes);
-        buffers.set(rel, { buffer: buf, onset: findOnset(buf) });
+        bytes.set(rel, await r.arrayBuffer());
         done++;
         report();
       }
@@ -147,7 +204,12 @@ export function loadPack(onProgress) {
     await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, files.length) }, worker));
 
     for (const [id, inst] of Object.entries(manifest.instruments)) {
-      packs.set(id, { id, ...inst, credits: manifest.credits?.[id] || [], buffers });
+      packs.set(id, {
+        id, ...inst, credits: manifest.credits?.[id] || [],
+        files: bytes,        // rel -> compressed ArrayBuffer
+        buffers: null,       // rel -> {buffer, onset}; null until prepared
+        live: 0,             // voices currently holding this pack's PCM
+      });
     }
     loadProgress = 1;
     loadState = 'ready';
@@ -160,6 +222,203 @@ export function loadPack(onProgress) {
   });
 
   return loadPromise;
+}
+
+/* ---------------------------------------------------------------- prepare */
+
+/**
+ * Which file a pack will actually play for a given key.
+ *
+ * The same nearest-key rule noteOn uses, kept here so that "decode what this
+ * piece needs" and "play what was decoded" cannot disagree about which sample a
+ * key resolves to. A duplicated rule would drift, and the drift would only show
+ * up as a missing note.
+ */
+export function filesForKeys(pack, midis) {
+  const keys = Object.keys(pack.notes).map(Number);
+  const want = midis && midis.length ? midis : keys;
+  const files = new Set();
+  for (const raw of want) {
+    let midi = Math.round(Number(raw));
+    if (!Number.isFinite(midi)) continue;
+    if (pack.notes[midi]) { /* exact hit */ }
+    else {
+      let best = keys[0], bestD = Infinity;
+      for (const k of keys) {
+        const d = Math.abs(k - midi);
+        if (d < bestD) { bestD = d; best = k; }
+      }
+      midi = best;
+    }
+    for (const hit of pack.notes[midi].hits) files.add(hit.f);
+  }
+  return [...files];
+}
+
+/**
+ * Drop least-recently-used decoded PCM until the budget is met again.
+ *
+ * `keep` is the set just decoded: it is never evicted, so one oversized family
+ * overshoots the budget rather than evicting the very buffers it needs.
+ *
+ * Packs with a voice that has not yet been told to stop are skipped. That is a
+ * narrower window than it looks, and deliberately so: an
+ * AudioBufferSourceNode holds the AudioBuffer it was given, so dropping our
+ * reference does not silence a note that is already sounding. What it *would*
+ * break is a voice that has been created but not started, and src.buffer is
+ * assigned before src.start, so that window does not exist either. The skip
+ * costs nothing and removes the need to reason about it.
+ */
+function evictToBudget(keep) {
+  if (decodedBytes <= DECODE_BUDGET_BYTES) return;
+  const order = [...decodedFiles.entries()]
+    .filter(([rel, e]) => !keep.has(rel) && (packs.get(e.pack)?.live || 0) === 0)
+    .sort((a, b) => a[1].used - b[1].used);
+  for (const [rel, entry] of order) {
+    if (decodedBytes <= DECODE_BUDGET_BYTES) break;
+    decodedFiles.delete(rel);
+    decodedBytes -= entry.bytes;
+    // The pack's own view has to forget it too, or isPackDecoded() would keep
+    // reporting a decode that is no longer there -- and an empty Map is the one
+    // value that reads as "ready" while containing nothing.
+    const p = packs.get(entry.pack);
+    if (p && p.buffers) {
+      p.buffers.delete(rel);
+      if (!p.buffers.size) p.buffers = null;
+    }
+  }
+}
+
+/** Test seam: move the budget, so eviction can be seen without decoding GB. */
+export function __setDecodeBudget(bytes) {
+  DECODE_BUDGET_BYTES = Math.max(1, Number(bytes) || 0);
+  evictToBudget(new Set());
+  return DECODE_BUDGET_BYTES;
+}
+
+/**
+ * Decode the samples a piece is about to need, for one pack.
+ *
+ * Idempotent and shared: a second caller while the first is still working joins
+ * the same promise rather than decoding twice.
+ *
+ * @param {string} packId
+ * @param {number[]} [midis]  keys to cover; every key when omitted
+ * @param {(p:{done:number,total:number})=>void} [onProgress]
+ */
+export async function preparePack(packId, midis, onProgress) {
+  const pack = packs.get(packId);
+  if (!pack) {
+    return Promise.reject(new Error(
+      `sample pack "${packId}" is not loaded (${loadState}: ${loadError || 'no detail'})`
+    ));
+  }
+
+  const wanted = filesForKeys(pack, midis);
+  const todo = wanted.filter((rel) => !decodedFiles.has(rel));
+  if (!todo.length) {
+    pack.buffers = pack.buffers || new Map();
+    for (const rel of wanted) if (decodedFiles.has(rel)) pack.buffers.set(rel, decodedFiles.get(rel));
+    // `wanted` is the keep set, not an empty one: a prepare that found nothing
+    // to do must not evict the very buffers it just confirmed were present.
+    evictToBudget(new Set(wanted));
+    return Promise.resolve(pack);
+  }
+
+  const inflight = preparing.get(packId);
+  // A second caller may want keys the in-flight run is not covering -- it was
+  // asked for a different part of the keyboard. Joining its promise would hand
+  // back a pack that is missing those keys and the note would be silent, so
+  // wait, then look again.
+  if (inflight) return inflight.then(() => preparePack(packId, midis, onProgress));
+
+  const promise = (async () => {
+    const decodeCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 128, 44100);
+    const keep = new Set(todo);
+    let done = 0;
+    let next = 0;
+
+    const worker = async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= todo.length) return;
+        const rel = todo[i];
+        // decodeAudioData detaches the buffer it is given, so never hand it one
+        // that is still referenced elsewhere.
+        const raw = pack.files.get(rel);
+        if (!raw) throw new Error(`${rel}: not fetched`);
+        const copy = raw.slice(0);
+        const buffer = await decodeCtx.decodeAudioData(copy);
+        const bytes = buffer.length * buffer.numberOfChannels * 4;
+        decodedFiles.set(rel, { buffer, onset: findOnset(buffer), bytes, pack: packId, used: ++clock });
+        decodedBytes += bytes;
+        done++;
+        onProgress && onProgress({ done, total: todo.length });
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, todo.length) }, worker));
+
+    pack.buffers = pack.buffers || new Map();
+    for (const rel of wanted) {
+      const e = decodedFiles.get(rel);
+      if (e) pack.buffers.set(rel, e);
+    }
+    evictToBudget(keep);
+    return pack;
+  })();
+
+  preparing.set(packId, promise);
+  // Clear the entry the moment the work settles, on success as well as failure.
+  //
+  // Leaving a settled promise in `preparing` is worse than not caching at all:
+  // the next caller with real work to do takes the join-the-in-flight branch,
+  // the joined promise calls preparePack again, which finds the same entry
+  // still there, and the two of them resolve to each other for ever without a
+  // single decode running. The page hangs the second time an instrument is
+  // picked after its buffers have been evicted. A failed decode has the same
+  // problem, so both paths go through the same cleanup.
+  try {
+    return await promise;
+  } finally {
+    if (preparing.get(packId) === promise) preparing.delete(packId);
+  }
+}
+
+/**
+ * Decode what `ids` will need, for the keys in `midis`.
+ *
+ * The one call a UI wants: it takes roster ids rather than pack ids, and skips
+ * anything that is modelled rather than sampled, so a piece of synths costs
+ * nothing.
+ *
+ * @param {string[]} ids
+ * @param {number[]} [midis]
+ * @param {(p:{done:number,total:number,label:string})=>void} [onProgress]
+ */
+export async function prepare(ids, midis, onProgress) {
+  const wanted = [...new Set(ids || [])].filter((id) => typeof id === 'string');
+  if (!wanted.length) return;
+
+  const jobs = [];
+  for (const id of wanted) {
+    const packId = PACK_OF.get(id);
+    if (packId) jobs.push(packId);
+  }
+  if (!jobs.length) return;
+
+  // Decoding one whole family at a time keeps peak memory to the largest single
+  // family rather than the sum of every family asked for at once.
+  for (const packId of jobs) {
+    await preparePack(packId, midis, onProgress);
+  }
+}
+
+/** Roster id -> pack id, filled in by instruments.js at import time. */
+const PACK_OF = new Map();
+export function __registerPackOf(map) {
+  PACK_OF.clear();
+  for (const [k, v] of Object.entries(map)) PACK_OF.set(k, v);
 }
 
 /**
@@ -214,6 +473,14 @@ export function createSampledInstrument(packId, ctx, outputNode) {
       `sample pack "${packId}" is not loaded (${loadState}: ${loadError || 'no detail'})`
     );
   }
+  // Fetched but not decoded is a different mistake from not loaded, and the fix
+  // is a different call. Say which one it is rather than sending the caller
+  // looking for a fetch that already succeeded.
+  if (!pack.buffers) {
+    throw new Error(
+      `sample pack "${packId}" is fetched but not decoded -- await preparePack("${packId}") before playing it`
+    );
+  }
   if (!ctx || typeof ctx.createGain !== 'function') {
     throw new TypeError('createSampledInstrument needs an AudioContext or OfflineAudioContext');
   }
@@ -228,6 +495,23 @@ export function createSampledInstrument(packId, ctx, outputNode) {
   let sustain = false;
   let disposed = false;
   let roundRobin = 0;
+
+  /**
+   * Take this voice out of the pack's live count, at most once.
+   *
+   * The count is what stops the decode cache evicting a pack that is about to be
+   * played. It is released the moment the source is told to stop rather than when
+   * the voice is reaped, because a source node keeps the AudioBuffer it was given
+   * and reap only ever runs on the *next* noteOn. Counting to reap would pin
+   * every instrument you had ever played for the rest of the session, which is
+   * the exact failure the budget exists to prevent.
+   */
+  let counted = false;
+  function uncount() {
+    if (!counted) return;
+    counted = false;
+    pack.live = Math.max(0, pack.live - 1);
+  }
   const warnings = [];
   const stats = { voices: 0, peakVoices: 0, nodes: 0 };
 
@@ -264,11 +548,22 @@ export function createSampledInstrument(packId, ctx, outputNode) {
       warnings.push(`noteOn: "${hit.f}" decoded but missing from the pack`);
       return null;
     }
+    // Playing it makes it the most recently used thing in the decode cache, so
+    // it is the last to be evicted if the budget has to be enforced.
+    decoded.used = ++clock;
 
     // The attack must begin at `when`, so playback starts at the measured onset
     // rather than at the top of the buffer, which is silence plus codec delay.
     const onset = decoded.onset;
-    const rate = entry.rate || 1;
+
+    // Rate comes from the key that was ASKED FOR, not from the key that was
+    // found. The two differ whenever a bank does not cover the whole keyboard:
+    // a Kalimba runs 48..84, and playing key 60 against its own entry would
+    // sound the Kalimba's key 60 rather than the one requested. The entry's
+    // rate already carries that sample's own detune, so the interval from the
+    // entry's key to the requested one is added on top of it.
+    const entryKey = keyFor(midi);
+    const rate = (entry.rate || 1) * Math.pow(2, (midi - entryKey) / 12);
 
     const src = ctx.createBufferSource();
     src.buffer = decoded.buffer;
@@ -327,12 +622,16 @@ export function createSampledInstrument(packId, ctx, outputNode) {
         amp.gain.linearRampToValueAtTime(0, now + KEY_RELEASE);
         this.hardStopAt = now + KEY_RELEASE + 0.02;
         src.stop(this.hardStopAt);
+        // The node is now told to stop, and it keeps the buffer it was given.
+        uncount();
       },
       hardStop(t) {
         try { src.stop(t); } catch (e) { /* already stopped */ }
         this.hardStopAt = t;
+        uncount();
       },
       drop() {
+        uncount();
         for (const n of [src, amp]) { try { n.disconnect(); } catch (e) { /* gone */ } }
         stats.nodes -= 2;
       },
@@ -352,9 +651,14 @@ export function createSampledInstrument(packId, ctx, outputNode) {
       const ring = Math.min(MAX_RING_SECONDS, Math.max(hit.dur / rate, duration + 0.5));
       v.hardStopAt = when + ring;
       src.stop(when + ring);
+      // Same reasoning as release(): the stop is scheduled, so the node keeps
+      // what it was given and the pack is free to be evicted.
+      uncount();
     }
 
     active.push(v);
+    pack.live++;
+    counted = true;
     stats.voices = active.length;
     if (stats.voices > stats.peakVoices) stats.peakVoices = stats.voices;
     return { instrument: api, voice: v, generation: v.generation, midi, when };
@@ -453,15 +757,16 @@ export function loadedPackIds() {
  * Who the samples came from and what licence they carry, read straight out of
  * the manifest.
  *
- * This exists because attribution is not optional for part of the pack. The
- * grand in sgpiano is Salamander Grand Piano V3 under CC BY 3.0, and CC BY
- * wants the credit where the material is actually used -- which, for a web
- * page, is in the page. The values are not written here: they are built by
+ * This exists because the pack is not uniformly free of obligations. Most of it
+ * is CC0 and owes nothing, but the FSS steel-string guitar is GPL-3+ with the
+ * sound-sample exception, and a licence nobody is shown is a licence nobody is
+ * complying with. The values are not written here: they are built by
  * tools/make-pack.mjs from the SOURCES table and travel inside the pack, so
  * they cannot fall out of step with the files that were actually shipped.
  *
- * Deduplicated by source, because one library covers eight of the nine packs
- * and listing it eight times would read as an error rather than a credit.
+ * Deduplicated by source, because one library covers forty-nine of the fifty
+ * packs and listing it forty-nine times would read as an error rather than as a
+ * credit.
  */
 export function packCredits() {
   const bySource = new Map();
@@ -487,14 +792,31 @@ export function __setPack({ id, name, lo, hi, sustains, notes, buffers }) {
   for (const [rel, buf] of Object.entries(buffers)) {
     measured.set(rel, { buffer: buf, onset: findOnset(buf) });
   }
-  packs.set(id, { id, name, lo, hi, sustains, notes, buffers: measured });
+  packs.set(id, { id, name, lo, hi, sustains, notes, buffers: measured, files: new Map(), live: 0 });
   loadState = 'ready';
+  return packs.get(id);
+}
+
+/**
+ * Test seam: install a pack as *fetched but not decoded*.
+ *
+ * The state a real page is in between loadPack() and prepare(), and the one that
+ * matters most to test: without a guard here, an instrument whose decode was
+ * forgotten falls back to its modelled twin and still makes a sound, so nothing
+ * anywhere reports a problem.
+ */
+export function __setFetchedPack({ id, name, lo, hi, sustains, notes, files = new Map() }) {
+  packs.set(id, { id, name, lo, hi, sustains, notes, files, buffers: null, live: 0 });
   return packs.get(id);
 }
 
 /** Undo __setPack, so one test cannot leave a pack behind for the next. */
 export function __clearPacks() {
   packs.clear();
+  decodedFiles.clear();
+  preparing.clear();
+  decodedBytes = 0;
+  clock = 0;
   loadState = 'idle';
   loadProgress = 0;
   loadError = null;

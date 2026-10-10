@@ -3,8 +3,8 @@
  *
  * "The piano sounds terrible" is not actionable on its own, and retuning an
  * additive voice by ear against nothing is how it stays bad. The app already
- * ships a *recorded* grand (Versilian CC0), which is a real piano played and
- * sampled -- so it can be used as the reference. Whatever the synth gets wrong
+ * ships recorded pianos from FreePats -- real instruments played and
+ * sampled -- so one can be used as the reference. Whatever the synth gets wrong
  * can be stated as a difference from a piano that is known to be one.
  *
  * The measurements are the ones that separate a piano from a synth pad:
@@ -33,7 +33,7 @@ import { fileURLToPath } from 'node:url';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SUBJECT = process.argv[2] || 'grand';
-const REFERENCE = 'rec-grand';
+const REFERENCE = 'rec-fp-upright';
 const MIDI = Number(process.argv[3] || 60);
 const VEL = Number(process.argv[4] || 0.80);
 
@@ -45,8 +45,8 @@ const MIME = {
 
 const PAGE = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>piano voice</title></head>
 <body><script type="module">
-import { loadPack } from '/src/js/audio/sampler.js';
-import { createInstrument } from '/src/js/audio/instruments.js';
+import { loadPack, preparePack } from '/src/js/audio/sampler.js';
+import { createInstrument, packFor } from '/src/js/audio/instruments.js';
 
 /* ------------------------------------------------------------- measurement */
 
@@ -124,6 +124,11 @@ function bandEnergy(x, from, n, centre, halfWidthHz) {
 }
 
 async function measure(id, midi, secs, vel) {
+  // Decoding is a separate step from fetching now, and createInstrument falls
+  // back to the modelled twin when it has not happened -- which would make this
+  // check measure its own subject as the thing it is comparing against.
+  const pack = packFor(id);
+  if (pack) await preparePack(pack, [midi]);
   const WHEN = 0.30;
   const off = new OfflineAudioContext(1, Math.ceil(SR * secs), SR);
   const inst = createInstrument(id, off, off.destination);
@@ -236,7 +241,7 @@ window.__RESULT__ = { error: null };
   try {
     const MIDI = ${MIDI}, VEL = ${VEL};
     // The pack has to be loaded before anything is measured. Without it
-    // createInstrument('rec-grand') silently falls back to the synth twin, and
+    // createInstrument(REFERENCE) silently falls back to the synth twin, and
     // the "ground truth" column becomes a second copy of the subject -- which is
     // exactly what the first run of this reported, with identical numbers to
     // six decimal places.
@@ -300,7 +305,14 @@ try {
   console.error('could not read the harness result:\n' + stdout.out.slice(0, 800) + stdout.err.slice(0, 600));
   process.exit(1);
 }
-if (res && res.error) { console.error('measurement failed:', res.error); process.exit(1); }
+// An envelope with no `value` means the page never published a result, which is
+// a different fault from the page publishing a failure. Printing the TypeError
+// that destructuring undefined would raise says nothing about either.
+if (!res) {
+  console.error('the page published no result. Harness said:\n' + stdout.out.slice(0, 800) + stdout.err.slice(0, 600));
+  process.exit(1);
+}
+if (res.error) { console.error('measurement failed:', res.error); process.exit(1); }
 
 const { subject: s, reference: r } = res;
 console.log(`\n  ${s.id} (synth)   vs   ${r.id || 'recorded piano'} (ground truth)`);

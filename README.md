@@ -132,24 +132,45 @@ that ramps in for bowed and vocal sounds, breath noise for the winds, and
 drawbar-style additive synthesis for the organ. None of these needs a network
 connection, and the whole app still fits in one file.
 
-**Recorded** (9 instruments, a `pack/` directory of 5.1 MB). Real sampled
-instruments. The concert grand is [Salamander Grand Piano V3][salamander] by
-Alexander Holm (CC BY 3.0 - attribution required, and credited in NOTICE.md and
-in the app's Settings panel); the other eight are from the
-[Versilian Community Edition][versilian] (CC0 - public domain, no attribution
-owed): a second grand, harpsichord, koto, viola da gamba, marimba,
-vibraphone, xylophone and glockenspiel.
+**Recorded** (50 instruments, a `pack/` directory of ~121 MB). Real sampled
+instruments, in six picker groups: piano, organ, plucked & struck, guitar & bass,
+winds & reed, and synth.
 
-The Salamander grand is sampled once every few semitones across almost the whole
-keyboard - 26 takes spanning C1 to B7 - so almost every key plays a real
-recording and the rest are resampled by at most three semitones. No key goes
-silent anywhere in the pack: a key with no take of its own plays the nearest
-one, shifted.
+Every one of them is a [FreePats][freepats] bank. Forty-nine are CC0; the FSS
+steel-string acoustic guitar is GPL-3.0-or-later with the FreePats sound-sample
+exception, so that one pack's terms are reproduced in NOTICE.md and in the app
+rather than being averaged into a blanket "FreePats is CC0" that would be false
+for it.
+
+Their filenames carry no pitch — they are `1_01.wav` and so on — so the builder
+reads each bank's own SFZ for the key map, `pitch_keycenter`, `tune` and
+author-chosen loop points rather than guessing from names.
+`tools/fetch-freepats.mjs` fetches and extracts the banks;
+`tools/freepats-banks.mjs` is the table of which bank is which instrument;
+`tools/list-recorded.mjs` reports what each one actually contains.
+
+Some banks are sampled on every key they cover and some are not — a key with no
+take of its own plays the nearest one, shifted, so no key is ever silent, but
+**how far** that shift gets varies a lot and is worth knowing before you reach
+for an instrument. `node tools/list-recorded.mjs` prints the worst shift per
+bank. Two extremes: the jaw harp is sampled on all 48 of its keys and never
+shifts at all, while the button accordion claims the whole MIDI range but has 16
+real takes, so its extremes are transposed by nearly four octaves.
 
 These need the pack fetched once, so they are **not** available from a page
 opened as a `file://` URL — pick one there and it falls back to the modelled
 instrument of the same family, and Settings says so. Over http the backend
 serves `pack/` from its own origin.
+
+**Fetching and decoding are separate.** The whole pack is fetched once, in
+compressed form, at start-up. The decoded PCM is not: that much MP3 is several
+gigabytes of 32-bit float, which no browser tab can be asked to hold before
+playing the first note. So a pack's PCM is decoded the first time an instrument
+that needs it is selected — only the keys the piece actually uses — and the
+decoded cache keeps a 1 GB budget, dropping least-recently-used takes. An
+instrument with a note currently sounding is never dropped. Picking a single very
+large instrument may take the cache over the budget rather than refuse to play it;
+`node tools/check-decode-budget.mjs` measures that this actually happens.
 
 Rebuild the pack with `npm run pack` (see [Development](#development)). Two
 things about it are worth knowing before changing the encoder settings:
@@ -157,14 +178,13 @@ things about it are worth knowing before changing the encoder settings:
 - **Chrome does not strip LAME's encoder delay.** An encoded note arrives about
   1105 samples (25 ms) late — and 1524 for stereo at 96 kbps, so it is not a
   constant. Every file therefore carries 1024 samples of digital silence at the
-  front, and the sampler finds the real onset in each decoded buffer at load.
-  `node tools/check-codec-delay.mjs` measures it.
+  front, and the sampler finds the real onset in each decoded buffer at decode
+  time. `node tools/check-codec-delay.mjs` measures it.
 - **The recordings are not recorded at comparable levels** — the piano sits 30 dB
-  under the xylophone. Each take is normalised to a per-family target at build
+  under the tubular bells. Each take is normalised to a per-family target at build
   time, and that target is the playing level.
 
-[versilian]: https://github.com/sgossner/versilian-studios (Community Edition samples, CC0)
-[salamander]: https://github.com/sfzinstruments/SalamanderGrandPiano (Grand Piano V3 samples, CC BY 3.0)
+[freepats]: https://freepats.zenvoid.org/ (sample banks, CC0 and GPL-3+exception)
 
 ## Installing on Linux
 
@@ -453,7 +473,11 @@ tools/
   verify.mjs            build + self-test + screenshot
   run-suites.mjs        the module suites, one verdict
   make-pack.mjs         build pack/ from the sample caches
+  freepats-banks.mjs     which FreePats bank is which instrument, and where it goes
+  fetch-freepats.mjs     scrape the FreePats catalogue, download and extract the banks
+  survey-freepats.mjs    what is actually in a downloaded bank
   check-pack-credits.mjs  do NOTICE.md and the app still credit what the pack ships
+  check-decode-budget.mjs does the decoded-PCM cache stay inside its budget
   check-loop-seam.mjs   does a held recorded note gate at its loop point
   check-codec-delay.mjs measure MP3 encode+decode latency
   check-sampler-audio.mjs  render the real pack and measure it
@@ -465,8 +489,11 @@ tools/
   check-omr-jobs.py     the job API against a live backend
   check-omr-progress.py progress plumbing, without loading the model
   watch-omr-progress.py print every progress tick of one real scan
-  survey-samples.mjs    what is actually in the sample cache
+  list-recorded.mjs    what is actually in each recorded pack, and how far it shifts
   lib/wav.mjs           RIFF/WAVE reader for the pack builder
+  lib/sfz.mjs           SFZ parser: key map, keycentre, tune and loop points
+  lib/pitch.mjs         a note name to a MIDI number, for the SFZ key map
+  lib/credits.mjs       render the NOTICE credits block from the manifest
   lib/lame.mjs          the app's own lamejs, loaded into Node
   make-fixtures.mjs     render ground-truth score images + gt.json
   score-render.html     engraves one known fixture for make-fixtures

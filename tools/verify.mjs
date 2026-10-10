@@ -167,10 +167,10 @@ if (piano.code !== 0) {
   failures.push('piano: ' + (piano.out.trim().split('\n').pop() || piano.err.trim()));
 }
 
-// Sample provenance. The pack is no longer uniformly CC0 -- the concert grand
-// is Salamander Grand Piano V3 under CC BY 3.0 -- and a licence nobody is shown
-// is a licence nobody is complying with. This fails on a missing credit, a
-// stale notice, or a pack the roster cannot reach.
+// Sample provenance. Almost the whole pack is CC0, but one FreePats bank is
+// GPL-3+ with the sound-sample exception, and a licence nobody is shown is a
+// licence nobody is complying with. This fails on a missing credit, a stale
+// notice, or a pack the roster cannot reach.
 const credits = await run(process.execPath, [path.join(root, 'tools/check-pack-credits.mjs')],
   { allowFail: true });
 console.log(credits.out.trim());
@@ -179,6 +179,22 @@ if (credits.code !== 0) {
     if (line.startsWith('FAIL ')) failures.push(line.trim());
   }
   if (!credits.out.includes('FAIL ')) failures.push('pack credits: ' + (credits.err.trim() || 'check failed'));
+}
+
+// Can 59 recorded instruments fit in a tab? Decoding the whole 130 MB pack up
+// front would need about 4.3 GB of PCM, which is not a thing a browser can be
+// asked to hold, so the bytes are fetched eagerly and the PCM decoded per key
+// under an eviction budget. Every other check here passes just as happily if the
+// eviction silently stops working and the tab quietly grows to 4.3 GB, so the
+// budget is measured directly.
+const budget = await run(process.execPath, [path.join(root, 'tools/check-decode-budget.mjs')],
+  { allowFail: true });
+console.log(budget.out.trim());
+if (budget.code !== 0) {
+  for (const line of budget.out.split('\n')) {
+    if (line.includes('FAIL')) failures.push(line.trim());
+  }
+  if (!budget.out.includes('FAIL')) failures.push('decode budget: ' + (budget.err.trim() || 'check failed'));
 }
 
 if (report) console.log(`self-test: ${report.result} - ${report.pass} passed, ${report.fail} failed`);

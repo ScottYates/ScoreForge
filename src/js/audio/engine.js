@@ -14,6 +14,7 @@
  */
 
 import { createInstrument } from './instruments.js';
+import { prepare as prepareInstruments } from './sampler.js';
 
 const TIMER_MS = 25;
 const SCHEDULE_AHEAD = 0.22;
@@ -74,6 +75,44 @@ export class Engine {
     this._cursor = 0;
     this._clicks = null;
     for (const n of this.notes) n._on = false;
+    return this;
+  }
+
+  /**
+   * Decode whatever this score needs before a note is scheduled.
+   *
+   * The whole score is known here, so the set of keys that can sound is known
+   * too -- which is what makes it possible to decode exactly those and nothing
+   * else. Recorded instruments used by one part of a piece are usually a handful
+   * of families, and only the keys actually written get decoded.
+   *
+   * Called by the two places that have an async boundary before scheduling
+   * starts: the play button and the offline render. Everything below this line
+   * is synchronous, so this is the last chance to get PCM into memory.
+   *
+   * @param {(p:{done:number,total:number,label:string})=>void} [onProgress]
+   */
+  async prepare(onProgress) {
+    const ids = [...new Set(this.partInstruments.values())];
+    if (!ids.length) return;
+    const midis = [...new Set(this.notes.map((n) => n.midi))];
+    await prepareInstruments(ids, midis, onProgress);
+  }
+
+  /**
+   * Load a score and get its instruments ready to play.
+   *
+   * Async because that is the only honest place to decode: `load` is called
+   * from constructors and from tests that then expect a synchronous result, and
+   * bolting a promise onto it would push the await into every one of them for
+   * the benefit of only one caller.
+   *
+   * @param {{notes:Array, timing:Object, durationSec:number}} resolved
+   * @param {{score:Object, partInstruments:Map<string,string>}} o
+   */
+  async loadAndPrepare(resolved, o = {}) {
+    this.load(resolved, o);
+    await this.prepare();
     return this;
   }
 

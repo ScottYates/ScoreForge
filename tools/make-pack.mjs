@@ -1,21 +1,21 @@
 /**
  * tools/make-pack.mjs - build the recorded-instrument sample pack.
  *
- * Source is the Versilian Community Edition (CC0, public domain, no attribution
- * owed) cached in %TEMP%/sf-sample-cache. Output is pack/: a folder of MP3s and
- * one manifest the app fetches at load.
+ * Every recorded instrument in ScoreForge is a FreePats bank: the WAVs downloaded
+ * by tools/fetch-freepats.mjs, re-encoded to MP3 into pack/ alongside one
+ * manifest the app fetches at load.
  *
- *   node tools/make-pack.mjs                 build pack/ from the caches
+ *   node tools/make-pack.mjs --freepats <dir>
  *   node tools/make-pack.mjs --dry-run       report the plan, write nothing
- *   node tools/make-pack.mjs --src <dir> --salamander <dir> --out <dir>
+ *   node tools/make-pack.mjs --out <dir> --hits <n>
  *
- * Two libraries feed it, and they owe different things -- see SOURCES below.
+ * Two libraries are involved and they owe different things -- see SOURCES below.
  *
  * Three things in here are not obvious, and all three came from measuring the
  * real files rather than from the documentation:
  *
- * 1. LEADING SILENCE. Several families (Rode, KSHarp high notes) start with
- *    silence before the attack. Left in, every note plays late. Trimmed.
+ * 1. LEADING SILENCE. Several banks start with silence before the attack. Left
+ *    in, every note plays late. Trimmed.
  *
  * 2. CODEC DELAY IS NOT CONSTANT. Chrome does not strip LAME's encoder delay.
  *    It is 1105 samples for most settings but 1524 for stereo 96 kbps -- see
@@ -24,9 +24,14 @@
  *    in each decoded buffer. Measuring per file costs ~190 bytes and is correct
  *    on any browser that can decode MP3 at all.
  *
- * 3. PITCHES ARE SPARSE. The families sample every third semitone, and Marimba
- *    and Xylo have gaps of seven. A missing pitch is filled by playing the
- *    nearest real sample at a shifted rate rather than by dropping the key.
+ * 3. PITCHES COME FROM THE SFZ, NOT THE FILENAME. A FreePats bank ships
+ *    `1_01.wav`, so the pitch comes from the bank's own key map -- along with
+ *    its keycentre, its tune and the loop points its author chose.
+ *
+ * 4. PITCHES ARE SPARSE. Some banks sample every third semitone. A missing
+ *    pitch is filled by playing the nearest real sample at a shifted rate
+ *    rather than by dropping the key. tools/list-recorded.mjs reports how far
+ *    that shift gets on each bank, because on a few of them it gets a long way.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -34,8 +39,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readWav, peakOf, envelope } from './lib/wav.mjs';
 import { encodeMp3 } from './lib/lame.mjs';
-import { pitchIn } from './lib/pitch.mjs';
-import { noticeBlock, applyNoticeBlock } from './lib/credits.mjs';
+import { parseSfz, regionsForKey, keyCentreOf, loopsRegion } from './lib/sfz.mjs';
+import { FREEPATS_BANKS } from './freepats-banks.mjs';
+import { noticeBlock, applyNoticeBlock, obligationOf } from './lib/credits.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -44,92 +50,28 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /**
  * One entry per recorded instrument in the pack.
  *
- * `from` names the entries in SOURCES this family is built from. `take` is a
- * preference over the tokens VCSL puts in filenames: `ff` is a hard mallet
- * strike, `mf` a medium one, `pp` a soft one. The middle layer is picked so a
- * single velocity layer covers the useful range once the sampler applies its
- * own gain envelope.
+ * `from` names the entries in SOURCES this family is built from, and `bank`
+ * is the directory the downloader put it in. Everything else is measured
+ * from the files rather than declared here -- channel count from the WAV,
+ * pitch and loop points from the SFZ. The only hand-written settings are
+ * `target`, which is how loud the family sits in the mix, and `maxSec`,
+ * which is how much of a take to keep.
  *
  * `loop` marks a family that sustains while held. Its samples get loop points
  * so a two-bar note does not run out three seconds in.
  */
-const FAMILIES = [
-  {
-    pack: 'sgpiano', from: ['salamander'], name: 'Concert Grand (Salamander)',
-    stereo: false, loop: false, prefer: [], maxHits: 1,
-    // No loop, and a longer take instead. A piano decays -- holding a key does
-    // not sustain it -- so looping these makes the keyboard behave unevenly:
-    // with a loop the finder liked, C4/C5/C6 rang on but F#4 was rejected, and
-    // a held note pulsed 12.5 dB at the wrap on the high C7. Measured across
-    // the pack with looping on, every Salamander seam that mattered was fixed
-    // only by refusing to loop. So it does not loop, and maxSec goes to 6 s
-    // because these takes are 2.5 s to 19 s long and the decay IS the note --
-    // truncating at 4 s threw away half of what was recorded.
-    maxSec: 6.0, target: 0.50,
-  },
-  {
-    pack: 'gpiano', from: ['vcsl'], prefix: 'GPiano', name: 'Concert Grand (Versilian)',
-    stereo: false, loop: true, prefer: ['v2', 'v3', 'v1'], maxHits: 2,
-    maxSec: 4.0, loopFrom: 0.18, loopTo: 0.94, minLoopSec: 0.30, target: 0.50,
-  },
-  {
-    pack: 'harpsichord', from: ['vcsl'], prefix: 'HarpsiRH', name: 'Harpsichord (recorded)',
-    stereo: false, loop: true, prefer: [], maxHits: 1,
-    maxSec: 2.2, loopFrom: 0.25, loopTo: 0.90, minLoopSec: 0.22, target: 0.45,
-  },
-  {
-    pack: 'koto', from: ['vcsl'], prefix: 'KSHarp', name: 'Koto (recorded)',
-    stereo: false, loop: true, prefer: ['mf1', 'f1'], maxHits: 2,
-    maxSec: 3.2, loopFrom: 0.12, loopTo: 0.60, minLoopSec: 0.30, target: 0.50,
-  },
-  {
-    pack: 'viola', from: ['vcsl'], prefix: 'Rode', name: 'Viola da gamba (recorded)',
-    stereo: false, loop: true, prefer: [], maxHits: 1,
-    maxSec: 3.0, loopFrom: 0.30, loopTo: 0.92, minLoopSec: 0.35, target: 0.45,
-  },
-  {
-    pack: 'marimba', from: ['vcsl'], prefix: 'Marimba', name: 'Marimba (recorded)',
-    stereo: true, loop: false, prefer: ['_1', '2', '3'], maxHits: 3,
-    maxSec: 2.4, target: 0.42,
-  },
-  {
-    pack: 'vibraphone', from: ['vcsl'], prefix: 'Vibes', name: 'Vibraphone (recorded)',
-    stereo: true, loop: false, prefer: ['soft', 'main'], maxHits: 3,
-    maxSec: 3.0, target: 0.42,
-  },
-  {
-    pack: 'xylophone', from: ['vcsl'], prefix: 'Xylo', name: 'Xylophone (recorded)',
-    stereo: true, loop: false, prefer: ['Medium', 'Hard'], maxHits: 3,
-    maxSec: 2.0, target: 0.50,
-  },
-  {
-    pack: 'glockenspiel', from: ['vcsl'], prefix: 'glock', name: 'Glockenspiel (recorded)',
-    stereo: true, loop: false, prefer: ['medium', 'loud'], maxHits: 3,
-    maxSec: 2.2, target: 0.38,
-  },
-];
+const FAMILIES = [];
 
 /** Digital silence prepended to every encoded file so the sampler can locate
  *  the true onset. Long enough to swamp MP3 pre-echo, short enough to be free. */
 const MARKER = 1024;
 
 /**
- * How far below the sustain level a loop point may sit, in dB.
- *
- * The sibling of the seam: findLoop() picks the quietest window still within
- * this of the median sustain, so a low value puts the loop deep in the decay.
- */
-const FLOOR_DB = 9;
-
-/**
  * How far below the take's loudest window a loop may start, in dB.
  *
  * Null by default: this is a per-family guard, not a general rule, because the
- * depth is a property of the recording rather than of music. The Versilian
- * takes sit 60+ dB below their own peak at the loop point and are still real
- * signal -- their loops measure 2.0 to 4.6 dB -- so a threshold that suits them
- * would have to be so loose as to do nothing. Only the clean, long Salamander
- * grand sets one; see its loopFloorDb.
+ * depth is a property of the recording rather than of music. Set one only where
+ * a specific recording has been measured to need it.
  */
 const LOOP_FLOOR_DB = null;
 
@@ -142,9 +84,27 @@ const flag = (name, dflt) => {
   return i >= 0 ? args[i + 1] : dflt;
 };
 const DRY = args.includes('--dry-run');
-const SRC = flag('src', path.join(os.tmpdir(), 'sf-sample-cache'));
-const SAL = flag('salamander', path.join(os.tmpdir(), 'sf-salamander'));
+const FP = flag('freepats', path.join(os.tmpdir(), 'sf-freepats'));
 const OUT = path.resolve(repo, flag('out', 'pack'));
+/** How many takes of one note to keep. FreePats ships many; a browser does not need them all. */
+const FP_HITS = Number(flag('hits', 2));
+
+// The FreePats banks, turned into families. `bank` is the directory name the
+// downloader used; almost everything else is measured from the files rather
+// than declared here. The two settings left are about the mix, not the bank.
+for (const b of FREEPATS_BANKS) {
+  FAMILIES.push({
+    pack: b.pack,
+    from: [b.slug === 'fss-steel-string-acoustic-guitar' ? 'freepatsGpl' : 'freepats'],
+    bank: b.slug,
+    name: b.name,
+    stereo: undefined,   // read from the WAV's channel count
+    loop: undefined,     // taken from the SFZ's own loop points
+    maxHits: FP_HITS,
+    maxSec: b.maxSec ?? 4.0,
+    target: b.target ?? 0.45,
+  });
+}
 
 /* ---------------------------------------------------------------- sources */
 
@@ -162,32 +122,45 @@ const OUT = path.resolve(repo, flag('out', 'pack'));
  * the families that use it, above the argument parsing it depends on.
  */
 const SOURCES = {
-  vcsl: {
-    dir: () => SRC,
-    /** Which files in this directory belong to the family asking for them. */
-    match: (file, cfg) => file.split('_')[0] === cfg.prefix,
-    /** Lower sorts first; see rankTake. */
-    rank: (file, cfg) => rankTake(file, cfg.prefer),
+  /**
+   * FreePats, which is where every recorded instrument comes from.
+   *
+   * It does not name its files by pitch -- a Kalimba bank ships
+   * `samples/1_01.wav` -- so it supplies a `load` that reads the bank's own SFZ
+   * map instead of scanning filenames. Everything that can be measured is
+   * measured from the bank: channel count from the WAV, loop points from the
+   * SFZ, pitch from `pitch_keycenter`.
+   */
+  freepats: {
+    dir: () => FP,
     credit: {
-      title: 'Versilian Community Edition',
-      author: 'Versilian Studios and contributors',
+      title: 'FreePats',
+      author: 'The FreePats project and its contributors',
       licence: 'CC0 1.0 Universal (public domain)',
-      url: 'https://versilianstudios.com/community-edition/',
-      changes: null, // CC0 asks for nothing, so there is nothing to declare.
+      url: 'https://freepats.zenvoid.org/',
     },
+    load: (cfg) => collectFreepats(cfg),
   },
-  salamander: {
-    dir: () => SAL,
-    // Salamander filenames are just the pitch and the velocity layer --
-    // `A3vH`, `D#2vH` -- with no family prefix and no underscore to split on.
-    match: () => true,
-    rank: () => 0,
+
+  /**
+   * The one FreePats bank that is not CC0.
+   *
+   * It is GPL-3+ with the FSF-style sample exception, so music made with it is
+   * not forced under the GPL -- but the sample files themselves are, which is an
+   * obligation on the pack and not merely a credit to display. It gets its own
+   * source so those terms attach to the pack that actually carries them,
+   * instead of being averaged into a blanket "FreePats is CC0" that would be
+   * false for this one bank.
+   */
+  freepatsGpl: {
+    dir: () => FP,
     credit: {
-      title: 'Salamander Grand Piano V3',
-      author: 'Alexander Holm',
-      licence: 'CC BY 3.0',
-      url: 'https://github.com/sfzinstruments/SalamanderGrandPiano',
+      title: 'FreePats FSS Steel-String Acoustic Guitar',
+      author: 'The FreePats project; FSS samples recorded by its contributors',
+      licence: 'GPL-3.0-or-later, with the FreePats sound-sample exception',
+      url: 'https://freepats.zenvoid.org/Guitar/steel-acoustic-guitar.html',
     },
+    load: (cfg) => collectFreepats(cfg),
   },
 };
 
@@ -203,32 +176,23 @@ const SOURCES = {
  *
  * Only families whose licence asks for it need one.
  */
-function changesFor(cfg) {
+function changesFor(cfg, built) {
   const bits = ['leading and trailing silence trimmed'];
-  bits.push(cfg.stereo ? 'kept stereo' : 'mixed to mono');
+  bits.push(built.stereo ? 'kept stereo' : 'mixed to mono');
   if (cfg.maxSec) bits.push(`truncated to ${cfg.maxSec} s`);
-  if (cfg.loop) bits.push('loop points added for held notes');
+  // "what changed" has to describe what this build did, not what a flag says.
+  // The FreePats families take their loop points from the bank's own SFZ rather
+  // than deriving them, which is a different edit to the audio and worth
+  // declaring as one.
+  bits.push(built.anyLoop
+    ? (cfg.bank ? 'loop points taken from the bank\'s SFZ as published' : 'loop points added for held notes')
+    : 'no loop points');
   bits.push('peak-normalised per instrument');
-  bits.push(`encoded to MP3 at ${cfg.stereo ? BITRATE.stereo : BITRATE.mono} kbps`);
+  bits.push(`encoded to MP3 at ${built.stereo ? BITRATE.stereo : BITRATE.mono} kbps`);
   return bits.join('; ') + '.';
 }
 
 /* ------------------------------------------------------------------ utils */
-
-/**
- * Rank candidate takes for one pitch against the family's preference list.
- *
- * `prefer` entries are matched anywhere in the filename, so `['soft','main']`
- * takes `Vibes_soft_G5...` over `Vibes_bowed_G5...`. Anything unmatched sorts
- * after everything matched, then alphabetically for a stable build.
- */
-function rankTake(filename, prefer) {
-  const lower = filename.toLowerCase();
-  for (let i = 0; i < prefer.length; i++) {
-    if (lower.includes(prefer[i].toLowerCase())) return i;
-  }
-  return prefer.length;
-}
 
 /** Trim leading and trailing silence. Returns the useful frame range. */
 function trimSilence(wav, floorDb = -50) {
@@ -259,17 +223,47 @@ function trimSilence(wav, floorDb = -50) {
  * Loop points inside a sustaining sample, as fractions of the trimmed length.
  *
  * Picked at local minima of the envelope rather than at fixed fractions: a hard
- * loop seam clicks in proportion to the amplitude at the splice, and a koto or
- * piano body swells and ebbs enough that a fixed 30% often lands on a peak.
+ * loop seam clicks in proportion to the amplitude at the splice, and a plucked
+ * or struck body swells and ebbs enough that a fixed 30% often lands on a peak.
  */
-function findLoop(wav, from, to, cfg) {
-  const len = to - from;
-  const sr = wav.sampleRate;
-  const dur = len / sr;
-  if (dur < 0.5) return null;
+// Where to look for a loop, as fractions of the trimmed take, and how long the
+// resulting loop has to be.
+//
+// These used to be per-family settings, because every family that used this
+// heuristic had a take long enough and a sustain steady enough to need its own
+// window. FreePats families declare none of them, and undefined arithmetic does
+// not fail loudly -- `Math.floor(undefined * dur)` is NaN, and the guard below
+// is `!(NaN > NaN + 4)`, so findLoop returned null for every single take and no
+// FreePats instrument ever got a fallback loop at all. Ten of the thirteen
+// sustaining banks were left with most of their keys unable to hold a note.
+//
+// The defaults are deliberately in the middle of the take: the attack and the
+// opening decay are out at one end, and the last whisper of the release is out
+// at the other. A loop shorter than a fifth of a second reads as a buzz rather
+// than a held note.
+const DEFAULT_LOOP = { from: 0.15, to: 0.88, minSec: 0.25 };
 
-  // 10 ms windows over the trimmed range only, so indices count from the attack.
-  const win = Math.max(1, Math.round(sr * 0.01));
+/**
+ * How big a step between the two ends of a loop may be, in dB.
+ *
+ * Below about 3 dB the wrap is not audible as an event. Above roughly 8 dB it is
+ * a click that repeats with the note. Anything past this is refused, because
+ * the alternative -- looping anyway -- is worse than letting the note decay.
+ *
+ * This is applied to the banks' own SFZ loop points as well as to the ones found
+ * here. That sounds like distrusting the author's map, and it used to be taken
+ * on trust, but trust was measurably wrong: the brass 2 bank declares the same
+ * 0.89 s window on all five sampled keys, and splicing it raw steps 116 to
+ * 157 dB every time the note repeats. Those points were chosen for a player that
+ * crossfades the join; this one splices, so they are a suggestion and not a
+ * guarantee.
+ */
+const SEAM_DB = 4;
+
+/** 10 ms RMS windows over the trimmed take, and the geometry to map back to it. */
+function loopEnvelope(wav, from, to) {
+  const len = to - from;
+  const win = Math.max(1, Math.round(wav.sampleRate * 0.01));
   const nWin = Math.floor(len / win);
   const env = new Float32Array(nWin);
   for (let w = 0; w < nWin; w++) {
@@ -279,69 +273,99 @@ function findLoop(wav, from, to, cfg) {
     for (const ch of wav.data) for (let i = a; i < b; i++) s += ch[i] * ch[i];
     env[w] = Math.sqrt(s / Math.max(1, (b - a) * wav.data.length));
   }
+  return { env, nWin, win, len };
+}
 
-  // cfg.loopFrom / loopTo are fractions of the sample; convert to window indices.
+const dbOf = (v) => 20 * Math.log10(Math.max(v, 1e-9));
+
+/**
+ * The step, in dB, that wrapping at these points would make.
+ *
+ * Infinity for anything out of range, so a malformed point is refused by the
+ * same comparison as a bad one rather than needing its own check.
+ */
+function seamOf(E, start, end) {
+  const i = Math.round((start * E.len) / E.win);
+  const j = Math.round((end * E.len) / E.win);
+  if (!(i >= 0 && j < E.env.length && j > i)) return Infinity;
+  return Math.abs(dbOf(E.env[i]) - dbOf(E.env[j]));
+}
+
+function findLoop(wav, from, to, cfg, E) {
+  const len = to - from;
+  const dur = len / wav.sampleRate;
+  if (dur < 0.5) return null;
+
+  const { env, nWin, win } = E;
+
+  // Fractions of the sample, converted to window indices. A family may override
+  // any of them; DEFAULT_LOOP covers the ones it does not.
   const toWin = (frac) => Math.floor((frac * dur) / 0.01);
-  let lo = Math.max(1, toWin(cfg.loopFrom));
-  let hi = Math.min(nWin - 2, toWin(cfg.loopTo));
+  const loopFrom = cfg.loopFrom == null ? DEFAULT_LOOP.from : cfg.loopFrom;
+  const loopTo = cfg.loopTo == null ? DEFAULT_LOOP.to : cfg.loopTo;
+  const minLoopSec = cfg.minLoopSec == null ? DEFAULT_LOOP.minSec : cfg.minLoopSec;
+  let lo = Math.max(1, toWin(loopFrom));
+  let hi = Math.min(nWin - 2, toWin(loopTo));
   if (!(hi > lo + 4)) return null;
 
-  // The quietest point is not the right point. Picking the global minimum over
-  // the tail lands the loop on the last whisper of the decay -- measured at
-  // 33 dB under the attack on the piano takes -- so a held note becomes a
-  // series of faint clicks. Choose among points that are within FLOOR_DB of the
-  // sustain level instead, and take the quietest of *those*, so the seam is both
-  // inaudible and audible.
+  // A loop is a seam in the waveform, so the only thing that matters about where
+  // it goes is how the two ends meet. Score the pair, not the points.
   //
-  // KNOWN LIMITATION, measured rather than assumed: because the two points are
-  // chosen independently, nothing constrains the step between them, and tools/
-  // check-loop-seam.mjs finds real ones -- 13.2 dB on a harpsichord C4 and
-  // 72.8 dB on a low koto, the latter a click out of silence. Fixing it means
-  // choosing the pair together against the whole segment rather than matching
-  // two distant windows, which does repair the low koto but made a harpsichord
-  // C4 and a Versilian grand F5 measurably worse, so it is not a general
-  // improvement and has not been adopted. The grand that ships is tuned per
-  // family instead -- see the loopFrom/loopTo on sgpiano.
-  const sustain = [...env].slice(lo).sort((a, b) => a - b);
-  const level = sustain[Math.floor(sustain.length / 2)] || 0;
-  const floor = level * Math.pow(10, -FLOOR_DB / 20);
-
-  const minIn = (a, b) => {
-    let best = Infinity, at = -1;
-    for (let i = a; i <= b; i++) {
-      if (env[i] < floor) continue;
-      if (env[i] < best) { best = env[i]; at = i; }
-    }
-    // Nothing inside the floor (a very short or very smooth tail): fall back to
-    // the plain quietest window rather than refusing to loop at all.
-    if (at < 0) {
-      for (let i = a; i <= b; i++) if (env[i] < best) { best = env[i]; at = i; }
-    }
-    return at < 0 ? a : at;
-  };
-
-  const minLoopWin = Math.ceil(cfg.minLoopSec / 0.01);
+  // The fallback only gets a say where the bank declared nothing, or where what
+  // it declared will not splice cleanly here. tools/check-loop-seam.mjs measures
+  // whichever loops actually shipped.
+  const minLoopWin = Math.ceil(minLoopSec / 0.01);
   if (!(hi > lo + minLoopWin)) return null;
 
-  const endIdx = minIn(Math.max(hi, lo + minLoopWin), nWin - 1);
-  const startIdx = minIn(lo, Math.max(lo, endIdx - minLoopWin));
+  /**
+   * Choose the loop as a PAIR, by sliding a fixed-length segment across the
+   * candidate range and keeping the placement whose two ends are closest in
+   * level.
+   *
+   * The previous version picked the quietest window for the start and the
+   * quietest for the end independently, half a take apart. Nothing related them,
+   * so on any tone that changes level across its length the wrap joined two
+   * different volumes -- 35 of 140 held notes gated at the loop point when this
+   * ran over the whole pack.
+   *
+   * Scoring a segment by the step its own ends make is scoring exactly what is
+   * measured afterwards, so the chooser and the check cannot disagree. Among
+   * acceptable placements the quietest midpoint wins, which puts the loop low in
+   * the decay without ever preferring a quiet end over a matched one.
+   */
+  let bestStart = -1;
+  let bestScore = Infinity;
+  for (let s = lo; s + minLoopWin <= nWin - 1; s++) {
+    const e = s + minLoopWin;
+    const step = Math.abs(dbOf(env[s]) - dbOf(env[e]));
+    // A step the ear can hear as a click. Beyond this the loop is a discontinuity,
+    // and a note that decays into silence is a far smaller fault than one that
+    // clicks every time it repeats.
+    if (step > SEAM_DB) continue;
+    // Among acceptable placements, prefer the quietest midpoint, then the one
+    // that sits furthest into the take's steady part.
+    const mid = dbOf((env[s] + env[e]) / 2);
+    const score = mid + s * 1e-6;
+    if (score < bestScore) { bestScore = score; bestStart = s; }
+  }
+  if (bestStart < 0) return null;
+
+  const startIdx = bestStart;
+  const endIdx = bestStart + minLoopWin;
   const spanSec = (endIdx - startIdx) * 0.01;
-  if (spanSec < cfg.minLoopSec) return null;
+  if (spanSec < minLoopSec) return null;
   if (spanSec > dur * 0.7) return null; // looping nearly all of it is not a loop
 
-  // A loop in the noise is not a sustain, it is a loop of hiss. Deep in a
-  // take's tail the envelope stops being the note and starts being the room,
-  // and its RMS swings by tens of dB between adjacent 10 ms windows -- which is
-  // exactly what produces the large "seam" steps this check reports. Measured on
-  // the Salamander C5: the loop the finder liked sat 45 dB under the peak and
-  // pulsed 13.8 dB. Declining to loop there leaves the note decaying into
-  // silence, which is what a piano with the damper down actually does.
+  // A loop in the noise is not a sustain, it is a loop of hiss. Deep in a take's
+  // tail the envelope stops being the note and starts being the room, and its RMS
+  // swings by tens of dB between adjacent 10 ms windows. When a family sets
+  // loopFloorDb, a candidate this far under the take's own loudest window is
+  // refused outright. Declining to loop leaves the note decaying into silence,
+  // which is what a piano with the damper down actually does.
   const floorDb = cfg.loopFloorDb === undefined ? LOOP_FLOOR_DB : cfg.loopFloorDb;
   if (floorDb != null) {
     const loudest = Math.max(...env);
-    if (20 * Math.log10(Math.max(env[startIdx], 1e-9) / Math.max(loudest, 1e-9)) < -floorDb) {
-      return null;
-    }
+    if (dbOf(env[startIdx]) - dbOf(loudest) < -floorDb) return null;
   }
 
   return {
@@ -384,38 +408,112 @@ function withMarker(channels, marker) {
 /* ------------------------------------------------------------------- build */
 
 /**
- * Group a family's source files by MIDI pitch, best take first.
+ * Read one FreePats bank through its own SFZ map.
  *
- * A family names its libraries in `from` and each library decides for itself
- * which files belong to it, so adding a source is a table entry rather than a
- * new branch here.
+ * The WAV filenames carry no pitch at all, so this cannot work by looking at
+ * them -- `1_01.wav` is not a note. The SFZ beside them is the map, and it also
+ * carries things worth having for free:
  *
- * Salamander is a whole instrument in its own right rather than a top-up: its
- * 26 files span MIDI 24..107 -- C1 to B7 -- which is all but three keys of an
- * 88-key piano, and its widest gap is six semitones. Filling the remainder
- * from the Versilian piano would only blur the provenance of the one family
- * whose licence actually needs stating.
+ *   pitch_keycenter  the pitch the sample was actually recorded at, which is
+ *                    what the playback rate is computed from
+ *   tune             a detune in cents, folded into that rate
+ *   loop_start/end   loop points the bank's author chose, in frames
+ *
+ * Loop points are the biggest win, and most FreePats banks ship their own: those
+ * are used exactly as the author published them and the heuristic is never
+ * consulted. Where a bank declares none, findLoop() works them out from the
+ * envelope, and can leave a seam that steps in level -- tools/check-loop-seam.mjs
+ * measures whichever loops actually shipped.
+ *
+ * Returns the same shape collect() produces: MIDI -> ordered takes.
+ */
+function collectFreepats(cfg) {
+  const bankDir = path.join(FP, cfg.bank, 'extracted');
+  if (!fs.existsSync(bankDir)) return new Map();
+
+  const sfzFiles = [];
+  (function walk(d) {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (/\.sfz$/i.test(e.name)) sfzFiles.push(p);
+    }
+  })(bankDir);
+  if (!sfzFiles.length) return new Map();
+
+  let regions = [];
+  for (const s of sfzFiles) regions = regions.concat(parseSfz(fs.readFileSync(s, 'utf8'), path.dirname(s)));
+  regions = regions.filter((r) => r.sample && fs.existsSync(path.join(r.dir, r.sample)));
+  if (!regions.length) return new Map();
+
+  // The key range the bank actually covers, not 0..127. A Kalimba is 48..84
+  // and that is correct; extending it to the whole keyboard would mean playing
+  // a 37-key instrument four octaves out of tune at the edges. Keys outside
+  // the range are handled by the sampler, which shifts the nearest real one.
+  let lo = Infinity, hi = -Infinity;
+  for (const r of regions) {
+    const a = Number(r.lokey), b = Number(r.hikey);
+    if (Number.isFinite(a)) lo = Math.min(lo, a);
+    if (Number.isFinite(b)) hi = Math.max(hi, b);
+  }
+  if (!Number.isFinite(lo)) { lo = 0; hi = 127; }
+  lo = Math.max(0, lo); hi = Math.min(127, hi);
+
+  // Whether this instrument sustains is the bank's own answer, not ours: if any
+  // region declares a loop, it is a sustaining instrument and every key of it
+  // should hold. If none does, it decays, and the heuristic must not go
+  // inventing a sustain for it -- that is how an upright piano ends up droning
+  // when the recording says it does not loop. So `loop: false` is set here,
+  // where the SFZ has just been read, rather than guessed per family.
+  if (!regions.some(loopsRegion)) cfg.loop = false;
+
+  const out = new Map();
+  for (let midi = lo; midi <= hi; midi++) {
+    const takes = regionsForKey(regions, midi)
+      .filter((r) => Number.isFinite(Number(r.lokey)) && Number.isFinite(Number(r.hikey)))
+      .slice(0, cfg.maxHits || FP_HITS)
+      .map((r, i) => ({
+        file: r.sample,
+        dir: r.dir,
+        rank: i,
+        centre: keyCentreOf(r),
+        tune: Number(r.tune) || 0,
+        // Frame numbers in the SOURCE file; the builder rebases them onto the
+        // trimmed take once it knows where that starts.
+        loop: loopsRegion(r) && r.loop_start != null && r.loop_end != null
+          ? [Number(r.loop_start), Number(r.loop_end)]
+          : null,
+      }));
+    if (takes.length) out.set(midi, takes);
+  }
+  return out;
+}
+
+/**
+ * A family's source files, grouped by MIDI pitch, best take first.
+ *
+ * Every source now reads the library's own key map rather than guessing a pitch
+ * out of a filename -- FreePats names its takes `1_01.wav` and ships the real map
+ * alongside them in an SFZ. There used to be a second path that scanned filenames
+ * for a pitch token; it went when the last library using it did, and leaving it
+ * would have meant two ways to answer "what note is this file", which is the kind
+ * of duplication that drifts.
  */
 function collect(cfg) {
   const byPitch = new Map();
   for (const id of cfg.from) {
     const src = SOURCES[id];
     if (!src) throw new Error(`family ${cfg.pack}: no such source "${id}"`);
-    const dir = src.dir();
-    if (!fs.existsSync(dir)) continue;
-    for (const f of fs.readdirSync(dir)) {
-      if (!f.toLowerCase().endsWith('.wav')) continue;
-      if (!src.match(f, cfg)) continue;
-      const midi = pitchIn(path.basename(f, '.wav'));
-      if (midi == null) continue;
-      if (!byPitch.has(midi)) byPitch.set(midi, []);
-      byPitch.get(midi).push({ file: f, dir, rank: src.rank(f, cfg) });
+    if (!src.load) throw new Error(`family ${cfg.pack}: source "${id}" has no load()`);
+
+    for (const [midi, takes] of src.load(cfg)) {
+      if (!byPitch.has(midi)) byPitch.set(midi, takes);
     }
   }
   // Keep the best N takes per pitch, deterministically.
   for (const [midi, list] of byPitch) {
     list.sort((a, b) => a.rank - b.rank || a.file.localeCompare(b.file));
-    byPitch.set(midi, list.slice(0, cfg.maxHits));
+    byPitch.set(midi, list.slice(0, cfg.maxHits || list.length));
   }
   return byPitch;
 }
@@ -431,12 +529,11 @@ function nearest(byPitch, target) {
 }
 
 function main() {
-  if (!fs.existsSync(SRC) && !fs.existsSync(SAL)) {
+  if (!fs.existsSync(FP)) {
     console.error(
       `no sample source found.\n` +
-      `  Versilian cache: ${SRC}\n` +
-      `  Salamander:      ${SAL}\n` +
-      `Point --src and --salamander at them.`
+      `  FreePats banks: ${FP}\n` +
+      `Fetch them with tools/fetch-freepats.mjs, or point --freepats at them.`
     );
     process.exit(1);
   }
@@ -456,6 +553,8 @@ function main() {
 
   let totalBytes = 0;
   const rows = [];
+  let done = 0;
+  const t0 = Date.now();
 
   for (const cfg of FAMILIES) {
     const byPitch = collect(cfg);
@@ -465,24 +564,60 @@ function main() {
       continue;
     }
 
+    // Per-family progress. With fifty-odd banks this runs for minutes, and a
+    // build that prints nothing until the end is indistinguishable from a build
+    // that has hung.
+    const label = `${String(++done).padStart(2)}/${FAMILIES.length} ${cfg.pack.padEnd(22)}`;
+    const tick = process.stdout.isTTY ? '\r' : '\n';
+
     if (!DRY) fs.mkdirSync(path.join(OUT, cfg.pack), { recursive: true });
 
     /** Encoded files, keyed by source pitch, one entry per round-robin hit. */
     const samples = new Map();
+    /** Per-key playback rate, for keys whose sample was recorded at another pitch. */
+    const rates = new Map();
     let familyBytes = 0;
+    let stereo = cfg.stereo;
     for (const [midi, files] of [...byPitch].sort((a, b) => a[0] - b[0])) {
       const hits = [];
       files.forEach((entry, i) => {
         const wav = readWav(fs.readFileSync(path.join(entry.dir, entry.file)));
+        // Stereo is measured, not declared. A FreePats bank is whatever its
+        // author recorded, and half of them differ from the other half.
+        if (stereo == null) stereo = wav.channels > 1;
         const { from, to, peak } = trimSilence(wav);
         if (to - from < wav.sampleRate * 0.05) return;
 
         const maxFrames = Math.floor(cfg.maxSec * wav.sampleRate);
         const end = Math.min(to, from + maxFrames);
-        const loop = cfg.loop ? findLoop(wav, from, end, cfg) : null;
-        const prepared = prepare(wav, from, end, cfg);
+
+        // The bank's own loop points, rebased onto the trimmed take, when it
+        // declared any -- and checked before they are trusted.
+        //
+        // Its author did know roughly where the loop was; the envelope heuristic
+        // does not. But "roughly" was doing a lot of work in that sentence. Those
+        // points were chosen for a player that crossfades the join, and this one
+        // splices, so some of them cut straight through the waveform: the brass 2
+        // bank declares the same 0.89 s window on every key it samples, and it
+        // steps 116 to 157 dB here. So the declared points are preferred, and
+        // measured the same way a chosen one is. One that will not splice falls
+        // back to the chooser rather than being used anyway.
+        let loop = null;
+        let E = null;
+        if (cfg.loop !== false) E = loopEnvelope(wav, from, end);
+        if (entry.loop && E) {
+          const len = end - from;
+          const a = (entry.loop[0] - from) / len;
+          const b = (entry.loop[1] - from) / len;
+          if (a >= 0 && b > a && b <= 1 && seamOf(E, a, b) <= SEAM_DB) {
+            loop = { start: a, end: b };
+          }
+        }
+        if (!loop && E) loop = findLoop(wav, from, end, cfg, E);
+
+        const prepared = prepare(wav, from, end, { ...cfg, stereo });
         const mp3 = encodeMp3(withMarker(prepared.channels, MARKER), wav.sampleRate,
-          cfg.stereo ? BITRATE.stereo : BITRATE.mono);
+          stereo ? BITRATE.stereo : BITRATE.mono);
 
         const name = `${String(midi).padStart(3, '0')}-${i}.mp3`;
         if (!DRY) fs.writeFileSync(path.join(OUT, cfg.pack, name), mp3);
@@ -501,25 +636,41 @@ function main() {
           // Fractions of this take, so they hold at any playbackRate.
           loop: loop ? [+loop.start.toFixed(4), +loop.end.toFixed(4)] : null,
         });
+
+        // Rate from the pitch the sample was actually recorded at, plus the
+        // bank's detune. A FreePats group often spans a range with every take
+        // recorded at one pitch, so without this every key but the centre plays
+        // the wrong note.
+        const centre = entry.centre == null ? midi : entry.centre;
+        const cents = (entry.tune || 0) / 100;
+        rates.set(midi, Math.pow(2, (midi - centre + cents) / 12));
       });
+      if (hits.length && !rates.has(midi)) rates.set(midi, 1);
       if (hits.length) samples.set(midi, hits);
     }
     totalBytes += familyBytes;
 
     // Fill the gaps by resampling the nearest real take rather than dropping keys.
+    // FreePats banks are NOT extended: a Kalimba covers 48..84 and stretching
+    // that to 128 keys would play a 37-key instrument four octaves out. Keys
+    // outside the range are the sampler's problem -- it shifts the nearest real
+    // key to the pitch that was asked for.
     const real = [...samples.keys()].sort((a, b) => a - b);
-    const lo = Math.max(0, real[0] - 3);
-    const hi = Math.min(127, real[real.length - 1] + 3);
+    const pad = cfg.bank ? 0 : 3;
+    const lo = Math.max(0, real[0] - pad);
+    const hi = Math.min(127, real[real.length - 1] + pad);
     const notes = {};
     let shifted = 0;
     let maxShift = 0;
     for (let midi = lo; midi <= hi; midi++) {
-      let rate = 1;
+      let rate = rates.get(midi) || 1;
       let hits = samples.get(midi);
       if (!hits) {
         const n = nearest(samples, midi);
         hits = samples.get(n.midi);
-        rate = Math.pow(2, n.semitones / 12);
+        // The neighbour's own rate already carries its detune, so this is the
+        // interval on top rather than the whole shift.
+        rate = (rates.get(n.midi) || 1) * Math.pow(2, n.semitones / 12);
         shifted++;
         maxShift = Math.max(maxShift, Math.abs(n.semitones));
       }
@@ -527,16 +678,36 @@ function main() {
       notes[midi] = { rate: +rate.toFixed(6), hits };
     }
 
+    // Whether this family loops at all is decided by what the bank actually
+    // provided, not by a flag: a note with no loop points must not be marked as
+    // sustaining, or the sampler will hold a sample that has already stopped.
+    const anyLoop = Object.values(notes).some((n) => n.hits.some((h) => h.loop));
+
     manifest.instruments[cfg.pack] = {
       name: cfg.name,
       lo, hi,
-      stereo: cfg.stereo,
-      sustains: !!cfg.loop,
+      stereo: !!stereo,
+      sustains: anyLoop,
       notes,
     };
     manifest.credits[cfg.pack] = cfg.from.map((id) => {
       const c = SOURCES[id].credit;
-      return { source: id, ...c, changes: c.changes === undefined ? changesFor(cfg) : c.changes };
+      // Only declare modifications where a licence actually asks for them.
+      //
+      // `changes` describes one family's edit -- its channel count, its
+      // truncation, whether it loops -- but it is recorded once per SOURCE, and
+      // the FreePats source covers fifty families that differ in all three. The
+      // first one built would otherwise supply its description to the other
+      // forty-nine. None of them need it, because CC0 asks for no statement at
+      // all, so the honest thing is to record none rather than record one that
+      // is probably wrong.
+      const owed = obligationOf(c.licence) !== 'none';
+      return {
+        source: id, ...c,
+        changes: !owed ? null
+          : c.changes !== undefined ? c.changes
+            : changesFor(cfg, { stereo: !!stereo, anyLoop }),
+      };
     });
 
     rows.push({
@@ -547,6 +718,13 @@ function main() {
       lo, hi,
       bytes: familyBytes,
     });
+
+    const kb = (familyBytes / 1024).toFixed(0).padStart(6);
+    process.stdout.write(
+      `${label} ${String(real.length).padStart(3)} real  ${String(Object.keys(notes).length).padStart(3)} keys  ` +
+      `${String(lo).padStart(3)}..${String(hi).padEnd(3)} ${stereo ? 'stereo' : 'mono  '} ` +
+      `${anyLoop ? 'loop' : '----'}  ${kb} KB  ${((Date.now() - t0) / 1000).toFixed(0)}s${tick}`
+    );
   }
 
   if (!DRY) {

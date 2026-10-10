@@ -33,6 +33,17 @@ const MIME = {
 };
 
 /**
+ * The one recorded instrument the integration half exercises end to end.
+ *
+ * Declared out here as well as inside the page, because the parent prints it in
+ * its report. It was only in the page at first, and the check got all the way to
+ * its last line before throwing a ReferenceError on a name it had been printing
+ * about -- which is the sort of thing that only shows up when everything else
+ * passes.
+ */
+const PROBE = 'rec-fp-upright';
+
+/**
  * The page. Runs the check in the browser and publishes window.__RESULT__.
  *
  * Each instrument is rendered on its own so a silent one cannot hide behind a
@@ -42,7 +53,7 @@ const MIME = {
 const PAGE = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>sampler real</title></head>
 <body><pre id="out">running</pre>
 <script type="module">
-import { loadPack, createSampledInstrument, packState } from '/src/js/audio/sampler.js';
+import { loadPack, preparePack, createSampledInstrument, packState } from '/src/js/audio/sampler.js';
 import { INSTRUMENTS, createInstrument } from '/src/js/audio/instruments.js';
 import { parseMusicXml } from '/src/js/io/musicxml.js';
 import { resolveScore } from '/src/js/score/model.js';
@@ -84,6 +95,9 @@ const SCORE = \`<?xml version="1.0" encoding="UTF-8"?>
     const WHEN = 0.25;
     const SECS = 2.0;
     const off = new OfflineAudioContext(1, Math.ceil(44100 * SECS), 44100);
+    // Only the three keys about to be played, so this walks the whole 59-pack
+    // roster without decoding 4.3 GB of PCM into the same tab.
+    await preparePack(id, [mid - 4, mid, mid + 3]);
     const inst = createSampledInstrument(id, off, off.destination);
     for (const m of [mid - 4, mid, mid + 3]) {
       inst.noteOn({ midi: m, velocity: 0.85, when: WHEN, duration: 0.8 });
@@ -112,6 +126,7 @@ const SCORE = \`<?xml version="1.0" encoding="UTF-8"?>
     const SECS2 = Math.ceil(hitDur + 1.4);
     const offAt = hitDur + 0.7;
     const off2 = new OfflineAudioContext(1, Math.ceil(44100 * SECS2), 44100);
+    await preparePack(id, [mid]);
     const inst2 = createSampledInstrument(id, off2, off2.destination);
     const h = inst2.noteOn({ midi: mid, velocity: 0.85, when: 0.02, duration: offAt - 0.02 });
     inst2.noteOff(h, offAt);
@@ -155,9 +170,17 @@ const SCORE = \`<?xml version="1.0" encoding="UTF-8"?>
   const recorded = INSTRUMENTS.filter((i) => i.sampled);
 
   // The expected pack id is read from the roster rather than written here. This assertion exists to catch the roster quietly handing back a synth voice -- and restating which pack it points at would make it a second place to update when the piano changes.
+  //
+  // Decoding is a separate step now, and the budget may have evicted this pack
+  // while the loop above walked the rest of the roster. Prepare it first, or the
+  // assertion below would be measuring the fallback path and reporting it as a
+  // successful routing.
+  const PROBE = 'rec-fp-upright';
+  const probePack = INSTRUMENTS.find((i) => i.id === PROBE)?.pack;
+  if (probePack) await preparePack(probePack, [60]);
   const probeCtx = new OfflineAudioContext(1, 128, 44100);
-  const routed = createInstrument('rec-grand', probeCtx, probeCtx.destination);
-  const routedIsSampled = routed && routed.sampled === true && routed.id === INSTRUMENTS.find((i) => i.id === 'rec-grand')?.pack;
+  const routed = createInstrument(PROBE, probeCtx, probeCtx.destination);
+  const routedIsSampled = routed && routed.sampled === true && routed.id === probePack;
 
   const score = parseMusicXml(SCORE, { fileName: 'check' });
   const resolved = resolveScore(score, { transpose: 0, tempoScale: 1 });
@@ -181,11 +204,29 @@ const SCORE = \`<?xml version="1.0" encoding="UTF-8"?>
   };
 
   const synth = await renderOne('grand');
-  const rec = await renderOne('rec-grand');
+  const rec = await renderOne(PROBE);
 
   const integration = {
     recordedInRoster: recorded.length,
-    rosterHasRecordedGroup: INSTRUMENTS.some((i) => i.group === 'Recorded'),
+    packsInManifest: packs.size,
+    // Every pack that shipped has a roster entry that plays it. "At least eight"
+    // used to be a floor because the count was small; with 59 families a floor
+    // would keep passing while half the pack became unreachable from the picker.
+    everyPackHasARosterEntry: [...packs.keys()].every((p) => recorded.some((i) => i.pack === p)),
+    // Every recorded entry sits in one of the picker groups, so none is stranded
+    // outside the optgroups the select is built from. This used to be a check
+    // for a group literally called "Recorded"; the groups are now "Recorded - "
+    // plus a family, which is the thing actually worth asserting.
+    //
+    // A startsWith and not a regex, on purpose. This line lives inside a template
+    // literal, and in a template literal a backslash before an ordinary letter
+    // is not an escape -- the backslash is simply dropped. A regex written here
+    // arrives in the page with its escapes gone and quietly matches nothing,
+    // which reads as "some instrument is in the wrong group" rather than as the
+    // typo it is. (Writing that sentence with a backtick in it is its own
+    // hazard: the backtick closes the template.)
+    everyRecordedIsGrouped: recorded.every((i) => i.group.startsWith('Recorded ')),
+    groups: [...new Set(recorded.map((i) => i.group))].sort(),
     everyRecordedHasFallback: recorded.every((i) => rosterIds.includes(i.id.replace(/^rec-/, '')) || true),
     routedIsSampled,
     synth, rec,
@@ -288,14 +329,23 @@ console.log(`all ${res.rows.length} instruments produce sound, on time, and hold
 const ix = res.integration;
 console.log('\nthrough the app\'s own render pipeline (renderToBuffer):');
 console.log(`  recorded instruments in the roster : ${ix.recordedInRoster}`);
-console.log(`  "Recorded" group present           : ${ix.rosterHasRecordedGroup}`);
+console.log(`  packs in the manifest              : ${ix.packsInManifest}`);
+console.log(`  every pack reachable from the picker: ${ix.everyPackHasARosterEntry}`);
+console.log(`  picker groups           : ${ix.groups.join(' | ')}`);
 console.log(`  createInstrument routes to a sampler: ${ix.routedIsSampled}`);
 console.log(`  synthesised grand  : peak ${ix.synth.peak}  rms ${ix.synth.rms}  ${ix.synth.seconds}s`);
-console.log(`  recorded rec-grand : peak ${ix.rec.peak}  rms ${ix.rec.rms}  ${ix.rec.seconds}s`);
+console.log(`  recorded ${PROBE.padEnd(13)}: peak ${ix.rec.peak}  rms ${ix.rec.rms}  ${ix.rec.seconds}s`);
 
 let ixBad = 0;
-if (!(ix.recordedInRoster >= 8)) { console.error('  <- fewer recorded instruments than expected'); ixBad++; }
-if (!ix.rosterHasRecordedGroup) { console.error('  <- no Recorded group for the UI to render'); ixBad++; }
+if (ix.recordedInRoster !== ix.packsInManifest) {
+  console.error(`  <- ${ix.packsInManifest} packs but ${ix.recordedInRoster} recorded entries`); ixBad++;
+}
+if (!ix.everyPackHasARosterEntry) {
+  console.error('  <- a pack in the manifest has no roster entry that plays it'); ixBad++;
+}
+if (!ix.everyRecordedIsGrouped) {
+  console.error('  <- a recorded instrument is not in a picker group'); ixBad++;
+}
 if (!ix.routedIsSampled) { console.error('  <- createInstrument did not return a sampled voice'); ixBad++; }
 if (!(ix.rec.peak > 0.02)) { console.error(`  <- the export render is silent (peak ${ix.rec.peak})`); ixBad++; }
 if (!(ix.rec.rms > 0.001)) { console.error(`  <- the export render has no energy (rms ${ix.rec.rms})`); ixBad++; }

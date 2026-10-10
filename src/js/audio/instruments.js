@@ -29,7 +29,7 @@
  */
 
 import { midiToName } from '../score/model.js';
-import { createSampledInstrument, hasPack } from './sampler.js';
+import { createSampledInstrument, hasPack, isPackDecoded, __registerPackOf } from './sampler.js';
 
 /* ==================================================================== misc */
 
@@ -1117,48 +1117,188 @@ const ROSTER = [
   // modelled instruments rather than replacing them: the synthesiser is always
   // available offline, and these need the pack fetched once.
   //
-  // Most families are the Versilian Community Edition (CC0). The two grands are
-  // not, and neither is only half CC0 -- see the comment on the first one. What
-  // each pack owes is recorded once, in the SOURCES table in tools/make-pack.mjs,
-  // and flows from there into pack/manifest.json, NOTICE.md and the app's
-  // credits line. Do not restate it here.
+  // Most families are CC0. The FSS steel-string guitar is not: it is GPL-3+ with
+  // the sample exception, so it is the one pack here carrying an obligation
+  // rather than a courtesy. What each pack owes is recorded once, in the SOURCES
+  // table in tools/make-pack.mjs, and flows from there into pack/manifest.json,
+  // NOTICE.md and the app's credits line. Do not restate it here.
   //
   // `fallback` is the modelled instrument to use if the pack is not loaded --
   // picking one of these from a file:// page still makes music instead of
   // silence. `pack` is the id in pack/manifest.json.
 
-  { id: 'rec-grand', name: 'Concert Grand (recorded)', group: 'Recorded', engine: 'sampled',
-    pack: 'sgpiano', fallback: 'grand', cap: 48,
-    // Salamander Grand Piano V3 by Alexander Holm, CC BY 3.0 -- attribution
-    // required, so unlike every other instrument in this list this one has a
-    // credit owed. It is the one piano here recorded from a real 9-foot grand
-    // with a real room, sampled across almost the whole keyboard (26 takes,
-    // C1 to B7) rather than a handful of pitches stretched to cover it.
-    description: 'A sampled grand, recorded note by note across the whole keyboard — real hammer, real strings, real room.' },
-  { id: 'rec-grand-vs', name: 'Grand (Versilian, recorded)', group: 'Recorded', engine: 'sampled',
-    pack: 'gpiano', fallback: 'grand', cap: 48,
-    description: 'The CC0 Versilian grand, kept alongside the Salamander one: fewer real pitches, so more of the range is resampled.' },
-  { id: 'rec-harpsichord', name: 'Harpsichord (recorded)', group: 'Recorded', engine: 'sampled',
-    pack: 'harpsichord', fallback: 'harpsichord', cap: 48,
-    description: 'A sampled harpsichord: the quill rasp and the dry, fast release are in the recording.' },
-  { id: 'rec-koto', name: 'Koto (recorded)', group: 'Recorded', engine: 'sampled',
-    pack: 'koto', fallback: 'harp', cap: 48,
-    description: 'A sampled Japanese koto, plucked hard enough to hear the string speak.' },
-  { id: 'rec-viola', name: 'Viola da gamba (recorded)', group: 'Recorded', engine: 'sampled',
-    pack: 'viola', fallback: 'strings', cap: 48,
-    description: 'A sampled bowed gamba. Holds a note as long as you keep the key down.' },
-  { id: 'rec-marimba', name: 'Marimba (recorded)', group: 'Recorded', engine: 'sampled',
-    pack: 'marimba', fallback: 'marimba', cap: 48,
-    description: 'A sampled marimba: rosewood bars and a yarn-wrapped mallet, close-miked.' },
-  { id: 'rec-vibraphone', name: 'Vibraphone (recorded)', group: 'Recorded', engine: 'sampled',
-    pack: 'vibraphone', fallback: 'vibraphone', cap: 48,
-    description: 'A sampled vibraphone, motor off. The long shimmering tail is the recording.' },
-  { id: 'rec-xylophone', name: 'Xylophone (recorded)', group: 'Recorded', engine: 'sampled',
-    pack: 'xylophone', fallback: 'celesta', cap: 48,
-    description: 'A sampled xylophone with a hard mallet and a short, bright ring.' },
-  { id: 'rec-glockenspiel', name: 'Glockenspiel (recorded)', group: 'Recorded', engine: 'sampled',
-    pack: 'glockenspiel', fallback: 'glockenspiel', cap: 48,
-    description: 'A sampled glockenspiel: steel bars struck hard, high and glassy.' },
+  /* ---------------------------------------------------------------------- */
+  /* FreePats banks, added as recorded instruments.                        */
+  /*                                                                       */
+  /* These are split across their own picker groups because fifty of them   */
+  /* in one list is a wall of names. The banks themselves are described in  */
+  /* tools/freepats-banks.mjs, which is also where the licence terms come  */
+  /* from -- do not repeat a credit here.                                   */
+  /* ---------------------------------------------------------------------- */
+  /* --- FreePats: Piano --- */
+  { id: 'rec-fp-upright', name: 'Upright Piano (recorded)', group: 'Recorded · Piano', engine: 'sampled',
+    pack: 'fp-upright', fallback: 'felt-piano', cap: 48,
+    description: 'A sampled Upright Piano from the FreePats collection.' },
+  { id: 'rec-fp-honky-tonk', name: 'Honky-Tonk Piano (recorded)', group: 'Recorded · Piano', engine: 'sampled',
+    pack: 'fp-honky-tonk', fallback: 'felt-piano', cap: 48,
+    description: 'A sampled Honky-Tonk Piano from the FreePats collection.' },
+  { id: 'rec-fp-fm-piano-1', name: 'FM Piano I (recorded)', group: 'Recorded · Piano', engine: 'sampled',
+    pack: 'fp-fm-piano-1', fallback: 'rhodes', cap: 48,
+    description: 'A sampled FM Piano I from the FreePats collection.' },
+  { id: 'rec-fp-fm-piano-2', name: 'FM Piano II (recorded)', group: 'Recorded · Piano', engine: 'sampled',
+    pack: 'fp-fm-piano-2', fallback: 'rhodes', cap: 48,
+    description: 'A sampled FM Piano II from the FreePats collection.' },
+
+  /* --- FreePats: Organ --- */
+  { id: 'rec-fp-church-organ', name: 'Church Organ (recorded)', group: 'Recorded · Organ', engine: 'sampled',
+    pack: 'fp-church-organ', fallback: 'pipe-organ', cap: 48,
+    description: 'A sampled Church Organ from the FreePats collection.' },
+  { id: 'rec-fp-drawbar-organ', name: 'Drawbar Organ (recorded)', group: 'Recorded · Organ', engine: 'sampled',
+    pack: 'fp-drawbar-organ', fallback: 'rhodes', cap: 48,
+    description: 'A sampled Drawbar Organ from the FreePats collection.' },
+  { id: 'rec-fp-percussive-organ', name: 'Percussive Organ (recorded)', group: 'Recorded · Organ', engine: 'sampled',
+    pack: 'fp-percussive-organ', fallback: 'warm-pad', cap: 48,
+    description: 'A sampled Percussive Organ from the FreePats collection.' },
+  { id: 'rec-fp-rock-organ', name: 'Rock Organ (recorded)', group: 'Recorded · Organ', engine: 'sampled',
+    pack: 'fp-rock-organ', fallback: 'warm-pad', cap: 48,
+    description: 'A sampled Rock Organ from the FreePats collection.' },
+  { id: 'rec-fp-accordion', name: 'Button Accordion (recorded)', group: 'Recorded · Organ', engine: 'sampled',
+    pack: 'fp-accordion', fallback: 'harpsichord', cap: 48,
+    description: 'A sampled Button Accordion from the FreePats collection.' },
+
+  /* --- FreePats: Plucked & Struck --- */
+  { id: 'rec-fp-nylon-guitar', name: 'Nylon-String Guitar (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-nylon-guitar', fallback: 'nylon-guitar', cap: 48,
+    description: 'A sampled Nylon-String Guitar from the FreePats collection.' },
+  { id: 'rec-fp-steel-guitar', name: 'Steel-String Guitar (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-steel-guitar', fallback: 'nylon-guitar', cap: 48,
+    description: 'A sampled Steel-String Guitar from the FreePats collection.' },
+  { id: 'rec-fp-harp', name: 'Concert Harp (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-harp', fallback: 'harp', cap: 48,
+    description: 'A sampled Concert Harp from the FreePats collection.' },
+  { id: 'rec-fp-kalimba', name: 'Kalimba (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-kalimba', fallback: 'music-box', cap: 48,
+    description: 'A sampled Kalimba from the FreePats collection.' },
+  { id: 'rec-fp-jaw-harp', name: 'Jaw Harp (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-jaw-harp', fallback: 'music-box', cap: 48,
+    description: 'A sampled Jaw Harp from the FreePats collection.' },
+  { id: 'rec-fp-hang', name: 'Hang (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-hang', fallback: 'music-box', cap: 48,
+    description: 'A sampled Hang from the FreePats collection.' },
+  { id: 'rec-fp-glasses', name: 'Glasses (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-glasses', fallback: 'music-box', cap: 48,
+    description: 'A sampled Glasses from the FreePats collection.' },
+  { id: 'rec-fp-ukulele', name: 'Ukulele (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-ukulele', fallback: 'nylon-guitar', cap: 48,
+    description: 'A sampled Ukulele from the FreePats collection.' },
+  { id: 'rec-fp-xylophone', name: 'Xylophone (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-xylophone', fallback: 'marimba', cap: 48,
+    description: 'A sampled Xylophone from the FreePats collection.' },
+  { id: 'rec-fp-tubular-bells', name: 'Tubular Bells (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-tubular-bells', fallback: 'glockenspiel', cap: 48,
+    description: 'A sampled Tubular Bells from the FreePats collection.' },
+  { id: 'rec-fp-timpani', name: 'Timpani (recorded)', group: 'Recorded · Plucked & Struck', engine: 'sampled',
+    pack: 'fp-timpani', fallback: 'timpani', cap: 48,
+    description: 'A sampled Timpani from the FreePats collection.' },
+
+  /* --- FreePats: Guitar & Bass --- */
+  { id: 'rec-fp-eg-clean', name: 'Electric Guitar, Clean (recorded)', group: 'Recorded · Guitar & Bass', engine: 'sampled',
+    pack: 'fp-eg-clean', fallback: 'nylon-guitar', cap: 48,
+    description: 'A sampled Electric Guitar, Clean from the FreePats collection.' },
+  { id: 'rec-fp-eg-jazz', name: 'Electric Guitar, Jazz (recorded)', group: 'Recorded · Guitar & Bass', engine: 'sampled',
+    pack: 'fp-eg-jazz', fallback: 'nylon-guitar', cap: 48,
+    description: 'A sampled Electric Guitar, Jazz from the FreePats collection.' },
+  { id: 'rec-fp-eg-direct', name: 'Electric Guitar, Direct (recorded)', group: 'Recorded · Guitar & Bass', engine: 'sampled',
+    pack: 'fp-eg-direct', fallback: 'nylon-guitar', cap: 48,
+    description: 'A sampled Electric Guitar, Direct from the FreePats collection.' },
+  { id: 'rec-fp-eg-dist-1', name: 'Electric Guitar, Distorted I (recorded)', group: 'Recorded · Guitar & Bass', engine: 'sampled',
+    pack: 'fp-eg-dist-1', fallback: 'analog-lead', cap: 48,
+    description: 'A sampled Electric Guitar, Distorted I from the FreePats collection.' },
+  { id: 'rec-fp-eg-dist-2', name: 'Electric Guitar, Distorted II (recorded)', group: 'Recorded · Guitar & Bass', engine: 'sampled',
+    pack: 'fp-eg-dist-2', fallback: 'analog-lead', cap: 48,
+    description: 'A sampled Electric Guitar, Distorted II from the FreePats collection.' },
+  { id: 'rec-fp-bass-guitar', name: 'Bass Guitar (recorded)', group: 'Recorded · Guitar & Bass', engine: 'sampled',
+    pack: 'fp-bass-guitar', fallback: 'electric-bass', cap: 48,
+    description: 'A sampled Bass Guitar from the FreePats collection.' },
+  { id: 'rec-fp-lately-bass', name: 'Lately Bass (recorded)', group: 'Recorded · Guitar & Bass', engine: 'sampled',
+    pack: 'fp-lately-bass', fallback: 'electric-bass', cap: 48,
+    description: 'A sampled Lately Bass from the FreePats collection.' },
+
+  /* --- FreePats: Winds & Reed --- */
+  { id: 'rec-fp-clarinet', name: 'Clarinet (recorded)', group: 'Recorded · Winds & Reed', engine: 'sampled',
+    pack: 'fp-clarinet', fallback: 'clarinet', cap: 48,
+    description: 'A sampled Clarinet from the FreePats collection.' },
+  { id: 'rec-fp-tenor-sax', name: 'Tenor Saxophone (recorded)', group: 'Recorded · Winds & Reed', engine: 'sampled',
+    pack: 'fp-tenor-sax', fallback: 'alto-sax', cap: 48,
+    description: 'A sampled Tenor Saxophone from the FreePats collection.' },
+  { id: 'rec-fp-ocarina', name: 'Ocarina (recorded)', group: 'Recorded · Winds & Reed', engine: 'sampled',
+    pack: 'fp-ocarina', fallback: 'flute', cap: 48,
+    description: 'A sampled Ocarina from the FreePats collection.' },
+  { id: 'rec-fp-recorder', name: 'Wooden Recorder (recorded)', group: 'Recorded · Winds & Reed', engine: 'sampled',
+    pack: 'fp-recorder', fallback: 'flute', cap: 48,
+    description: 'A sampled Wooden Recorder from the FreePats collection.' },
+  { id: 'rec-fp-bagpipe', name: 'Bagpipe (recorded)', group: 'Recorded · Winds & Reed', engine: 'sampled',
+    pack: 'fp-bagpipe', fallback: 'strings', cap: 48,
+    description: 'A sampled Bagpipe from the FreePats collection.' },
+
+  /* --- FreePats: Synth --- */
+  { id: 'rec-fp-synth-bass-1', name: 'Synth Bass I (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-bass-1', fallback: 'electric-bass', cap: 48,
+    description: 'A sampled Synth Bass I from the FreePats collection.' },
+  { id: 'rec-fp-synth-bass-2', name: 'Synth Bass II (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-bass-2', fallback: 'electric-bass', cap: 48,
+    description: 'A sampled Synth Bass II from the FreePats collection.' },
+  { id: 'rec-fp-synth-bass-lead', name: 'Synth Bass & Lead (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-bass-lead', fallback: 'electric-bass', cap: 48,
+    description: 'A sampled Synth Bass & Lead from the FreePats collection.' },
+  { id: 'rec-fp-synth-square', name: 'Synth Lead, Square (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-square', fallback: 'analog-lead', cap: 48,
+    description: 'A sampled Synth Lead, Square from the FreePats collection.' },
+  { id: 'rec-fp-synth-calliope', name: 'Synth Lead, Calliope (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-calliope', fallback: 'analog-lead', cap: 48,
+    description: 'A sampled Synth Lead, Calliope from the FreePats collection.' },
+  { id: 'rec-fp-synth-fifths', name: 'Synth Fifths (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-fifths', fallback: 'analog-lead', cap: 48,
+    description: 'A sampled Synth Fifths from the FreePats collection.' },
+  { id: 'rec-fp-synth-goblins', name: 'Synth Goblins (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-goblins', fallback: 'analog-lead', cap: 48,
+    description: 'A sampled Synth Goblins from the FreePats collection.' },
+  { id: 'rec-fp-synth-sci-fi', name: 'Synth Sci-Fi (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-sci-fi', fallback: 'analog-lead', cap: 48,
+    description: 'A sampled Synth Sci-Fi from the FreePats collection.' },
+  { id: 'rec-fp-synth-soundtrack', name: 'Synth Soundtrack (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-soundtrack', fallback: 'warm-pad', cap: 48,
+    description: 'A sampled Synth Soundtrack from the FreePats collection.' },
+  { id: 'rec-fp-synth-strings-1', name: 'Synth Strings I (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-strings-1', fallback: 'strings', cap: 48,
+    description: 'A sampled Synth Strings I from the FreePats collection.' },
+  { id: 'rec-fp-synth-strings-2', name: 'Synth Strings II (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-strings-2', fallback: 'strings', cap: 48,
+    description: 'A sampled Synth Strings II from the FreePats collection.' },
+  { id: 'rec-fp-synth-brass-1', name: 'Synth Brass I (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-brass-1', fallback: 'strings', cap: 48,
+    description: 'A sampled Synth Brass I from the FreePats collection.' },
+  { id: 'rec-fp-synth-brass-2', name: 'Synth Brass II (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-brass-2', fallback: 'strings', cap: 48,
+    description: 'A sampled Synth Brass II from the FreePats collection.' },
+  { id: 'rec-fp-synth-pad-choir', name: 'Synth Pad, Choir (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-pad-choir', fallback: 'choir', cap: 48,
+    description: 'A sampled Synth Pad, Choir from the FreePats collection.' },
+  { id: 'rec-fp-synth-pad-bowed', name: 'Synth Pad, Bowed (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-pad-bowed', fallback: 'warm-pad', cap: 48,
+    description: 'A sampled Synth Pad, Bowed from the FreePats collection.' },
+  { id: 'rec-fp-sweep-pad', name: 'Synth Sweep Pad (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-sweep-pad', fallback: 'warm-pad', cap: 48,
+    description: 'A sampled Synth Sweep Pad from the FreePats collection.' },
+  { id: 'rec-fp-new-age', name: 'Synth Pad, New Age (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-new-age', fallback: 'warm-pad', cap: 48,
+    description: 'A sampled Synth Pad, New Age from the FreePats collection.' },
+  { id: 'rec-fp-synth-crystal', name: 'Synth Crystal (recorded)', group: 'Recorded · Synth', engine: 'sampled',
+    pack: 'fp-synth-crystal', fallback: 'music-box', cap: 48,
+    description: 'A sampled Synth Crystal from the FreePats collection.' },
+
+
+// 50 instruments in 6 groups
 ];
 
 /** The list the UI renders. `defaults` are the live parameter set. */
@@ -1182,6 +1322,24 @@ const BY_ID = new Map(ROSTER.map((r) => [r.id, r]));
 /** Just the ids — cheap enough for a module-level constant. */
 export const INSTRUMENT_IDS = ROSTER.map((r) => r.id);
 
+/**
+ * Roster id -> pack id, for the ones that are recorded.
+ *
+ * The sampler needs this to turn "the user picked tenor sax" into "decode the
+ * tenor sax pack", and it must not keep its own copy of the roster: a second
+ * list would drift, and the drift would show up as an instrument that has been
+ * fetched but not prepared.
+ */
+const PACK_OF = new Map(
+  ROSTER.filter((r) => r.engine === 'sampled' && r.pack).map((r) => [r.id, r.pack])
+);
+__registerPackOf(PACK_OF);
+
+/** The pack a roster id plays from, or null when it is modelled. */
+export function packFor(id) {
+  return PACK_OF.get(id) || null;
+}
+
 /* ============================================================== instruments */
 
 /**
@@ -1200,11 +1358,12 @@ export function createInstrument(id, ctx, outputNode) {
   }
 
   // A recorded instrument is a thin wrapper over the same interface, so nothing
-  // downstream has to know which kind it got. If the pack has not been loaded
-  // -- offline, or on a page opened from file:// -- fall back to the modelled
-  // equivalent rather than to nothing.
+  // downstream has to know which kind it got. If the pack has not been fetched,
+  // or has been fetched but not decoded for these keys yet -- offline, on a page
+  // opened from file://, or because nobody awaited prepare() -- fall back to the
+  // modelled equivalent rather than to nothing.
   if (entry.engine === 'sampled') {
-    if (hasPack(entry.pack)) {
+    if (hasPack(entry.pack) && isPackDecoded(entry.pack)) {
       try {
         return createSampledInstrument(entry.pack, ctx, outputNode);
       } catch (e) {

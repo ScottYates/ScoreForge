@@ -1,7 +1,7 @@
 /**
  * tools/check-pack-credits.mjs - does the attribution still describe the audio?
  *
- * The concert grand in this pack is Salamander Grand Piano V3 under CC BY 3.0,
+ * One FreePats bank in this pack is GPL-3+ with the sample exception,
  * which is the first thing in the project that is not CC0. CC BY asks for a
  * visible credit where the samples are used, and for a statement of what was
  * changed. Both are easy to ship broken in ways nothing else would notice:

@@ -1,25 +1,25 @@
 /**
  * tools/check-loop-seam.mjs - does a held recorded note gate at the loop point?
  *
- * The pack builder picks where a sustaining sample repeats. Picking it well is
- * the difference between a held chord ringing on and a held chord that
- * breathes in and out once a cycle.
+ * A sustaining sample repeats somewhere, and where it repeats is the difference
+ * between a held chord ringing on and a held chord that breathes in and out
+ * once a cycle.
  *
- * This exists because the Salamander piano exposed a real problem with the
- * heuristic it shares with every other family. findLoop() measures the sustain
- * level as the MEDIAN of the envelope across the tail, then picks the quietest
- * window within FLOOR_DB of it. For a sample that decays, the median of the
- * tail is itself well down the decay, so "quietest window still within 9 dB of
- * the median" lands on the very last tenth of the take. Measured over the built
- * pack: the Versilian grand's loop points average 0.51 into the sample and never
- * start past 0.8, while 44 of the 86 Salamander ones start past 0.8 -- several
- * within 0.1 of the end.
+ * Most FreePats banks say where: their SFZ carries `loop_start` and `loop_end`,
+ * and the builder uses them as published. The rest fall back to findLoop(), which
+ * measures the sustain level as the MEDIAN of the envelope across the tail and
+ * picks the quietest window within FLOOR_DB of it. For a sample that decays the
+ * median is itself well down the decay, so that rule tends to land on the last
+ * tenth of the take.
  *
  * That is a plausible-sounding bug, so it is measured rather than argued about.
  * A loop seam that steps in level shows up in the rendered waveform as a jump
- * between consecutive amplitude windows, and that is what this looks for.
+ * between consecutive amplitude windows, and that is what this looks for. Which
+ * packs to measure is read from the manifest, so it cannot fall behind what
+ * shipped.
  *
- *   node tools/check-loop-seam.mjs [midi ...]
+ *   node tools/check-loop-seam.mjs            every sustaining pack, five keys
+ *   node tools/check-loop-seam.mjs 60 72      just those keys
  *
  * Serves the repo over HTTP: a page opened from file:// cannot fetch the pack.
  */
@@ -39,14 +39,36 @@ const MIME = {
 };
 
 /**
- * Every pack that loops. The finder is shared, so every one of them is at risk.
- * Packs that do not sustain are excluded: the concert grand is a decaying
- * instrument that deliberately has no loop, and "did not loop" is the intended
- * result there, not a fault to report.
+ * Every pack that loops, read from the manifest rather than listed here.
+ *
+ * The list used to be written out by hand, which meant adding a family meant
+ * remembering to add it to a check -- and forgetting left a loop nobody measured.
+ * `inst.sustains` is the same flag the builder sets when it decides a take
+ * repeats, so asking the manifest cannot disagree with what shipped.
+ *
+ * Packs that do not sustain are excluded: a piano is a decaying instrument that
+ * deliberately has no loop, and "did not loop" is the intended result there, not
+ * a fault to report.
  */
-const PACKS = ['sgpiano', 'gpiano', 'harpsichord', 'koto', 'viola'];
+const LOOPING = Object.entries(
+  JSON.parse(fs.readFileSync(path.join(repo, 'pack/manifest.json'), 'utf8')).instruments
+).filter(([, inst]) => inst.sustains).map(([id]) => id);
+
+if (!LOOPING.length) {
+  console.error('no pack in pack/manifest.json sustains; there is nothing to measure');
+  process.exit(1);
+}
+console.log(`measuring ${LOOPING.length} sustaining pack(s): ${LOOPING.join(', ')}\n`);
+// Naming packs on the command line narrows the run; naming none measures all.
+const named = process.argv.slice(2).filter((a) => !/^-/.test(a));
+const PACKS = named.length ? LOOPING.filter((p) => named.includes(p)) : LOOPING;
 const MIDIS = process.argv.slice(2).map(Number).filter((n) => Number.isFinite(n));
 const KEYS = MIDIS.length ? MIDIS : [30, 45, 60, 72, 96];
+
+if (!PACKS.length) {
+  console.error('none of the named packs sustain, so there is nothing to measure');
+  process.exit(1);
+}
 
 const HOLD_SECONDS = 9;
 
@@ -55,7 +77,7 @@ const PAGE = [
   '<!DOCTYPE html><html><head><meta charset="utf-8"><title>loop seam</title></head>',
   '<body><pre id="out">running</pre>',
   '<script type="module">',
-  "import { loadPack, createSampledInstrument } from '/src/js/audio/sampler.js';",
+  "import { loadPack, preparePack, createSampledInstrument } from '/src/js/audio/sampler.js';",
   '',
   'const SR = 44100;',
   'const PACKS = ' + JSON.stringify(PACKS) + ';',
@@ -79,6 +101,7 @@ const PAGE = [
   '      for (const midi of KEYS) {',
   '        const WHEN = 0.05;',
   '        const ctx = new OfflineAudioContext(1, Math.ceil(SR * HOLD), SR);',
+  '        await preparePack(pack, [midi]);',
   '        const inst = createSampledInstrument(pack, ctx, ctx.destination);',
   '        inst.noteOn({ midi: midi, velocity: 0.8, when: WHEN, duration: HOLD - 0.6 });',
   '        const buf = await ctx.startRendering();',

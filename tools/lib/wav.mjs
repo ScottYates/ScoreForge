@@ -1,5 +1,5 @@
 /**
- * tools/lib/wav.mjs - just enough RIFF/WAVE to read the VCSL samples.
+ * tools/lib/wav.mjs - just enough RIFF/WAVE to read the FreePats samples.
  *
  * The pack builder runs in Node and the app never loads this, so it stays out
  * of the bundle. Handles the only two shapes these files come in: PCM 16-bit and

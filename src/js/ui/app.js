@@ -12,7 +12,7 @@ import { resolveScore, describeScore, keyNameFromFifths } from '../score/model.j
 import { readScoreFiles } from '../io/files.js';
 import { backendHealth, describePage, resolveBase, probeHealth, setBase, configuredBase } from '../io/omr.js';
 import { INSTRUMENTS, createInstrument } from '../audio/instruments.js';
-import { packState, packCredits } from '../audio/sampler.js';
+import { packState, packCredits, prepare } from '../audio/sampler.js';
 import { instrumentForProgram, instrumentForName } from '../audio/gm.js';
 import { Engine } from '../audio/engine.js';
 import { AudioBus, Meter, ROOMS, linToDb } from '../audio/fx.js';
@@ -48,6 +48,12 @@ export class App {
     this.view = 'score';
     this.position = 0;
     this.playing = false;
+    // Bumped by every transport action, so a start that is still decoding can be
+    // superseded by a pause or a stop before it reaches play(). It has to start
+    // at 0 rather than being left undefined: ++undefined is NaN, and NaN !== NaN,
+    // so an uninitialised counter would make every start look superseded and
+    // nothing would ever play.
+    this._playToken = 0;
 
     this.settings = {
       volume: 0.85,
@@ -451,10 +457,11 @@ export class App {
   /**
    * Who the recorded samples are and what licence they carry.
    *
-   * The concert grand is Salamander Grand Piano V3 under CC BY 3.0, which asks
-   * for the credit where the samples are actually used. That is this panel, for
-   * anyone who has loaded the pack -- an offline copy of the page from someone
-   * else's build is exactly the case the licence is about.
+   * Most of the recorded instruments are CC0 and owe nothing, but one FreePats
+   * bank is GPL-3+ with the sound-sample exception and its terms have to travel
+   * with the samples. That is this panel, for anyone who has loaded the pack --
+   * an offline copy of the page from someone else's build is exactly the case
+   * the licence is about.
    *
    * The text comes from pack/manifest.json rather than from here, so it
    * describes the files this build actually downloaded and cannot go stale.
@@ -904,6 +911,18 @@ export class App {
 
   duration() { return this.resolved ? this.resolved.durationSec : 0; }
 
+  /**
+   * Every key the loaded score can sound, deduplicated.
+   *
+   * Handed to prepare() so it decodes the keys this piece uses rather than the
+   * whole family. A kalimba has 37 keys in the bank and a three-note part might
+   * use nine of them.
+   */
+  _usedMidis() {
+    const notes = (this.resolved && this.resolved.notes) || [];
+    return [...new Set(notes.map((n) => n.midi))];
+  }
+
   /* ------------------------------------------------------------ playback */
 
   ensureAudio() {
@@ -943,27 +962,69 @@ export class App {
     });
   }
 
-  togglePlay() {
+  async togglePlay() {
     if (!this.score) { this.dom.fileInput.click(); return; }
     this.ensureAudio();
     if (this._audio.state === 'suspended') this._audio.resume();
+
+    // Bumped on every press, so a second click while the first is still
+    // preparing does not start a second playback behind it.
+    const token = ++this._playToken;
+
     if (this.playing) {
       this._engine.pause();
       this.playing = false;
-    } else {
-      this._engine.metronome = this.settings.metronome;
-      this._engine.countInBeats = this.settings.countIn > 0 ? this.settings.countIn * 4 : 0;
-      this._engine.humanize = this.settings.humanize ? 1 : 0;
-      // Parked at the end means "play again", not "play the last note over".
-      // The seek has to come before the read: the engine emits its new
-      // position on the next tick, so reading this.position here would still
-      // give the old end time and playback would start on the final bar.
-      let from = this.position;
-      if (from >= this.duration() - 0.05) { this._engine.seek(0); from = 0; }
-      this._engine.play(from);
-      this.playing = true;
+      this._syncPlayButton();
+      return;
     }
+
+    // Claim the playing state synchronously, before the await below.
+    //
+    // Decoding makes this function async, and between the click and the decode
+    // finishing `playing` was still false. That is indistinguishable from an app
+    // that is not playing: the button still offered to play, and anything
+    // watching for the piece to finish -- a person, or the transport check --
+    // concluded playback had already ended and looked at a stalled cursor.
+    this.playing = true;
     this._syncPlayButton();
+
+    this._engine.metronome = this.settings.metronome;
+    this._engine.countInBeats = this.settings.countIn > 0 ? this.settings.countIn * 4 : 0;
+    this._engine.humanize = this.settings.humanize ? 1 : 0;
+    // Recorded samples are decoded here, on the way in, rather than during
+    // scheduling: the engine can place a whole voice graph in one synchronous
+    // call but it cannot wait for a decode. A few hundred milliseconds before
+    // the first note beats a silent first bar.
+    const wasReady = packState().state === 'ready';
+    try {
+      await this._engine.prepare((p) => {
+        const el = this.dom.packStatus;
+        if (p.total > 1 && el) {
+          el.textContent = `preparing recorded samples - ${p.done}/${p.total}`;
+          el.className = 'hint';
+        }
+      });
+    } catch (e) {
+      // A recorded instrument that will not decode is not a reason to refuse
+      // to play: createInstrument falls back to the modelled version. Say what
+      // happened, where the user can read it, and carry on.
+      console.warn('could not decode recorded samples, using modelled instruments:', e);
+      const el = this.dom.packStatus;
+      if (el) {
+        el.textContent = `recorded samples unavailable - ${e.message}`;
+        el.className = 'hint bad';
+      }
+      toast('Recorded samples unavailable - playing modelled instruments instead.');
+    }
+    if (token !== this._playToken) return;   // paused again while decoding
+    if (wasReady) this._paintPackProgress();
+    // Parked at the end means "play again", not "play the last note over".
+    // The seek has to come before the read: the engine emits its new
+    // position on the next tick, so reading this.position here would still
+    // give the old end time and playback would start on the final bar.
+    let from = this.position;
+    if (from >= this.duration() - 0.05) { this._engine.seek(0); from = 0; }
+    this._engine.play(from);
   }
 
   /**
@@ -976,7 +1037,7 @@ export class App {
    * one audition is ever alive: changing the selection again cuts the last
    * one off instead of stacking them.
    */
-  auditionInstrument(instrumentId) {
+  async auditionInstrument(instrumentId) {
     const ctx = this.ensureAudio();
     if (ctx.state === 'suspended') ctx.resume();
 
@@ -985,6 +1046,15 @@ export class App {
       try { this._auditionInst.dispose(ctx.currentTime + 0.02); } catch { /* already gone */ }
       this._auditionInst = null;
     }
+
+    // Three notes' worth of samples, which for a recorded instrument is a
+    // fraction of a family. Decoding them before the note is placed is the whole
+    // reason this is async: otherwise the audition either waits on a decode that
+    // finishes after its start time, or plays the modelled fallback and the
+    // picker lies about what it sounds like.
+    await prepare([instrumentId], [60, 64, 67]).catch((e) => {
+      console.warn('could not decode recorded samples, auditioning the modelled instrument:', e);
+    });
 
     let inst;
     try {
@@ -1015,6 +1085,9 @@ export class App {
   }
 
   stop() {
+    // Supersede a start that is still decoding, so pressing Stop during the
+    // prepare does not start playback a moment later.
+    this._playToken++;
     if (this._engine) this._engine.stop();
     // Before _tickPosition, which decides the cursor from `playing`.
     this.playing = false;
@@ -1121,12 +1194,20 @@ export class App {
     this.score.parts.forEach((p) => {
       const sel = el('select', {
         title: 'Instrument for ' + p.name,
-        onchange: (e) => {
-          this.partInstruments.set(p.id, e.target.value);
-          if (this._engine) this._engine.setPartInstrument(p.id, e.target.value);
+        onchange: async (e) => {
+          const id = e.target.value;
+          this.partInstruments.set(p.id, id);
+          // Decode before the swap, not after. setPartInstrument rebuilds the
+          // channel synchronously, so an undecoded pack would quietly settle for
+          // the modelled fallback and the part would change instrument a second
+          // later -- or never.
+          await prepare([id], this._usedMidis()).catch((err) => {
+            console.warn('could not decode recorded samples:', err);
+          });
+          if (this._engine) this._engine.setPartInstrument(p.id, id);
           // While the music is running the swap is already audible, so an
           // audition would only talk over it.
-          if (!this.playing) this.auditionInstrument(e.target.value);
+          if (!this.playing) this.auditionInstrument(id);
         },
       });
       for (const [g, items] of groups) {
