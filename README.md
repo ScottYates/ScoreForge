@@ -455,12 +455,18 @@ rebind cannot either.
 
 ## Development
 
+`CONTRACT.md` is the interface contract — the score model, the instrument
+contract, the parser rules, the backend rules. It is durable and does not change
+with a session. `docs/HANDOFF.md` is the opposite: state of the tree, the
+landmines, and what is still unproven. Read that one first if you are picking
+this up cold.
+
 ```bash
 npm install
 npm run build      # -> index.html (minified)
 npm run dev        # -> index.html (readable)
 npm test           # build + headless self-test + screenshot
-npm run test:suites   # the four module suites
+npm run test:suites   # the six module suites
 npm run serve      # start the recognition backend
 npm run test:omr   # recogniser accuracy, all three conditions
 ```
