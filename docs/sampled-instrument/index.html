@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upright Piano &mdash; sampled, as recorded</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.55 ui-sans-serif, system-ui, "Segoe UI", sans-serif; margin: 0 auto; max-width: 64rem; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1rem; margin: 2rem 0 .5rem; }
+  p { margin: .4rem 0; }
+  .lede { margin-top: 0; opacity: .8; }
+  #piano { display: flex; position: relative; height: 150px; margin: 1.25rem 0 .5rem; user-select: none; }
+  .w { position: relative; flex: 1 1 0; min-width: 12px; border: 1px solid #0006; background: #fbfbf8; cursor: pointer; }
+  .w.down { background: #d8d2c0; }
+  .b { position: absolute; top: 0; width: 2.2%; height: 62%; background: #222; border-radius: 0 0 3px 3px; z-index: 2; cursor: pointer; }
+  .b.down { background: #444; }
+  .lbl { position: absolute; bottom: 3px; left: 0; right: 0; text-align: center; font-size: 10px; opacity: .55; pointer-events: none; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid #8883; vertical-align: top; }
+  th { font-weight: 600; width: 12rem; opacity: .75; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .name { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .86rem; }
+  .note { font-size: .88rem; opacity: .85; }
+  code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: .88em; }
+  #status { font-size: .9rem; opacity: .8; min-height: 1.4em; }
+  .warn { color: #b26a00; }
+</style>
+</head>
+<body>
+
+<h1>Upright Piano &mdash; sampled, as recorded</h1>
+<p class="lede">
+  The FreePats <code>upright-piano-kw</code> bank, keyed from its own SFZ. Click a key
+  or use the computer keyboard. Click low on a key for a hard strike, high for a soft one &mdash;
+  the bank records two hammers per key and this picks between them.
+</p>
+
+<div id="piano"></div>
+<div id="status">Loading the instrument&hellip;</div>
+
+<h2>Last note</h2>
+<table>
+  <tr><th>note</th><td id="r-note">&mdash;</td></tr>
+  <tr><th>sample used</th><td class="name" id="r-file">&mdash;</td></tr>
+  <tr><th>velocity</th><td class="num" id="r-vel">&mdash;</td></tr>
+  <tr><th>playbackRate</th><td class="num" id="r-rate">&mdash;</td></tr>
+  <tr><th>detune</th><td class="num" id="r-detune">&mdash;</td></tr>
+  <tr><th>loop</th><td id="r-loop">&mdash;</td></tr>
+  <tr><th>started at</th><td class="num" id="r-offset">&mdash;</td></tr>
+  <tr><th>stop scheduled</th><td id="r-stop">&mdash;</td></tr>
+  <tr><th>source peaks at</th><td class="num" id="r-peak">&mdash;</td></tr>
+  <tr><th>transposed</th><td id="r-cents">&mdash;</td></tr>
+  <tr><th>nodes playing</th><td class="num" id="r-live">0</td></tr>
+</table>
+
+<h2>What is deliberately not happening</h2>
+<p class="note">
+  No oscillator and no generated waveform &mdash; the sound is decoded PCM from a
+  recording. No attack/sustain/release envelope, no filter, no gain node, no
+  trim, no normalisation, no loop points, and nothing is ever stopped: each note
+  makes a new <code>AudioBufferSourceNode</code> that plays the file out and is left alone.
+  The only thing the player decides is <em>which</em> recorded note to play and
+  <em>which hammer</em> struck it.
+</p>
+
+<script type="module">
+const KEY = {
+  a: 60, w: 61, s: 62, e: 63, d: 64, f: 65, t: 66, g: 67, y: 68, h: 69, u: 70,
+  j: 71, k: 72, o: 73, l: 74, p: 75, ';': 76, "'": 77, '2': 48,
+  z: 48, x: 50, c: 52, v: 53, b: 55, n: 57, m: 59, ',': 60, '.': 62, '/': 64,
+};
+const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const nameOf = (m) => NAMES[m % 12] + (Math.floor(m / 12) - 1);
+
+let inst = null;
+let ctx = null;
+const decoded = new Map();   // file -> { buffer, onsetSec }
+const live = [];
+
+function audio() {
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') ctx.resume();
+  return ctx;
+}
+
+/**
+ * Where the sound actually starts inside a decoded buffer.
+ *
+ * LAME writes its encoder delay into an MP3 and the browser hands it back as
+ * leading silence, so starting at sample zero puts the hammer about 24 ms late.
+ * Measuring it is better than prepending silence to every file to compensate,
+ * and better than a hard-coded constant that is wrong the moment the encoder or
+ * the bitrate changes.
+ */
+function findOnset(buffer) {
+  let peak = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const d = buffer.getChannelData(c);
+    for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; }
+  }
+  const win = Math.max(1, Math.round(buffer.sampleRate * 0.0015));
+  const thr = peak * 0.02;
+  const n = buffer.length;
+  const first = buffer.getChannelData(0);
+  const second = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : first;
+  for (let w = 0; w + win <= n; w += win) {
+    let s = 0;
+    for (let i = w; i < w + win; i++) { const v = Math.max(Math.abs(first[i]), Math.abs(second[i])); s += v * v; }
+    if (Math.sqrt(s / win) > thr) return w / buffer.sampleRate;
+  }
+  return 0;
+}
+
+async function load(file) {
+  if (decoded.has(file)) return decoded.get(file);
+  const ac = audio();
+  // Encode each path segment, and do not use encodeURI: it leaves '#' alone
+  // because '#' is a reserved character, so the browser still reads
+  // "D#1vH.mp3" as a fragment and asks for "/samples/D". Six of this bank's
+  // sixty-six files are written that way.
+  const url = file.split('/').map(encodeURIComponent).join('/');
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${file}: HTTP ${res.status} for ${url}`);
+  const bytes = await res.arrayBuffer();
+  let buffer;
+  try {
+    buffer = await ac.decodeAudioData(bytes.slice(0));
+  } catch (e) {
+    // "Unable to decode audio data" on its own says nothing about which of
+    // sixty-six files is at fault, or whether it was even fetched.
+    const head = new Uint8Array(await (await fetch(url)).arrayBuffer().catch(() => new ArrayBuffer(0))).slice(0, 4);
+    const magic = [...head].map((b) => b.toString(16).padStart(2, '0')).join(' ');
+    throw new Error(`${file}: ${bytes.byteLength} bytes, starts ${magic}: ${e}`);
+  }
+  const entry = { buffer, onsetSec: findOnset(buffer) };
+  decoded.set(file, entry);
+  return entry;
+}
+
+/**
+ * Which recorded hammer to use, from the bank's own velocity layers.
+ *
+ * Nearest by velocity, which is what the layers are for. When a key has only
+ * one hammer that is the answer for every strike.
+ */
+function pickLayer(note, velocity) {
+  let best = note.layers[0];
+  let bestD = Infinity;
+  for (const l of note.layers) {
+    const d = Math.abs((l.vel ?? 0.5) - velocity);
+    if (d < bestD) { bestD = d; best = l; }
+  }
+  return best;
+}
+
+async function play(midi, velocity) {
+  if (!inst) return;
+  const note = inst.notes[midi];
+  if (!note) return;
+  const layer = pickLayer(note, velocity);
+  const ac = audio();
+  const { buffer, onsetSec } = await load(layer.file);
+
+  const src = ac.createBufferSource();
+  src.buffer = buffer;
+  // 1 when the take was recorded at this key; anything else is the bank's own
+  // key map saying this note is covered by its neighbour. detune stays 0 --
+  // playbackRate is the sample-rate-correct way to transpose a buffer.
+  src.playbackRate.value = layer.rate;
+  src.detune.value = 0;
+  src.loop = false;
+  src.connect(ac.destination);
+
+  const at = ac.currentTime;
+  // Read the offset back off the call rather than printing what we meant to
+  // pass. A readout that says "0" because the source says 0 is not evidence.
+  let usedOffset = null;
+  const realStart = src.start.bind(src);
+  src.start = function (when, offset) { usedOffset = offset || 0; return realStart(when, offset); };
+  src.start(at, onsetSec);
+  live.push(src);
+
+  const set = (id, v) => { document.getElementById(id).textContent = v; };
+  set('r-note', `${nameOf(midi)} (MIDI ${midi})`);
+  set('r-file', layer.file);
+  set('r-vel', velocity.toFixed(2) + ` -> layer ${layer.vel}`);
+  set('r-rate', src.playbackRate.value);
+  set('r-detune', src.detune.value);
+  set('r-loop', String(src.loop));
+  set('r-offset', `${usedOffset.toFixed(4)} s (${usedOffset <= 0.0015 ? 'the attack' : 'LATE'})`);
+  set('r-stop', 'never scheduled');
+  set('r-peak', layer.sourcePeak.toFixed(5) + ' (as recorded)');
+  set('r-cents', layer.cents === 0 ? 'no — recorded at this key'
+    : `${layer.cents} cents — this key is covered by ${layer.file.split('/').pop()}`);
+  set('r-live', String(live.length));
+  document.getElementById('status').textContent =
+    `${nameOf(midi)} · ${layer.file.split('/').pop()} · ${buffer.duration.toFixed(2)}s, ringing out`;
+}
+
+/* ------------------------------------------------------------------ the keys */
+
+function build() {
+  const lo = inst.range[0];
+  const hi = inst.range[1];
+  const el = document.getElementById('piano');
+  const whites = [];
+  for (let m = lo; m <= hi; m++) if (![1, 3, 6, 8, 10].includes(m % 12)) whites.push(m);
+  const wpc = 100 / whites.length;
+
+  whites.forEach((m, i) => {
+    const d = document.createElement('div');
+    d.className = 'w';
+    d.style.left = (i * wpc) + '%';
+    d.style.width = wpc + '%';
+    d.style.position = 'absolute';
+    d.dataset.midi = m;
+    const l = document.createElement('div');
+    l.className = 'lbl';
+    l.textContent = nameOf(m);
+    d.appendChild(l);
+    d.addEventListener('pointerdown', (e) => {
+      // Lower on the key is a harder strike. The recordings already carry their
+      // own levels; this only chooses which hammer was recorded.
+      const box = d.getBoundingClientRect();
+      const velocity = 0.15 + 0.8 * Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
+      d.classList.add('down');
+      play(m, velocity);
+    });
+    d.addEventListener('pointerup', () => d.classList.remove('down'));
+    d.addEventListener('pointerleave', () => d.classList.remove('down'));
+    el.appendChild(d);
+  });
+
+  for (let m = lo; m <= hi; m++) {
+    if (![1, 3, 6, 8, 10].includes(m % 12)) continue;
+    const before = whites.filter((w) => w < m).length;
+    const d = document.createElement('div');
+    d.className = 'b';
+    d.style.left = `calc(${before * wpc}% - ${wpc * 0.31}%)`;
+    d.dataset.midi = m;
+    d.addEventListener('pointerdown', (e) => {
+      const box = d.getBoundingClientRect();
+      const velocity = 0.15 + 0.8 * Math.min(1, Math.max(0, (e.clientY - box.top) / box.height));
+      d.classList.add('down');
+      play(m, velocity);
+    });
+    d.addEventListener('pointerup', () => d.classList.remove('down'));
+    el.appendChild(d);
+  }
+}
+
+addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  const m = KEY[e.key];
+  if (m == null || !inst || !inst.notes[m]) return;
+  // Shift is the hard strike, so the whole range is reachable without a mouse.
+  play(m, e.shiftKey ? 0.9 : 0.2);
+});
+
+/* ---------------------------------------------------------------- self test */
+
+window.__selfTest = async function () {
+  const out = { keys: 0, renders: 0, silent: [], levelChanged: [], late: [], layers: {}, peaks: {}, transposed: 0,
+    looped: [], rateChanged: [], detuned: [], skipped: [], offsetUsed: [] };
+  const ac = audio();
+  const sr = ac.sampleRate;
+  const keys = Object.keys(inst.notes).map(Number);
+
+  for (const midi of keys) {
+    // Every layer of every key, not just the one a hard strike would pick.
+    // Rendering only the hard hammer left every vL file unmeasured, which is
+    // half the bank and exactly where a second normaliser would have hidden.
+    for (const layer of inst.notes[midi].layers) {
+    const { buffer, onsetSec } = await load(layer.file);
+    out.layers[layer.file] = (out.layers[layer.file] || 0) + 1;
+    if (layer.cents !== 0) out.transposed++;
+
+    // Render it exactly as play() would, then measure what came out.
+    const secs = Math.min(2.5, buffer.duration);
+    const off = new OfflineAudioContext(2, Math.ceil(sr * (secs + 0.2)), sr);
+    const src = off.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = layer.rate;
+    src.detune.value = 0;
+    src.loop = false;
+    src.connect(off.destination);
+    // Read the offset back off the call, as play() does. Printing what we meant
+    // to pass is the source code again, not evidence.
+    let usedOffset = null;
+    const realStart = src.start.bind(src);
+    src.start = function (when, offset) { usedOffset = offset || 0; return realStart(when, offset); };
+    src.start(0, onsetSec);
+    const rendered = await off.startRendering();
+
+    if (src.loop) out.looped.push(midi);
+    // AudioParam stores a float32, so reading playbackRate back gives a float32
+    // and comparing it for equality against the double in the manifest always
+    // fails. Relative, not exact.
+    if (Math.abs(src.playbackRate.value - layer.rate) > layer.rate * 1e-6) {
+      out.rateChanged.push([midi, layer.rate, src.playbackRate.value]);
+    }
+    if (src.detune.value !== 0) out.detuned.push([midi, src.detune.value]);
+    if (!(usedOffset > 0)) out.skipped.push([midi, usedOffset]);
+    if (out.offsetUsed.length < 5) out.offsetUsed.push(+usedOffset.toFixed(5));
+
+    let peak = 0;
+    for (let c = 0; c < rendered.numberOfChannels; c++) {
+      const d = rendered.getChannelData(c);
+      for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a; }
+    }
+    const left = rendered.getChannelData(0);
+    const win = Math.max(1, Math.round(sr * 0.0015));
+    let onset = -1;
+    const thr = peak * 0.02;
+    for (let w = 0; w + win <= left.length; w += win) {
+      let s = 0;
+      for (let i = w; i < w + win; i++) s += left[i] * left[i];
+      if (Math.sqrt(s / win) > thr) { onset = w / sr; break; }
+    }
+
+    out.keys++;
+    out.renders++;
+    if (!(peak > 0.01)) out.silent.push(midi);
+    if (onset < 0 || onset > 0.005) out.late.push([midi, +(onset * 1000).toFixed(1)]);
+    // Report the measurement; do not judge it here. What this gets compared
+    // against has to come from the original WAV, not from this instrument's own
+    // manifest -- a render checked against a figure the builder wrote proves
+    // nothing, because the builder moves both together. Peak-normalising every
+    // take is exactly that kind of change, and it sailed past a check that read
+    // its expectations out of the thing it was checking.
+    out.peaks[layer.file] = +peak.toFixed(5);
+    }
+  }
+  out.keys = keys.length;
+  return out;
+};
+
+fetch('instrument.json').then((r) => r.json()).then((data) => {
+  inst = data;
+  build();
+  document.getElementById('status').textContent =
+    `${Object.keys(inst.notes).length} keys from ${inst.source}. Click a key, or use a-s-d-f… `
+    + 'with Shift for a hard strike.';
+  window.__ready = true;
+});
+</script>
+</body>
+</html>

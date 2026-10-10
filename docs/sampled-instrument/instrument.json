@@ -1,0 +1,2654 @@
+{
+ "bank": "upright-piano-kw",
+ "source": "UprightPianoKW-20220221.sfz",
+ "encoder": "lame 192 kbps, straight from the source PCM",
+ "marker": null,
+ "loopPoints": null,
+ "preserved": "whole file, original level, no trim, no normalisation, no marker, no loop points",
+ "range": [
+  21,
+  108
+ ],
+ "notes": {
+  "21": {
+   "layers": [
+    {
+     "file": "samples/A0vL.mp3",
+     "durSec": 7.569705,
+     "onsetSec": 0.000295,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 21,
+     "bytes": 182439,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/A0vH.mp3",
+     "durSec": 7.034739,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.999954,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 21,
+     "bytes": 169900,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "22": {
+   "layers": [
+    {
+     "file": "samples/A0vL.mp3",
+     "durSec": 7.569705,
+     "onsetSec": 0.000295,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 21,
+     "bytes": 182439,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/A0vH.mp3",
+     "durSec": 7.034739,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.999954,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 21,
+     "bytes": 169900,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "23": {
+   "layers": [
+    {
+     "file": "samples/C1vL.mp3",
+     "durSec": 10.684875,
+     "onsetSec": 0.000136,
+     "sourcePeak": 0.999949,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 24,
+     "bytes": 257671,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/B0vH.mp3",
+     "durSec": 7.545397,
+     "onsetSec": 0.000068,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 23,
+     "bytes": 181812,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "24": {
+   "layers": [
+    {
+     "file": "samples/C1vL.mp3",
+     "durSec": 10.684875,
+     "onsetSec": 0.000136,
+     "sourcePeak": 0.999949,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 24,
+     "bytes": 257671,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/C1vH.mp3",
+     "durSec": 9.629773,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.999962,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 24,
+     "bytes": 231967,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "25": {
+   "layers": [
+    {
+     "file": "samples/C1vL.mp3",
+     "durSec": 10.684875,
+     "onsetSec": 0.000136,
+     "sourcePeak": 0.999949,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 24,
+     "bytes": 257671,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/C1vH.mp3",
+     "durSec": 9.629773,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.999962,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 24,
+     "bytes": 231967,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "26": {
+   "layers": [
+    {
+     "file": "samples/D#1vL.mp3",
+     "durSec": 12.840454,
+     "onsetSec": 0.000159,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 27,
+     "bytes": 309080,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/D#1vH.mp3",
+     "durSec": 10.471927,
+     "onsetSec": 0.000159,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 27,
+     "bytes": 252029,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "27": {
+   "layers": [
+    {
+     "file": "samples/D#1vL.mp3",
+     "durSec": 12.840454,
+     "onsetSec": 0.000159,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 27,
+     "bytes": 309080,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/D#1vH.mp3",
+     "durSec": 10.471927,
+     "onsetSec": 0.000159,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 27,
+     "bytes": 252029,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "28": {
+   "layers": [
+    {
+     "file": "samples/D#1vL.mp3",
+     "durSec": 12.840454,
+     "onsetSec": 0.000159,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 27,
+     "bytes": 309080,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/D#1vH.mp3",
+     "durSec": 10.471927,
+     "onsetSec": 0.000159,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 27,
+     "bytes": 252029,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "29": {
+   "layers": [
+    {
+     "file": "samples/F#1vL.mp3",
+     "durSec": 11.042902,
+     "onsetSec": 0.000181,
+     "sourcePeak": 0.999965,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 30,
+     "bytes": 265822,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/F#1vH.mp3",
+     "durSec": 7.972154,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.999992,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 30,
+     "bytes": 192470,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "30": {
+   "layers": [
+    {
+     "file": "samples/F#1vL.mp3",
+     "durSec": 11.042902,
+     "onsetSec": 0.000181,
+     "sourcePeak": 0.999965,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 30,
+     "bytes": 265822,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/F#1vH.mp3",
+     "durSec": 7.972154,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.999992,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 30,
+     "bytes": 192470,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "31": {
+   "layers": [
+    {
+     "file": "samples/F#1vL.mp3",
+     "durSec": 11.042902,
+     "onsetSec": 0.000181,
+     "sourcePeak": 0.999965,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 30,
+     "bytes": 265822,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/F#1vH.mp3",
+     "durSec": 7.972154,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.999992,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 30,
+     "bytes": 192470,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "32": {
+   "layers": [
+    {
+     "file": "samples/A1vL.mp3",
+     "durSec": 11.883152,
+     "onsetSec": 0.000136,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 33,
+     "bytes": 285884,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/A1vH.mp3",
+     "durSec": 10.032834,
+     "onsetSec": 0.000136,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 33,
+     "bytes": 241998,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "33": {
+   "layers": [
+    {
+     "file": "samples/A1vL.mp3",
+     "durSec": 11.883152,
+     "onsetSec": 0.000136,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 33,
+     "bytes": 285884,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/A1vH.mp3",
+     "durSec": 10.032834,
+     "onsetSec": 0.000136,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 33,
+     "bytes": 241998,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "34": {
+   "layers": [
+    {
+     "file": "samples/A1vL.mp3",
+     "durSec": 11.883152,
+     "onsetSec": 0.000136,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 33,
+     "bytes": 285884,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/B1vH.mp3",
+     "durSec": 8.320816,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.999981,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 35,
+     "bytes": 200620,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "35": {
+   "layers": [
+    {
+     "file": "samples/C2vL.mp3",
+     "durSec": 11.573741,
+     "onsetSec": 0.000317,
+     "sourcePeak": 0.999945,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 36,
+     "bytes": 278987,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/B1vH.mp3",
+     "durSec": 8.320816,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.999981,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 35,
+     "bytes": 200620,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "36": {
+   "layers": [
+    {
+     "file": "samples/C2vL.mp3",
+     "durSec": 11.573741,
+     "onsetSec": 0.000317,
+     "sourcePeak": 0.999945,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 36,
+     "bytes": 278987,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/C2vH.mp3",
+     "durSec": 8.539524,
+     "onsetSec": 0.000023,
+     "sourcePeak": 0.999996,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 36,
+     "bytes": 205635,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "37": {
+   "layers": [
+    {
+     "file": "samples/C2vL.mp3",
+     "durSec": 11.573741,
+     "onsetSec": 0.000317,
+     "sourcePeak": 0.999945,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 36,
+     "bytes": 278987,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/C2vH.mp3",
+     "durSec": 8.539524,
+     "onsetSec": 0.000023,
+     "sourcePeak": 0.999996,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 36,
+     "bytes": 205635,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "38": {
+   "layers": [
+    {
+     "file": "samples/D#2vL.mp3",
+     "durSec": 13.269728,
+     "onsetSec": 0.000181,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 39,
+     "bytes": 319111,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/D#2vH.mp3",
+     "durSec": 9.035306,
+     "onsetSec": 0.000068,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 39,
+     "bytes": 217547,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "39": {
+   "layers": [
+    {
+     "file": "samples/D#2vL.mp3",
+     "durSec": 13.269728,
+     "onsetSec": 0.000181,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 39,
+     "bytes": 319111,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/D#2vH.mp3",
+     "durSec": 9.035306,
+     "onsetSec": 0.000068,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 39,
+     "bytes": 217547,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "40": {
+   "layers": [
+    {
+     "file": "samples/D#2vL.mp3",
+     "durSec": 13.269728,
+     "onsetSec": 0.000181,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 39,
+     "bytes": 319111,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/D#2vH.mp3",
+     "durSec": 9.035306,
+     "onsetSec": 0.000068,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 39,
+     "bytes": 217547,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "41": {
+   "layers": [
+    {
+     "file": "samples/F#2vL.mp3",
+     "durSec": 9.945057,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999962,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 42,
+     "bytes": 239490,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/F#2vH.mp3",
+     "durSec": 8.923515,
+     "onsetSec": 0.000068,
+     "sourcePeak": 0.99996,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 42,
+     "bytes": 215040,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "42": {
+   "layers": [
+    {
+     "file": "samples/F#2vL.mp3",
+     "durSec": 9.945057,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999962,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 42,
+     "bytes": 239490,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/F#2vH.mp3",
+     "durSec": 8.923515,
+     "onsetSec": 0.000068,
+     "sourcePeak": 0.99996,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 42,
+     "bytes": 215040,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "43": {
+   "layers": [
+    {
+     "file": "samples/F#2vL.mp3",
+     "durSec": 9.945057,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999962,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 42,
+     "bytes": 239490,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/F#2vH.mp3",
+     "durSec": 8.923515,
+     "onsetSec": 0.000068,
+     "sourcePeak": 0.99996,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 42,
+     "bytes": 215040,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "44": {
+   "layers": [
+    {
+     "file": "samples/A2vL.mp3",
+     "durSec": 8.189864,
+     "onsetSec": 0.000295,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 45,
+     "bytes": 197485,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/F#2vH.mp3",
+     "durSec": 8.923515,
+     "onsetSec": 0.000068,
+     "sourcePeak": 0.99996,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 42,
+     "bytes": 215040,
+     "rate": 1.122462,
+     "cents": 200
+    }
+   ]
+  },
+  "45": {
+   "layers": [
+    {
+     "file": "samples/A2vL.mp3",
+     "durSec": 8.189864,
+     "onsetSec": 0.000295,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 45,
+     "bytes": 197485,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/F#2vH.mp3",
+     "durSec": 8.923515,
+     "onsetSec": 0.000068,
+     "sourcePeak": 0.99996,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 42,
+     "bytes": 215040,
+     "rate": 1.189207,
+     "cents": 300
+    }
+   ]
+  },
+  "46": {
+   "layers": [
+    {
+     "file": "samples/A2vL.mp3",
+     "durSec": 8.189864,
+     "onsetSec": 0.000295,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 45,
+     "bytes": 197485,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/B2vH.mp3",
+     "durSec": 7.739524,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999985,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 47,
+     "bytes": 186827,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "47": {
+   "layers": [
+    {
+     "file": "samples/C3vL.mp3",
+     "durSec": 4.822902,
+     "onsetSec": 0.000181,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 48,
+     "bytes": 116610,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/B2vH.mp3",
+     "durSec": 7.739524,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999985,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 47,
+     "bytes": 186827,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "48": {
+   "layers": [
+    {
+     "file": "samples/C3vL.mp3",
+     "durSec": 4.822902,
+     "onsetSec": 0.000181,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 48,
+     "bytes": 116610,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/C3vH.mp3",
+     "durSec": 6.963401,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.999996,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 48,
+     "bytes": 168019,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "49": {
+   "layers": [
+    {
+     "file": "samples/C3vL.mp3",
+     "durSec": 4.822902,
+     "onsetSec": 0.000181,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 48,
+     "bytes": 116610,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/C3vH.mp3",
+     "durSec": 6.963401,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.999996,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 48,
+     "bytes": 168019,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "50": {
+   "layers": [
+    {
+     "file": "samples/D#3vL.mp3",
+     "durSec": 5.796825,
+     "onsetSec": 0.000136,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 51,
+     "bytes": 139807,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/D#3vH.mp3",
+     "durSec": 5.44966,
+     "onsetSec": 0.000159,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 51,
+     "bytes": 131657,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "51": {
+   "layers": [
+    {
+     "file": "samples/D#3vL.mp3",
+     "durSec": 5.796825,
+     "onsetSec": 0.000136,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 51,
+     "bytes": 139807,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/D#3vH.mp3",
+     "durSec": 5.44966,
+     "onsetSec": 0.000159,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 51,
+     "bytes": 131657,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "52": {
+   "layers": [
+    {
+     "file": "samples/D#3vL.mp3",
+     "durSec": 5.796825,
+     "onsetSec": 0.000136,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 51,
+     "bytes": 139807,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/D#3vH.mp3",
+     "durSec": 5.44966,
+     "onsetSec": 0.000159,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 51,
+     "bytes": 131657,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "53": {
+   "layers": [
+    {
+     "file": "samples/F#3vL.mp3",
+     "durSec": 4.852517,
+     "onsetSec": 0.000068,
+     "sourcePeak": 0.999995,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 54,
+     "bytes": 117237,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/F#3vH.mp3",
+     "durSec": 6.02381,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.999943,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 54,
+     "bytes": 145449,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "54": {
+   "layers": [
+    {
+     "file": "samples/F#3vL.mp3",
+     "durSec": 4.852517,
+     "onsetSec": 0.000068,
+     "sourcePeak": 0.999995,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 54,
+     "bytes": 117237,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/F#3vH.mp3",
+     "durSec": 6.02381,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.999943,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 54,
+     "bytes": 145449,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "55": {
+   "layers": [
+    {
+     "file": "samples/F#3vL.mp3",
+     "durSec": 4.852517,
+     "onsetSec": 0.000068,
+     "sourcePeak": 0.999995,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 54,
+     "bytes": 117237,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/F#3vH.mp3",
+     "durSec": 6.02381,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.999943,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 54,
+     "bytes": 145449,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "56": {
+   "layers": [
+    {
+     "file": "samples/A3vL.mp3",
+     "durSec": 6.432925,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999957,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 57,
+     "bytes": 155480,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/A3vH.mp3",
+     "durSec": 4.236213,
+     "onsetSec": 0.000181,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 57,
+     "bytes": 102818,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "57": {
+   "layers": [
+    {
+     "file": "samples/A3vL.mp3",
+     "durSec": 6.432925,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999957,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 57,
+     "bytes": 155480,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/A3vH.mp3",
+     "durSec": 4.236213,
+     "onsetSec": 0.000181,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 57,
+     "bytes": 102818,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "58": {
+   "layers": [
+    {
+     "file": "samples/A3vL.mp3",
+     "durSec": 6.432925,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999957,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 57,
+     "bytes": 155480,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/B3vH.mp3",
+     "durSec": 5.160839,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 59,
+     "bytes": 124760,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "59": {
+   "layers": [
+    {
+     "file": "samples/C4vL.mp3",
+     "durSec": 8.033197,
+     "onsetSec": 0.000113,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 60,
+     "bytes": 193724,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/B3vH.mp3",
+     "durSec": 5.160839,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 59,
+     "bytes": 124760,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "60": {
+   "layers": [
+    {
+     "file": "samples/C4vL.mp3",
+     "durSec": 8.033197,
+     "onsetSec": 0.000113,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 60,
+     "bytes": 193724,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/B3vH.mp3",
+     "durSec": 5.160839,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 59,
+     "bytes": 124760,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "61": {
+   "layers": [
+    {
+     "file": "samples/C4vL.mp3",
+     "durSec": 8.033197,
+     "onsetSec": 0.000113,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 60,
+     "bytes": 193724,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/B3vH.mp3",
+     "durSec": 5.160839,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 59,
+     "bytes": 124760,
+     "rate": 1.122462,
+     "cents": 200
+    }
+   ]
+  },
+  "62": {
+   "layers": [
+    {
+     "file": "samples/D#4vL.mp3",
+     "durSec": 4.189864,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999972,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 63,
+     "bytes": 101564,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/D#4vH.mp3",
+     "durSec": 4.934535,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999962,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 63,
+     "bytes": 119118,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "63": {
+   "layers": [
+    {
+     "file": "samples/D#4vL.mp3",
+     "durSec": 4.189864,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999972,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 63,
+     "bytes": 101564,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/D#4vH.mp3",
+     "durSec": 4.934535,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999962,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 63,
+     "bytes": 119118,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "64": {
+   "layers": [
+    {
+     "file": "samples/D#4vL.mp3",
+     "durSec": 4.189864,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999972,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 63,
+     "bytes": 101564,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/D#4vH.mp3",
+     "durSec": 4.934535,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999962,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 63,
+     "bytes": 119118,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "65": {
+   "layers": [
+    {
+     "file": "samples/F#4vL.mp3",
+     "durSec": 5.796304,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 66,
+     "bytes": 139807,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/F#4vH.mp3",
+     "durSec": 4.202857,
+     "onsetSec": 0.000023,
+     "sourcePeak": 0.999953,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 66,
+     "bytes": 101564,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "66": {
+   "layers": [
+    {
+     "file": "samples/F#4vL.mp3",
+     "durSec": 5.796304,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 66,
+     "bytes": 139807,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/F#4vH.mp3",
+     "durSec": 4.202857,
+     "onsetSec": 0.000023,
+     "sourcePeak": 0.999953,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 66,
+     "bytes": 101564,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "67": {
+   "layers": [
+    {
+     "file": "samples/F#4vL.mp3",
+     "durSec": 5.796304,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 66,
+     "bytes": 139807,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/F#4vH.mp3",
+     "durSec": 4.202857,
+     "onsetSec": 0.000023,
+     "sourcePeak": 0.999953,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 66,
+     "bytes": 101564,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "68": {
+   "layers": [
+    {
+     "file": "samples/A4vL.mp3",
+     "durSec": 2.143787,
+     "onsetSec": 0.000227,
+     "sourcePeak": 0.999989,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 69,
+     "bytes": 52662,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/A4vH.mp3",
+     "durSec": 2.95932,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.99999,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 69,
+     "bytes": 72098,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "69": {
+   "layers": [
+    {
+     "file": "samples/A4vL.mp3",
+     "durSec": 2.143787,
+     "onsetSec": 0.000227,
+     "sourcePeak": 0.999989,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 69,
+     "bytes": 52662,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/A4vH.mp3",
+     "durSec": 2.95932,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.99999,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 69,
+     "bytes": 72098,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "70": {
+   "layers": [
+    {
+     "file": "samples/A4vL.mp3",
+     "durSec": 2.143787,
+     "onsetSec": 0.000227,
+     "sourcePeak": 0.999989,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 69,
+     "bytes": 52662,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/B4vH.mp3",
+     "durSec": 3.425669,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999951,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 71,
+     "bytes": 83382,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "71": {
+   "layers": [
+    {
+     "file": "samples/C5vL.mp3",
+     "durSec": 5.483537,
+     "onsetSec": 0.000113,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 72,
+     "bytes": 132284,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/B4vH.mp3",
+     "durSec": 3.425669,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999951,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 71,
+     "bytes": 83382,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "72": {
+   "layers": [
+    {
+     "file": "samples/C5vL.mp3",
+     "durSec": 5.483537,
+     "onsetSec": 0.000113,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 72,
+     "bytes": 132284,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/C5vH.mp3",
+     "durSec": 3.470295,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999982,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 72,
+     "bytes": 84009,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "73": {
+   "layers": [
+    {
+     "file": "samples/C5vL.mp3",
+     "durSec": 5.483537,
+     "onsetSec": 0.000113,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 72,
+     "bytes": 132284,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/C5vH.mp3",
+     "durSec": 3.470295,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999982,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 72,
+     "bytes": 84009,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "74": {
+   "layers": [
+    {
+     "file": "samples/D#5vL.mp3",
+     "durSec": 2.839887,
+     "onsetSec": 0.000181,
+     "sourcePeak": 0.999129,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 75,
+     "bytes": 68963,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/D#5vH.mp3",
+     "durSec": 3.157596,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999999,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 75,
+     "bytes": 76486,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "75": {
+   "layers": [
+    {
+     "file": "samples/D#5vL.mp3",
+     "durSec": 2.839887,
+     "onsetSec": 0.000181,
+     "sourcePeak": 0.999129,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 75,
+     "bytes": 68963,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/D#5vH.mp3",
+     "durSec": 3.157596,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999999,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 75,
+     "bytes": 76486,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "76": {
+   "layers": [
+    {
+     "file": "samples/D#5vL.mp3",
+     "durSec": 2.839887,
+     "onsetSec": 0.000181,
+     "sourcePeak": 0.999129,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 75,
+     "bytes": 68963,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/D#5vH.mp3",
+     "durSec": 3.157596,
+     "onsetSec": 0.000159,
+     "sourcePeak": 0.999999,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 75,
+     "bytes": 76486,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "77": {
+   "layers": [
+    {
+     "file": "samples/F#5vL.mp3",
+     "durSec": 1.895896,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999979,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 78,
+     "bytes": 46393,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/F#5vH.mp3",
+     "durSec": 1.966667,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 78,
+     "bytes": 48274,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "78": {
+   "layers": [
+    {
+     "file": "samples/F#5vL.mp3",
+     "durSec": 1.895896,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999979,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 78,
+     "bytes": 46393,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/F#5vH.mp3",
+     "durSec": 1.966667,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 78,
+     "bytes": 48274,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "79": {
+   "layers": [
+    {
+     "file": "samples/F#5vL.mp3",
+     "durSec": 1.895896,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999979,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 78,
+     "bytes": 46393,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/F#5vH.mp3",
+     "durSec": 1.966667,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 78,
+     "bytes": 48274,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "80": {
+   "layers": [
+    {
+     "file": "samples/A5vL.mp3",
+     "durSec": 1.604104,
+     "onsetSec": 0.000181,
+     "sourcePeak": 0.999957,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 81,
+     "bytes": 39497,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/A5vH.mp3",
+     "durSec": 2.839206,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 81,
+     "bytes": 68963,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "81": {
+   "layers": [
+    {
+     "file": "samples/A5vL.mp3",
+     "durSec": 1.604104,
+     "onsetSec": 0.000181,
+     "sourcePeak": 0.999957,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 81,
+     "bytes": 39497,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/A5vH.mp3",
+     "durSec": 2.839206,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 81,
+     "bytes": 68963,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "82": {
+   "layers": [
+    {
+     "file": "samples/A5vL.mp3",
+     "durSec": 1.604104,
+     "onsetSec": 0.000181,
+     "sourcePeak": 0.999957,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 81,
+     "bytes": 39497,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/B5vH.mp3",
+     "durSec": 2.699592,
+     "onsetSec": 0.000249,
+     "sourcePeak": 0.999978,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 83,
+     "bytes": 65828,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "83": {
+   "layers": [
+    {
+     "file": "samples/C6vL.mp3",
+     "durSec": 2.209592,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999959,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 84,
+     "bytes": 53916,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/B5vH.mp3",
+     "durSec": 2.699592,
+     "onsetSec": 0.000249,
+     "sourcePeak": 0.999978,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 83,
+     "bytes": 65828,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "84": {
+   "layers": [
+    {
+     "file": "samples/C6vL.mp3",
+     "durSec": 2.209592,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999959,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 84,
+     "bytes": 53916,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/C6vH.mp3",
+     "durSec": 2.210227,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 84,
+     "bytes": 53916,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "85": {
+   "layers": [
+    {
+     "file": "samples/C6vL.mp3",
+     "durSec": 2.209592,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999959,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 84,
+     "bytes": 53916,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/C6vH.mp3",
+     "durSec": 2.210227,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 84,
+     "bytes": 53916,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "86": {
+   "layers": [
+    {
+     "file": "samples/D#6vL.mp3",
+     "durSec": 1.068549,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.999967,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 87,
+     "bytes": 26331,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/D#6vH.mp3",
+     "durSec": 1.836145,
+     "onsetSec": 0.000204,
+     "sourcePeak": 0.999948,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 87,
+     "bytes": 45139,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "87": {
+   "layers": [
+    {
+     "file": "samples/D#6vL.mp3",
+     "durSec": 1.068549,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.999967,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 87,
+     "bytes": 26331,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/D#6vH.mp3",
+     "durSec": 1.836145,
+     "onsetSec": 0.000204,
+     "sourcePeak": 0.999948,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 87,
+     "bytes": 45139,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "88": {
+   "layers": [
+    {
+     "file": "samples/D#6vL.mp3",
+     "durSec": 1.068549,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.999967,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 87,
+     "bytes": 26331,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/D#6vH.mp3",
+     "durSec": 1.836145,
+     "onsetSec": 0.000204,
+     "sourcePeak": 0.999948,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 87,
+     "bytes": 45139,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "89": {
+   "layers": [
+    {
+     "file": "samples/F#6vL.mp3",
+     "durSec": 1.092993,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999943,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 90,
+     "bytes": 26958,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/F#6vH.mp3",
+     "durSec": 1.255556,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999967,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 90,
+     "bytes": 31346,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "90": {
+   "layers": [
+    {
+     "file": "samples/F#6vL.mp3",
+     "durSec": 1.092993,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999943,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 90,
+     "bytes": 26958,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/F#6vH.mp3",
+     "durSec": 1.255556,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999967,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 90,
+     "bytes": 31346,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "91": {
+   "layers": [
+    {
+     "file": "samples/F#6vL.mp3",
+     "durSec": 1.092993,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999943,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 90,
+     "bytes": 26958,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/F#6vH.mp3",
+     "durSec": 1.255556,
+     "onsetSec": 0.000091,
+     "sourcePeak": 0.999967,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 90,
+     "bytes": 31346,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "92": {
+   "layers": [
+    {
+     "file": "samples/A6vL.mp3",
+     "durSec": 0.805193,
+     "onsetSec": 0.000136,
+     "sourcePeak": 0.99999,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 93,
+     "bytes": 20062,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/A6vH.mp3",
+     "durSec": 1.251655,
+     "onsetSec": 0.000068,
+     "sourcePeak": 0.999964,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 93,
+     "bytes": 30720,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "93": {
+   "layers": [
+    {
+     "file": "samples/A6vL.mp3",
+     "durSec": 0.805193,
+     "onsetSec": 0.000136,
+     "sourcePeak": 0.99999,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 93,
+     "bytes": 20062,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/A6vH.mp3",
+     "durSec": 1.251655,
+     "onsetSec": 0.000068,
+     "sourcePeak": 0.999964,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 93,
+     "bytes": 30720,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "94": {
+   "layers": [
+    {
+     "file": "samples/A6vL.mp3",
+     "durSec": 0.805193,
+     "onsetSec": 0.000136,
+     "sourcePeak": 0.99999,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 93,
+     "bytes": 20062,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/B6vH.mp3",
+     "durSec": 1.034921,
+     "onsetSec": 0.000045,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 95,
+     "bytes": 25704,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "95": {
+   "layers": [
+    {
+     "file": "samples/C7vL.mp3",
+     "durSec": 0.628345,
+     "onsetSec": 0.000204,
+     "sourcePeak": 0.999955,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 96,
+     "bytes": 16300,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/B6vH.mp3",
+     "durSec": 1.034921,
+     "onsetSec": 0.000045,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 95,
+     "bytes": 25704,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "96": {
+   "layers": [
+    {
+     "file": "samples/C7vL.mp3",
+     "durSec": 0.628345,
+     "onsetSec": 0.000204,
+     "sourcePeak": 0.999955,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 96,
+     "bytes": 16300,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/C7vH.mp3",
+     "durSec": 1.791202,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.999986,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 96,
+     "bytes": 43885,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "97": {
+   "layers": [
+    {
+     "file": "samples/C7vL.mp3",
+     "durSec": 0.628345,
+     "onsetSec": 0.000204,
+     "sourcePeak": 0.999955,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 96,
+     "bytes": 16300,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/C7vH.mp3",
+     "durSec": 1.791202,
+     "onsetSec": 0.000113,
+     "sourcePeak": 0.999986,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 96,
+     "bytes": 43885,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "98": {
+   "layers": [
+    {
+     "file": "samples/D#7vL.mp3",
+     "durSec": 0.791338,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 99,
+     "bytes": 20062,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/D#7vH.mp3",
+     "durSec": 0.70805,
+     "onsetSec": 0.000023,
+     "sourcePeak": 0.999947,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 99,
+     "bytes": 18181,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "99": {
+   "layers": [
+    {
+     "file": "samples/D#7vL.mp3",
+     "durSec": 0.791338,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 99,
+     "bytes": 20062,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/D#7vH.mp3",
+     "durSec": 0.70805,
+     "onsetSec": 0.000023,
+     "sourcePeak": 0.999947,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 99,
+     "bytes": 18181,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "100": {
+   "layers": [
+    {
+     "file": "samples/D#7vL.mp3",
+     "durSec": 0.791338,
+     "onsetSec": 0.000091,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 99,
+     "bytes": 20062,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/D#7vH.mp3",
+     "durSec": 0.70805,
+     "onsetSec": 0.000023,
+     "sourcePeak": 0.999947,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 99,
+     "bytes": 18181,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "101": {
+   "layers": [
+    {
+     "file": "samples/F#7vL.mp3",
+     "durSec": 0.604535,
+     "onsetSec": 0.000136,
+     "sourcePeak": 0.999972,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 102,
+     "bytes": 15673,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/F#7vH.mp3",
+     "durSec": 0.668254,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 102,
+     "bytes": 16927,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "102": {
+   "layers": [
+    {
+     "file": "samples/F#7vL.mp3",
+     "durSec": 0.604535,
+     "onsetSec": 0.000136,
+     "sourcePeak": 0.999972,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 102,
+     "bytes": 15673,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/F#7vH.mp3",
+     "durSec": 0.668254,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 102,
+     "bytes": 16927,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "103": {
+   "layers": [
+    {
+     "file": "samples/F#7vL.mp3",
+     "durSec": 0.604535,
+     "onsetSec": 0.000136,
+     "sourcePeak": 0.999972,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 102,
+     "bytes": 15673,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/F#7vH.mp3",
+     "durSec": 0.668254,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 102,
+     "bytes": 16927,
+     "rate": 1.059463,
+     "cents": 100
+    }
+   ]
+  },
+  "104": {
+   "layers": [
+    {
+     "file": "samples/A7vL.mp3",
+     "durSec": 0.73483,
+     "onsetSec": 0.000068,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 105,
+     "bytes": 18808,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/A7vH.mp3",
+     "durSec": 0.907982,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 105,
+     "bytes": 22569,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "105": {
+   "layers": [
+    {
+     "file": "samples/A7vL.mp3",
+     "durSec": 0.73483,
+     "onsetSec": 0.000068,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 105,
+     "bytes": 18808,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/A7vH.mp3",
+     "durSec": 0.907982,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 105,
+     "bytes": 22569,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "106": {
+   "layers": [
+    {
+     "file": "samples/A7vL.mp3",
+     "durSec": 0.73483,
+     "onsetSec": 0.000068,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 105,
+     "bytes": 18808,
+     "rate": 1.059463,
+     "cents": 100
+    },
+    {
+     "file": "samples/B7vH.mp3",
+     "durSec": 0.834626,
+     "onsetSec": 0.000113,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 107,
+     "bytes": 20689,
+     "rate": 0.943874,
+     "cents": -100
+    }
+   ]
+  },
+  "107": {
+   "layers": [
+    {
+     "file": "samples/C8vL.mp3",
+     "durSec": 0.393855,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.99999,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 108,
+     "bytes": 10658,
+     "rate": 0.943874,
+     "cents": -100
+    },
+    {
+     "file": "samples/B7vH.mp3",
+     "durSec": 0.834626,
+     "onsetSec": 0.000113,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 107,
+     "bytes": 20689,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  },
+  "108": {
+   "layers": [
+    {
+     "file": "samples/C8vL.mp3",
+     "durSec": 0.393855,
+     "onsetSec": 0.000045,
+     "sourcePeak": 0.99999,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.2,
+     "centre": 108,
+     "bytes": 10658,
+     "rate": 1,
+     "cents": 0
+    },
+    {
+     "file": "samples/C8vH.mp3",
+     "durSec": 0.69424,
+     "onsetSec": 0.000023,
+     "sourcePeak": 1,
+     "sampleRate": 44100,
+     "channels": 2,
+     "vel": 0.85,
+     "centre": 108,
+     "bytes": 17554,
+     "rate": 1,
+     "cents": 0
+    }
+   ]
+  }
+ }
+}
