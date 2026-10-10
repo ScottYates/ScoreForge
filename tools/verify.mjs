@@ -228,6 +228,26 @@ if (guard.code !== 0) {
   }
 }
 
+// Does the installer ship every backend module that imports another by bare
+// name? omr_engine.py does `from guard import ...`, and that only resolves
+// against the *installed* copy at $PREFIX/backend -- so a module present in the
+// checkout but missing from the install list is invisible until the service
+// starts. guard.py was exactly that, and the service crash-looped on
+// `No module named 'guard'` while the install reported success.
+const installedBackend = await run(process.execPath,
+  [path.join(root, 'tools/check-installed-backend.mjs')], { allowFail: true });
+console.log(installedBackend.out.trim());
+if (installedBackend.code !== 0) {
+  for (const line of installedBackend.out.split('\n')) {
+    if (line.trim().startsWith('FAIL ') || line.startsWith('INSTALLED BACKEND')) {
+      failures.push(line.trim());
+    }
+  }
+  if (!installedBackend.out.includes('FAIL ') && !installedBackend.out.includes('INSTALLED BACKEND')) {
+    failures.push('installed backend: ' + (installedBackend.err.trim() || 'check failed'));
+  }
+}
+
 // Does the installer still re-download 157 MB of model weights on every run?
 // It rebuilds the venv each time -- correctly, since a venv whose bin/python
 // dangles cannot be repaired in place -- and homr keeps its weights inside its

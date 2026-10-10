@@ -52,6 +52,18 @@ WEB_UNIT_SRC="$REPO/deploy/scoreforge-web.service"
 ENV_SRC="$REPO/deploy/scoreforge.env.example"
 ETC_DIR="/etc/scoreforge"
 VENV="$PREFIX/.venv"
+# The backend files copied into $PREFIX/backend. One list, used both to
+# preflight the checkout and to install it.
+#
+# It has to be one list because omr_engine.py imports its siblings by bare
+# name (`from guard import ...`), which only resolves when the module is
+# *installed* -- not merely present in the checkout. This list was written out
+# twice, preflight and install, and adding guard.py to the checkout updated
+# neither copy, so the service crash-looped on `No module named 'guard'` while
+# the install reported success. tools/check-installed-backend.mjs now holds the
+# list to the imports that actually exist, so a module cannot be added to
+# backend/ without being installed.
+BACKEND_FILES="app.py guard.py omr_engine.py preprocess.py requirements.txt"
 # homr stores its ONNX weights inside its own installed package, so they live
 # inside $VENV and are destroyed by every rebuild below. This sits outside the
 # venv so they can be carried across it. Deliberately not under $VENV, and not
@@ -81,7 +93,7 @@ trap 'die "failed at line $LINENO: $BASH_COMMAND"' ERR
 command -v systemctl >/dev/null || die "systemctl not found; this installer is for systemd hosts"
 command -v curl >/dev/null || die "curl not found"
 [ -f "$REPO/index.html" ] || die "index.html is not built -- run 'npm install && npm run build' first"
-for f in app.py omr_engine.py preprocess.py requirements.txt; do
+for f in $BACKEND_FILES; do
     [ -f "$REPO/backend/$f" ] || die "missing $REPO/backend/$f"
 done
 [ -f "$UNIT_SRC" ] && [ -f "$ENV_SRC" ] || die "missing deploy/scoreforge.service or scoreforge.env.example"
@@ -220,7 +232,7 @@ if [ -d "$REPO/pack" ] && [ -f "$REPO/pack/manifest.json" ]; then
 else
     warn "no pack/ directory -- the recorded instruments will fall back to the synthesiser"
 fi
-for f in app.py omr_engine.py preprocess.py requirements.txt; do
+for f in $BACKEND_FILES; do
     install -m 0644 "$REPO/backend/$f" "$PREFIX/backend/$f"
 done
 if [ -d "$REPO/fixtures" ]; then
@@ -315,6 +327,19 @@ for m in ("numpy", "cv2", "cv2.typing", "onnxruntime", "PIL", "pypdfium2",
 import numpy, cv2
 print(f"    python {sys.version.split()[0]}  numpy {numpy.__version__}  opencv {cv2.__version__}")
 PY
+# Now import the backend *as installed*, which is a different thing from the
+# checkout: the unit runs $PREFIX/backend/app.py, so $PREFIX/backend is what
+# resolves its bare `import omr_engine` / `from guard import ...`. Importing
+# the checkout would pass while the service crash-looped -- which is exactly
+# what happened, 1200 restarts deep, for a module the install had never
+# copied. Importing app is safe: uvicorn.run() is inside main(), under the
+# __main__ guard.
+"$VPY" - <<PY || die "the installed backend does not import -- see the traceback above"
+import sys
+sys.path.insert(0, "$PREFIX/backend")
+import guard, preprocess, omr_engine, app
+print("    backend imports from $PREFIX/backend")
+PY
 "${PIP[@]}" check 2>&1 | sed 's/^/    pip check: /' | grep -v 'opencv-python-headless' || true
 
 say "Fetching model weights"
@@ -341,6 +366,16 @@ PY
 
 chown -R root:root "$PREFIX"
 chmod -R a+rX "$PREFIX"
+
+# The OMR scratch directory is the one path the service writes at runtime, and
+# it has to be made here rather than on first use: guard.ROOT resolves to
+# $PREFIX on an installed tree, so omr_engine's owned_tree() creates
+# $PREFIX/.tmp/omr-work -- and the unit runs under ProtectSystem=strict, where
+# /opt is read-only and only paths named in ReadWritePaths= stay writable.
+# Without this the service starts and then fails every transcription with EROFS.
+# After the chown and chmod above on purpose: both reset the owner of everything
+# under $PREFIX, so a directory created before them would end up root-owned.
+install -d -o "$SVC_USER" -g "$SVC_USER" -m 0750 "$PREFIX/.tmp"
 
 # The service account must be able to start the interpreter, or systemd reports
 # status=203/EXEC (or 200/CHDIR) with no useful message.

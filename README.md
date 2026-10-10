@@ -499,6 +499,7 @@ tools/
   check-recording-fidelity.mjs is a take still the recording it was cut from
   check-pack-is-unprocessed.mjs is the pack still just the recordings
   check-no-unguarded-deletes.mjs nothing deletes outside guard.mjs / guard.py
+  check-installed-backend.mjs  every module the service imports is installed
   check-model-cache.py    weights survive the installer's venv rebuild
   lib/guard.mjs        the only file allowed to delete anything (JS side)
   guard.py             the same rule for the Python backend

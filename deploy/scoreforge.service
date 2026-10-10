@@ -24,12 +24,19 @@ RestartSec=5s
 CPUQuota=200%
 MemoryMax=4G
 
-# Scratch space. process_image writes its .musicxml and teaser next to the image
-# it is given, and the upload handler uses a temp directory per request.
+# Scratch space. PrivateTmp gives the service its own /tmp and /var/tmp, which
+# stay writable under ProtectSystem=strict below. The OMR pass does not use
+# them: guard.ROOT resolves to /opt/scoreforge on an installed tree, so
+# omr_engine's owned_tree() creates $PREFIX/.tmp/omr-work, and that is the one
+# path the service has to write. install.sh creates it and chowns it to the
+# service account. Deliberately not "-" prefixed: a ReadWritePaths= entry that
+# does not exist fails the unit at start, which is the outcome we want if
+# someone runs the unit without the installer having prepared the tree.
 PrivateTmp=true
+ReadWritePaths=/opt/scoreforge/.tmp
 
 # The install tree is read-only at runtime: the model weights are downloaded
-# during install (see deploy/install.sh), so nothing needs to write here.
+# during install (see deploy/install.sh), so nothing else needs to write here.
 ProtectSystem=strict
 ProtectHome=true
 
