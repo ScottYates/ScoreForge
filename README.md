@@ -138,7 +138,12 @@ is `DEFAULT_INSTRUMENT` in `instruments.js`). All 128 General MIDI programs land
 on one. The pack has no recording of some families — bowed strings, brass,
 flute, choir, the tuned mallets, harpsichord — and those go to the nearest
 recording rather than to the model: synth strings for a violin, the recorder
-for a flute. The substitutions are listed once, as `GAPS` in `gm.js`.
+for a flute. Vocal parts — a part named Voice, Choir or Soprano, or the GM
+choir programs — go to the recorded upright piano, what a sung line is
+rehearsed against, never to the "Synth Pad, Choir" bank: that bank is a
+recording *of a synthesiser*, and a vocal score defaulting to it sounds like a
+synthesiser however well the sampler plays it. The substitutions are listed
+once, as `GAPS` in `gm.js`.
 
 A modelled instrument is reached in two ways only: you pick one, or a recorded
 instrument's pack cannot be had and it plays its own modelled `fallback`.
@@ -741,6 +746,8 @@ is fetched at runtime.
 - The pack has no recorded bowed strings, brass, flute, choir, tuned mallets or
   harpsichord. Those parts play the nearest recording (`GAPS` in `gm.js`), which
   for strings and brass is a synthesiser that was recorded, not the instrument.
+  Vocal parts play the recorded upright instead, like a rehearsal; pick the
+  synth choir pad per part if a pad is what you want.
 - The recorded pack has one dynamic layer per instrument, so dynamics come from
   the sampler's gain curve rather than from velocity-layered samples. The
   upright piano is the exception: its bank ships two hammers per key and

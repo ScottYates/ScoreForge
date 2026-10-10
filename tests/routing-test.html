@@ -71,6 +71,9 @@ try {
     0: 'rec-fp-upright', 3: 'rec-fp-honky-tonk', 19: 'rec-fp-church-organ', 21: 'rec-fp-accordion',
     24: 'rec-fp-nylon-guitar', 25: 'rec-fp-steel-guitar', 33: 'rec-fp-bass-guitar', 46: 'rec-fp-harp',
     47: 'rec-fp-timpani', 66: 'rec-fp-tenor-sax', 71: 'rec-fp-clarinet', 74: 'rec-fp-recorder',
+    // The three GM voice programs: a vocal score must not default to a synth
+    // pad, however the file spells "voice".
+    52: 'rec-fp-upright', 53: 'rec-fp-upright', 54: 'rec-fp-upright',
     79: 'rec-fp-ocarina', 109: 'rec-fp-bagpipe', 14: 'rec-fp-tubular-bells', 13: 'rec-fp-xylophone',
   };
   for (const [p, want] of Object.entries(spot)) {
@@ -113,7 +116,12 @@ try {
     'Alto Saxophone': 'rec-fp-tenor-sax',
     'Flute': 'rec-fp-recorder',
     'Ocarina': 'rec-fp-ocarina',
-    'Choir Aahs': 'rec-fp-synth-pad-choir',
+    // Vocal parts land on the recorded piano -- what a sung line is rehearsed
+    // against -- never on the recorded synth pad.
+    'Choir Aahs': 'rec-fp-upright',
+    'Voice': 'rec-fp-upright',
+    'Vocal': 'rec-fp-upright',
+    'Soprano': 'rec-fp-upright',
     'Acoustic Guitar': 'rec-fp-steel-guitar',
     'Electric Guitar': 'rec-fp-eg-clean',
     'the guitar': 'rec-fp-nylon-guitar',
@@ -129,7 +137,10 @@ try {
     const got = instrumentForName(name);
     ok(`"${name}" -> ${want}`, got === want, String(got));
   }
-  for (const silent of ['', 'Melody', 'Part 1', 'Alto', 'Bass']) {
+  // Bare vocal-book section headings say nothing -- and the default they fall
+  // through to is the same recorded piano, so SOP/ALTO/TEN/BARI parts end up
+  // there either way.
+  for (const silent of ['', 'Melody', 'Part 1', 'Alto', 'Bass', 'SOP:', 'TEN:', 'BARI:']) {
     ok(`"${silent}" says nothing, so the program decides`, instrumentForName(silent) === null,
       String(instrumentForName(silent)));
   }

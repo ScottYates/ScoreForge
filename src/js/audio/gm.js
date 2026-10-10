@@ -56,9 +56,14 @@ const GM = [
   R('synth-strings-1'), R('synth-strings-1'), R('synth-strings-1'), R('synth-strings-1'),
   R('synth-strings-2'), R('harp'), R('harp'), R('timpani'),
   // 48-55 Ensemble: strings 1, strings 2, synth strings 1, synth strings 2,
-  //       choir aahs, voice oohs, synth voice, orchestra hit
+  //       choir aahs, voice oohs, synth voice, orchestra hit.
+  // The choir and voice programs go to the recorded upright, not to the
+  // "Synth Pad, Choir" bank: that bank is a recording OF a synthesiser, and a
+  // vocal score played on it sounds like a synthesiser, which is the one thing
+  // a roster of recordings must not do by default. A sung line is rehearsed
+  // against a piano; the pad stays in the picker for anyone who wants it.
   R('synth-strings-1'), R('synth-strings-2'), R('synth-strings-1'), R('synth-strings-2'),
-  R('synth-pad-choir'), R('synth-pad-choir'), R('synth-pad-choir'), R('synth-soundtrack'),
+  R('upright'), R('upright'), R('upright'), R('synth-soundtrack'),
   // 56-63 Brass: trumpet, trombone, tuba, muted trumpet, french horn,
   //       brass section, synth brass 1, synth brass 2
   R('synth-brass-1'), R('synth-brass-1'), R('synth-brass-1'), R('synth-brass-1'),
@@ -105,7 +110,7 @@ export const GAPS = {
   'bowed strings': R('synth-strings-1'),
   brass: R('synth-brass-1'),
   flute: R('recorder'),
-  choir: R('synth-pad-choir'),
+  choir: R('upright'),
   'celesta / music box': R('kalimba'),
   'glockenspiel / vibraphone / marimba': R('xylophone'),
   'harpsichord / clavinet': R('honky-tonk'),
@@ -157,7 +162,11 @@ const NAMES = [
   [/church organ|pipe organ|organ/, R('church-organ')],
   [/accordion|harmonica|harmonium|concertina|bandoneon|melodica/, R('accordion')],
   [/bagpipe/, R('bagpipe')],
-  [/choir|voice|vocal|chorus|soprano|mezzo/, R('synth-pad-choir')],
+  // Vocal parts. The piano, because that is what a vocal line is rehearsed
+  // against, and because the only "choir" in the pack is a synth pad -- the
+  // sound this app must not default to. Bare section names (SOP, ALTO, TEN,
+  // BARI) say nothing here and fall through to the same recorded default.
+  [/choir|voice|vocal|chorus|soprano|mezzo/, R('upright')],
   [/violin|viola|cello|violoncello|fiddle|string|orchestra/, R('synth-strings-1')],
   [/clarinet|oboe|bassoon|english horn|cor anglais/, R('clarinet')],
   [/trumpet|trombone|tuba|horn|cornet|flugel|euphonium|brass/, R('synth-brass-1')],
