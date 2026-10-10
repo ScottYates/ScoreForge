@@ -42,10 +42,11 @@
  * Chrome does not strip LAME's encoder delay, so a decoded buffer starts about
  * 1105 samples (25 ms) of silence ahead of the audio that went in -- and 1524
  * for stereo at 96 kbps. It is not a constant, so it cannot be a constant in
- * the manifest. The pack builder prepends MARKER samples of digital silence to
- * every file; findOnset() locates where the sound actually begins, once, at
- * load. That costs about 190 bytes per file and is correct on any browser that
- * can decode MP3 at all. See tools/check-codec-delay.mjs.
+ * the manifest. findOnset() locates the first sound in each decoded buffer, once,
+ * at load, and playback starts there. That absorbs the encoder delay and the
+ * recording's own leading silence in one measurement, costs nothing on disk, and
+ * is correct on any browser that can decode MP3 at all. The pack prepends no
+ * marker of its own; see tools/check-codec-delay.mjs.
  */
 
 /** How many files to fetch and decode at once. */
@@ -616,7 +617,14 @@ export function createSampledInstrument(packId, ctx, outputNode) {
     src.playbackRate.value = rate;
 
     const amp = ctx.createGain();
-    // Undo the pack's normalisation, then apply the note's own velocity.
+    // The pack's balance, then the note's own velocity, then the mixer's fader.
+    //
+    // hit.g is the playing level the builder recorded in the manifest: the family
+    // target over the take's own peak. It used to be a correction that undid a
+    // normalisation the builder had already written into the sample files, and it
+    // was 1 for every note in the pack. Now the files are the recordings and
+    // this is the whole of the mix balance -- without it the roster spans the ~30
+    // dB the recordings span, and the piano sits under the xylophone.
     const peakGain = hit.g * Math.pow(velocity, 1.4) * params.level;
     amp.gain.value = peakGain;
 
@@ -695,6 +703,24 @@ export function createSampledInstrument(packId, ctx, outputNode) {
     // short sample on a long note leaves its buffer resident indefinitely.
     if (!sustainLoop) {
       const ring = Math.min(MAX_RING_SECONDS, Math.max(hit.dur / rate, duration + 0.5));
+      // Fade before a stop that lands inside the recording.
+      //
+      // This only matters now that the takes are whole. They used to be cut to
+      // 4 s (10 s on the pianos), always below MAX_RING_SECONDS, so `ring` was
+      // the take's own end and stopping there landed on silence -- inaudible.
+      // A full-length piano take runs past the cap, so the cap binds and the
+      // source is stopped while it is still ringing, which is a click on every
+      // note held past twelve seconds.
+      //
+      // A gain ramp, not an edit to the sample: the ramp lives on the voice's
+      // own gain node and exists only for this stop.
+      const natural = hit.dur / rate;
+      if (ring < natural - 0.01) {
+        const fade = Math.min(0.04, ring * 0.5);
+        const fadeAt = when + ring - fade;
+        amp.gain.setValueAtTime(amp.gain.value, fadeAt);
+        amp.gain.linearRampToValueAtTime(0, when + ring);
+      }
       v.hardStopAt = when + ring;
       src.stop(when + ring);
       // Same reasoning as release(): the stop is scheduled, so the node keeps

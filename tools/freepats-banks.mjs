@@ -14,13 +14,14 @@
  * where its loop is, and re-deriving it from the envelope is strictly worse.
  *
  * `target` is the one judgement call, and it is about the mix rather than the
- * bank: every instrument is peak-normalised to the same figure so the roster is
- * internally consistent, with struck and plucked things set a little lower
- * because they have a hard attack and would otherwise slam the bus.
+ * bank: every instrument plays at the same peak so the roster is internally
+ * consistent, with struck and plucked things set a little lower because they
+ * have a hard attack and would otherwise slam the bus. It is applied as
+ * playback gain, not written into the sample files.
  */
 
 /** @typedef {{slug:string, pack:string, name:string, fallback:string,
- *            target?:number, maxSec?:number, maxHits?:number,
+ *            target?:number, maxHits?:number,
  *            loop?:boolean, group?:string}} Bank */
 
 /** @type {Bank[]} */
@@ -29,12 +30,13 @@ export const FREEPATS_BANKS = [
   // A piano is struck, not bowed. Its bank's SFZ does declare loop points, and
   // honouring them turned every note held longer than a few seconds into a
   // drone that jumped back up to full level. The string has to be allowed to
-  // decay and stop, and it needs long enough to get there: an A2 on this bank
-  // is still audible at 4 s, which is exactly where the 4 s cut used to land.
+  // decay and stop. Both entries used to carry `maxSec: 10`, which cut the take
+  // where it was still audible; nothing is truncated now, so a long A2 decays
+  // for as long as the recording says it does.
   { slug: 'upright-piano-kw', pack: 'fp-upright', name: 'Upright Piano (recorded)',
-    fallback: 'felt-piano', maxSec: 10, loop: false },
+    fallback: 'felt-piano', loop: false },
   { slug: 'old-piano-fb', pack: 'fp-honky-tonk', name: 'Honky-Tonk Piano (recorded)',
-    fallback: 'felt-piano', target: 0.42, maxSec: 10, loop: false },
+    fallback: 'felt-piano', target: 0.42, loop: false },
   // FreePats names these "FM Synthesized Piano". They are synthesis, and saying
   // "(recorded)" next to them sent people looking for a piano that was not there.
   { slug: 'fm-synthesized-piano-1', pack: 'fp-fm-piano-1', name: 'FM Piano I (synthesised)',

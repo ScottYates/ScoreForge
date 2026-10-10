@@ -1,11 +1,10 @@
 /**
- * tools/check-decode-budget.mjs - can 59 recorded instruments fit in a tab?
+ * tools/check-decode-budget.mjs - can the whole recorded roster fit in a tab?
  *
- * The pack builder writes about 2.2 GB of MP3 across 59 families, which decode
- * to roughly 4.3 GB of floating-point PCM. Decoding all of it before the first
- * note is not slow, it is impossible: no browser tab is asked to sit on 4.3 GB
- * of AudioBuffer. So the bytes are fetched up front and the PCM is decoded per
- * key, on demand, under a byte budget with least-recently-used eviction.
+ * The pack is fetched as compressed bytes and decoded to floating-point PCM per
+ * key, on demand, under a byte budget with least-recently-used eviction. Decoding
+ * all of it before the first note is not slow, it is impossible: no browser tab
+ * is asked to sit on several gigabytes of AudioBuffer.
  *
  * That design is only worth anything if the eviction actually happens, so this
  * measures it rather than reasoning about it. The budget is dropped to almost

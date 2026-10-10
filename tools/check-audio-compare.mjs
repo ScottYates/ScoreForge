@@ -53,9 +53,9 @@ const MP3_ONSET_BUDGET_MS = 100;
  *
  * An absolute difference is the wrong unit: the recording touches digital full
  * scale on one sample, and a lossy codec is entitled to reconstruct that peak a
- * little lower. What must not happen is a level change -- normalising to a
- * family target, say, which is what the pack builder does and would move this
- * by tens of dB.
+ * little lower. What must not happen is a level change -- scaling every take to
+ * a family peak, say, which is what the pack builder used to do and would move
+ * this by tens of dB.
  */
 const PEAK_TOLERANCE_DB = 1;
 
@@ -166,8 +166,9 @@ if (Math.abs(res.wavVsMp3LengthDeltaMs) > LENGTH_TOLERANCE_MS) {
     + 'something trimmed or padded it');
 }
 // A lossy codec is entitled to reconstruct a full-scale peak slightly lower, so
-// the comparison is in dB. A level change -- normalising to a family target,
-// which is what the pack builder does -- would move this by tens of dB.
+// the comparison is in dB. A level change -- scaling every take to a family
+// peak, which is what the pack builder used to do -- would move this by tens of
+// dB.
 const peakDb = 20 * Math.log10(res.mp3.renderedPeak / res.wav.renderedPeak);
 console.log(`peak    WAV ${res.wav.renderedPeak} vs MP3 ${res.mp3.renderedPeak}`
   + `  -> ${peakDb >= 0 ? '+' : ''}${peakDb.toFixed(2)} dB (tolerance ${PEAK_TOLERANCE_DB} dB)`);

@@ -89,20 +89,17 @@ for (const b of struck) {
   }
 }
 
-// The struck banks are also the ones that were being cut short. A bank that says
-// maxSec: 10 must actually produce takes of about that length on its low keys,
-// where a piano rings longest, or the setting is decorative.
-const tooShort = [];
-for (const b of struck) {
-  const inst = manifest.instruments[b.pack];
-  if (!inst) continue;
-  const wanted = b.maxSec ?? 0;
-  const longest = Math.max(0, ...Object.values(inst.notes)
-    .flatMap((e) => e.hits.map((h) => h.dur)));
-  if (wanted && longest < wanted * 0.8) {
-    tooShort.push(`${b.pack}: longest take ${longest.toFixed(2)}s against a ${wanted}s budget`);
-  }
-}
+// How long a struck bank's takes are is no longer checked here. It used to be:
+// the piano banks carried `maxSec: 10`, and this asserted they actually produced
+// takes of roughly that length, because a setting nothing enforces is decorative.
+// The builder no longer truncates at all, so the budget and the assertion both
+// went with it -- leaving the block in place would have compared 0 against 0
+// and reported green forever.
+//
+// What replaced it is stronger and lives in tools/check-pack-is-unprocessed.mjs:
+// it decodes every shipped file and compares its length against the source WAV,
+// so a take that is cut short is caught against the recording rather than
+// against a number the builder also wrote.
 
 // Velocity layers have to be recorded as layers, or nothing can choose between
 // them. A bank that ships vL and vH for a key must put different `vel` values on
@@ -201,6 +198,13 @@ function centsModOctave(f, expectedHz) {
  * exists to catch -- folding the left channel to (L+R)/2 -- takes the width down
  * by about 6 dB on the FreePats upright, which is far outside any tolerance a
  * correct build could reach.
+ *
+ * The width field is the builder's own reading of the source, so this
+ * comparison proves the encode preserved what the builder saw, not that the
+ * builder saw the recording. tools/check-pack-is-unprocessed.mjs is the one that
+ * reads the WAV back out of the FreePats cache and compares that, and it is
+ * stronger on this axis; this stays because it also measures pitch and the
+ * velocity-layer split.
  */
 function sideMidDb(L, R) {
   let ss = 0, mm = 0;
@@ -376,9 +380,8 @@ console.log('struck instruments must not loop');
 for (const msg of mustNotLoop) { console.log('  <- ' + msg); bad++; }
 if (!mustNotLoop.length) console.log(`  ok (${struck.map((b) => b.pack).join(', ')})`);
 
-console.log('\nstruck instruments must not be cut short');
-for (const msg of tooShort) { console.log('  <- ' + msg); bad++; }
-if (!tooShort.length) console.log('  ok');
+console.log('\nstruck instruments are not truncated (see check-pack-is-unprocessed.mjs)');
+console.log(`  ok (${struck.map((b) => b.pack).join(', ')})`);
 
 console.log('\nvelocity layers recorded as layers');
 console.log(`  fp-upright keys with a usable vL/vH split: ${uprightLayered}`);
@@ -452,4 +455,4 @@ if (bad) {
   process.exit(1);
 }
 console.log(`\nok: ${widthRows.length} stereo takes kept the width of the recording they were cut from, `
-  + `${res.rows.length} takes measured, and nothing struck is looping or cut short`);
+  + `${res.rows.length} takes measured, and nothing struck is looping`);

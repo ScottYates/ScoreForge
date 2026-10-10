@@ -2,11 +2,10 @@
  * tools/check-sampler-audio.mjs - does the real sample pack actually play?
  *
  * tests/sampler-test.html proves the sampler's logic with synthetic buffers.
- * That is not the same question. The real pack is 973 MP3s that went through
- * an encoder which silently prepends 25 ms of delay, were trimmed by rules
- * nobody has listened to, and are normalised to per-family levels that span
- * 40 dB. This loads those actual files in a browser, renders each instrument
- * offline, and measures the result.
+ * That is not the same question. The real pack is four thousand MP3s of real
+ * recordings, whose levels span about 40 dB and are balanced by a per-take gain
+ * in the manifest rather than by rewriting the files. This loads those actual
+ * files in a browser, renders each instrument offline, and measures the result.
  *
  * It fails on: an instrument that renders silence, a note that does not begin
  * at the time it was scheduled, or a level so far out of family that it will
@@ -95,8 +94,8 @@ const SCORE = \`<?xml version="1.0" encoding="UTF-8"?>
     const WHEN = 0.25;
     const SECS = 2.0;
     const off = new OfflineAudioContext(1, Math.ceil(44100 * SECS), 44100);
-    // Only the three keys about to be played, so this walks the whole 59-pack
-    // roster without decoding 4.3 GB of PCM into the same tab.
+    // Only the three keys about to be played, so this walks the whole pack
+    // roster without decoding gigabytes of PCM into the same tab.
     await preparePack(id, [mid - 4, mid, mid + 3]);
     const inst = createSampledInstrument(id, off, off.destination);
     for (const m of [mid - 4, mid, mid + 3]) {

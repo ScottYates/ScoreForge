@@ -9,10 +9,9 @@
  *
  * It fails on: a key that renders silence, a note whose attack does not land
  * when the key was pressed, or a note whose level has moved from the level in
- * the recording. That last one is the interesting one -- the pack builder
- * normalises every note to a family target, which is defensible for a 131 MB
- * library playing fifty instruments at once and is exactly what must not
- * happen to a sample being played on its own.
+ * the recording. That last one is the interesting one -- a sample played on its
+ * own must sound exactly as recorded, and a level applied to it in the builder
+ * rather than at playback is the specific thing this has to catch.
  *
  *   node tools/check-sampled-instrument.mjs
  */

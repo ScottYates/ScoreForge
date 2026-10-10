@@ -11,33 +11,53 @@
  *
  * Two libraries are involved and they owe different things -- see SOURCES below.
  *
- * Three things in here are not obvious, and all three came from measuring the
- * real files rather than from the documentation:
+ * This build does nothing to the recordings. Nothing is trimmed, nothing is
+ * normalised, no loop points are invented, no silence is prepended, and the
+ * whole take is kept at its own level. Every MP3 here is the source WAV
+ * re-encoded and nothing else.
  *
- * 1. LEADING SILENCE. Several banks start with silence before the attack. Left
- *    in, every note plays late. Trimmed.
+ * That is the whole design, and the rest of the file exists to keep it true --
+ * so the four things that are not obvious, all of which came from measuring the
+ * real files rather than from reading the documentation:
  *
- * 2. CODEC DELAY IS NOT CONSTANT. Chrome does not strip LAME's encoder delay.
- *    It is 1105 samples for most settings but 1524 for stereo 96 kbps -- see
- *    tools/check-codec-delay.mjs. So every file gets MARKER samples of digital
- *    silence prepended, and the sampler finds where the sound actually starts
- *    in each decoded buffer. Measuring per file costs ~190 bytes and is correct
- *    on any browser that can decode MP3 at all.
+ * 1. LEADING SILENCE IS NOT A PROBLEM, IT IS THE FIX. Several banks begin with
+ *    silence before the attack, and that used to be trimmed because a note that
+ *    plays late is wrong. The sampler already locates the first sound in every
+ *    decoded buffer and starts the source node there, so starting later is
+ *    exactly what cancels it. Untrimmed takes need nothing done to them, and
+ *    they keep the room tone the recording actually had.
+ *
+ * 2. CODEC DELAY IS NOT CONSTANT, SO IT IS MEASURED, NOT STORED. Chrome does not
+ *    strip LAME's encoder delay: 1105 samples for most settings but 1524 for
+ *    stereo 96 kbps (tools/check-codec-delay.mjs). A constant in the manifest
+ *    would be wrong for some files. Instead findOnset() runs over each decoded
+ *    buffer at load and finds the first sound, which absorbs the encoder delay
+ *    and the recording's own pre-roll in one measurement. The cost is no bytes
+ *    at all, and it is correct on any browser that can decode MP3.
  *
  * 3. PITCHES COME FROM THE SFZ, NOT THE FILENAME. A FreePats bank ships
  *    `1_01.wav`, so the pitch comes from the bank's own key map -- along with
- *    its keycentre, its tune and the loop points its author chose.
+ *    its keycentre, its tune and the loop points its author chose. Loop points
+ *    are frame numbers in the source file, so with nothing trimmed they need no
+ *    rebasing at all.
  *
  * 4. PITCHES ARE SPARSE. Some banks sample every third semitone. A missing
  *    pitch is filled by playing the nearest real sample at a shifted rate
  *    rather than by dropping the key. tools/list-recorded.mjs reports how far
  *    that shift gets on each bank, because on a few of them it gets a long way.
+ *
+ * 5. MIX BALANCE IS A GAIN, NOT A REWRITE. Recordings span about 30 dB -- the
+ *    piano sits that far below the xylophone -- so the roster needs balancing.
+ *    That used to be done by scaling every sample file to a common peak, which
+ *    is the one edit this build exists not to make. It is now a number in the
+ *    manifest (`hit.g`, the same figure prepare() used to apply) and is applied
+ *    by the sampler at playback. Identical mix, unmodified recordings.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readWav, peakOf, envelope } from './lib/wav.mjs';
+import { readWav } from './lib/wav.mjs';
 import { encodeMp3 } from './lib/lame.mjs';
 import { parseSfz, regionsForKey, keyCentreOf, loopsRegion } from './lib/sfz.mjs';
 import { FREEPATS_BANKS } from './freepats-banks.mjs';
@@ -53,18 +73,15 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
  * `from` names the entries in SOURCES this family is built from, and `bank`
  * is the directory the downloader put it in. Everything else is measured
  * from the files rather than declared here -- channel count from the WAV,
- * pitch and loop points from the SFZ. The only hand-written settings are
- * `target`, which is how loud the family sits in the mix, and `maxSec`,
- * which is how much of a take to keep.
+ * pitch and loop points from the SFZ. The only hand-written setting left is
+ * `target`, which is how loud the family sits in the mix. It used to sit
+ * alongside `maxSec`, which decided how much of a take to keep and is gone:
+ * the whole take is kept now, which is the point.
  *
  * `loop` marks a family that sustains while held. Its samples get loop points
  * so a two-bar note does not run out three seconds in.
  */
 const FAMILIES = [];
-
-/** Digital silence prepended to every encoded file so the sampler can locate
- *  the true onset. Long enough to swamp MP3 pre-echo, short enough to be free. */
-const MARKER = 1024;
 
 /**
  * How far below the take's loudest window a loop may start, in dB.
@@ -75,7 +92,15 @@ const MARKER = 1024;
  */
 const LOOP_FLOOR_DB = null;
 
-/** Loudness, by family. Percussive mallets sit lower or they slap the bus. */
+/**
+ * Bitrate, by channel count.
+ *
+ * The only knob left in this builder. Every sample is the source WAV and nothing
+ * else, so the pack is as big as the recordings are long -- keeping the takes in
+ * full costs about a fifth more than truncating them to 4 s did, which is the
+ * honest price of not throwing away the decay. `--bitrate` moves it if you would
+ * rather have the size back.
+ */
 const BITRATE = { stereo: 96, mono: 64 };
 
 const args = process.argv.slice(2);
@@ -88,6 +113,14 @@ const FP = flag('freepats', path.join(os.tmpdir(), 'sf-freepats'));
 const OUT = path.resolve(repo, flag('out', 'pack'));
 /** How many takes of one note to keep. FreePats ships many; a browser does not need them all. */
 const FP_HITS = Number(flag('hits', 2));
+
+// Overrides for the whole build, because pack size is the one thing about an
+// unprocessed pack that is a judgement rather than a fact.
+if (flag('bitrate', null)) {
+  const v = Number(flag('bitrate'));
+  BITRATE.stereo = v;
+  BITRATE.mono = Math.max(32, Math.round(v * (2 / 3)));
+}
 
 // The FreePats banks, turned into families. `bank` is the directory name the
 // downloader used; almost everything else is measured from the files rather
@@ -104,7 +137,9 @@ for (const b of FREEPATS_BANKS) {
     // decay. The bank's entry is what says which, and a piano sets it to false.
     loop: b.loop,
     maxHits: FP_HITS,
-    maxSec: b.maxSec ?? 4.0,
+    // The peak this family plays at. It used to be applied to the sample files;
+    // it is a number in the manifest now and the sampler multiplies by it. See
+    // changesFor() and the note in the header.
     target: b.target ?? 0.45,
   });
 }
@@ -177,12 +212,14 @@ const SOURCES = {
  * of edits without any check noticing, since the check compares the notice
  * against the manifest and both were generated from the same wrong sentence.
  *
- * Only families whose licence asks for it need one.
+ * Only families whose licence asks for it need one. For the CC0 banks this text
+ * is never emitted at all, which is exactly why it has to be right for the one
+ * bank that is not CC0: this build re-encodes to MP3 and does nothing else, and
+ * the loop points a note carries are the bank's own as published rather than
+ * anything invented here.
  */
 function changesFor(cfg, built) {
-  const bits = ['leading and trailing silence trimmed'];
-  bits.push(built.stereo ? 'kept stereo' : 'mixed to mono');
-  if (cfg.maxSec) bits.push(`truncated to ${cfg.maxSec} s`);
+  const bits = [built.stereo ? 'stereo kept' : 'mixed to mono'];
   // "what changed" has to describe what this build did, not what a flag says.
   // The FreePats families take their loop points from the bank's own SFZ rather
   // than deriving them, which is a different edit to the audio and worth
@@ -190,9 +227,11 @@ function changesFor(cfg, built) {
   bits.push(built.anyLoop
     ? (cfg.bank ? 'loop points taken from the bank\'s SFZ as published' : 'loop points added for held notes')
     : 'no loop points');
-  // Per take, not per instrument: prepare() scales every note to the family
-  // target so the piano sits next to a xylophone without vanishing.
-  bits.push('peak-normalised per note');
+  // The balance is applied as playback gain, so the file on disk is the
+  // recording. Declaring that matters: it is the difference between this pack
+  // and the one it replaced, and an attribution that does not say it describes
+  // a different set of files.
+  bits.push('levels and timing untouched; mix balance applied as playback gain');
   bits.push(`encoded to MP3 at ${built.stereo ? BITRATE.stereo : BITRATE.mono} kbps`);
   return bits.join('; ') + '.';
 }
@@ -226,39 +265,14 @@ function writeOut(file, data) {
   }
 }
 
-/** Trim leading and trailing silence. Returns the useful frame range. */
-function trimSilence(wav, floorDb = -50) {
-  const floor = Math.pow(10, floorDb / 20);
-  const win = Math.max(1, Math.round(wav.sampleRate * 0.002));
-  let peak = 0;
-  for (const ch of wav.data) for (let i = 0; i < ch.length; i++) peak = Math.max(peak, Math.abs(ch[i]));
-  if (peak <= 0) return { from: 0, to: 0, peak: 0 };
-
-  const thr = peak * floor;
-  let from = 0;
-  for (let i = 0; i + win <= wav.frames; i += win) {
-    let m = 0;
-    for (const ch of wav.data) for (let j = i; j < i + win; j++) m = Math.max(m, Math.abs(ch[j]));
-    if (m > thr) { from = i; break; }
-    from = i + win;
-  }
-  let to = wav.frames;
-  for (let i = wav.frames - win; i >= 0; i -= win) {
-    let m = 0;
-    for (const ch of wav.data) for (let j = Math.max(0, i); j < Math.min(wav.frames, i + win); j++) m = Math.max(m, Math.abs(ch[j]));
-    if (m > thr) { to = Math.min(wav.frames, i + win); break; }
-  }
-  return { from, to, peak };
-}
-
 /**
- * Loop points inside a sustaining sample, as fractions of the trimmed length.
+ * Loop points inside a sustaining sample, as fractions of the take.
  *
  * Picked at local minima of the envelope rather than at fixed fractions: a hard
  * loop seam clicks in proportion to the amplitude at the splice, and a plucked
  * or struck body swells and ebbs enough that a fixed 30% often lands on a peak.
  */
-// Where to look for a loop, as fractions of the trimmed take, and how long the
+// Where to look for a loop, as fractions of the take, and how long the
 // resulting loop has to be.
 //
 // These used to be per-family settings, because every family that used this
@@ -292,7 +306,7 @@ const DEFAULT_LOOP = { from: 0.15, to: 0.88, minSec: 0.25 };
  */
 const SEAM_DB = 4;
 
-/** 10 ms RMS windows over the trimmed take, and the geometry to map back to it. */
+/** 10 ms RMS windows over the take, and the geometry to map back to it. */
 function loopEnvelope(wav, from, to) {
   const len = to - from;
   const win = Math.max(1, Math.round(wav.sampleRate * 0.01));
@@ -406,34 +420,24 @@ function findLoop(wav, from, to, cfg, E) {
   };
 }
 
-/** Slice, optionally downmix, and scale to `target` peak. */
-function prepare(wav, from, to, cfg) {
-  const len = Math.max(1, to - from);
-  const out = cfg.stereo ? [new Float32Array(len), new Float32Array(len)] : [new Float32Array(len)];
-  for (let i = 0; i < len; i++) {
-    // Keep the two channels the recording actually has.
-    //
-    // This used to put (L+R)/2 in the left and R in the right. That is not stereo,
-    // it is a mono fold-down with one microphone still sitting in it: the image
-    // collapses toward the middle and, because the two mics carry different
-    // amounts of top octave, averaging them acts as a low-pass on the left. On the
-    // FreePats upright that measured 6.6 dB less energy at 5-10 kHz than the left
-    // microphone had on its own, and the piano stopped sounding struck.
-    //
-    // If the take is mono there is nothing to preserve, so it is copied to both.
-    if (cfg.stereo) {
-      out[0][i] = wav.data[0][from + i];
-      out[1][i] = (wav.data[1] ? wav.data[1][from + i] : wav.data[0][from + i]);
-    } else {
-      let s = 0;
-      for (const ch of wav.data) s += ch[from + i];
-      out[0][i] = s / wav.data.length;
-    }
-  }
+/**
+ * The take exactly as recorded, with the channel layout the encoder needs.
+ *
+ * Nothing else. This used to slice the take to its useful range and scale it to
+ * the family target, and both of those are gone -- see the header. What is left
+ * is the one thing that is still a question about the file rather than an edit
+ * to it: the pack is encoded either stereo or mono as a whole, so a mono take
+ * inside a stereo bank is copied to both channels rather than left ragged.
+ *
+ * Returns the channels to encode plus the two things measured from them: the
+ * peak, which becomes the manifest's playback gain, and the stereo width.
+ */
+function layout(wav, stereo) {
+  const out = [];
+  for (let c = 0; c < (stereo ? 2 : 1); c++) out.push(wav.data[c] || wav.data[0]);
+
   let peak = 0;
-  for (const ch of out) for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(ch[i]));
-  const gain = peak > 0 ? cfg.target / peak : 1;
-  for (const ch of out) for (let i = 0; i < len; i++) ch[i] *= gain;
+  for (const ch of out) for (let i = 0; i < ch.length; i++) peak = Math.max(peak, Math.abs(ch[i]));
 
   // How wide the recording actually is: the side signal against the mid, in dB.
   // Side is (L-R)/2 and mid is (L+R)/2 over the same samples.
@@ -444,12 +448,13 @@ function prepare(wav, from, to, cfg) {
   // "are these channels different enough" threshold gets the honest answer
   // wrong in both directions.
   let sideMid = null;
-  if (cfg.stereo && wav.data.length > 1) {
+  if (stereo && wav.data.length > 1) {
     let ss = 0;
     let mm = 0;
-    for (let i = 0; i < len; i++) {
-      const l = wav.data[0][from + i];
-      const r = wav.data[1] ? wav.data[1][from + i] : l;
+    const n = wav.frames;
+    for (let i = 0; i < n; i++) {
+      const l = wav.data[0][i];
+      const r = wav.data[1][i];
       const side = (l - r) * 0.5;
       const mid = (l + r) * 0.5;
       ss += side * side;
@@ -458,17 +463,7 @@ function prepare(wav, from, to, cfg) {
     sideMid = +(10 * Math.log10((ss + 1e-12) / (mm + 1e-12))).toFixed(2);
   }
 
-  return { channels: out, gain, len, sideMid };
-}
-
-/** Prefix the marker silence so the app can find the true onset after decoding. */
-function withMarker(channels, marker) {
-  const out = channels.map((ch) => {
-    const a = new Float32Array(marker + ch.length);
-    a.set(ch, marker); // the head stays zero
-    return a;
-  });
-  return out;
+  return { channels: out, peak, sideMid };
 }
 
 /* ------------------------------------------------------------------- build */
@@ -568,11 +563,22 @@ function collectFreepats(cfg) {
         tune: Number(r.tune) || 0,
         // Which hammer this is, when the bank recorded more than one per key.
         vel: velocityOf(r.sample),
-        // Frame numbers in the SOURCE file; the builder rebases them onto the
-        // trimmed take once it knows where that starts.
+        // Frame numbers in the SOURCE file. With nothing trimmed these are already
+        // frames of the file as shipped, so nothing has to rebase them; the
+        // builder divides by the take's own length and is done.
         loop: loopsRegion(r) && r.loop_start != null && r.loop_end != null
           ? [Number(r.loop_start), Number(r.loop_end)]
           : null,
+        // Which file in the bank this take came from, relative to the bank's
+        // extracted root.
+        //
+        // Recorded so the claim that the pack is the recordings can be checked
+        // against the recordings instead of against the manifest that describes
+        // them. tools/check-pack-is-unprocessed.mjs reads the WAV at this path
+        // and compares it with the shipped MP3. Without it the only available
+        // comparison is the manifest against itself, which moves together with
+        // the thing being checked.
+        src: path.relative(path.join(FP, cfg.bank, 'extracted'), path.join(r.dir, r.sample)).split(path.sep).join('/'),
       }));
     if (takes.length) out.set(midi, takes);
   }
@@ -629,8 +635,7 @@ function main() {
   }
 
   const manifest = {
-    version: 1,
-    markerSamples: MARKER,
+    version: 2,
     sampleRate: 44100,
     /**
      * What each pack's samples came from and what they are owed. Built from
@@ -675,14 +680,10 @@ function main() {
         // Stereo is measured, not declared. A FreePats bank is whatever its
         // author recorded, and half of them differ from the other half.
         if (stereo == null) stereo = wav.channels > 1;
-        const { from, to, peak } = trimSilence(wav);
-        if (to - from < wav.sampleRate * 0.05) return;
+        if (wav.frames < wav.sampleRate * 0.05) return;
 
-        const maxFrames = Math.floor(cfg.maxSec * wav.sampleRate);
-        const end = Math.min(to, from + maxFrames);
-
-        // The bank's own loop points, rebased onto the trimmed take, when it
-        // declared any -- and checked before they are trusted.
+        // The bank's own loop points, when it declared any -- and checked before
+        // they are trusted.
         //
         // Its author did know roughly where the loop was; the envelope heuristic
         // does not. But "roughly" was doing a lot of work in that sentence. Those
@@ -692,21 +693,25 @@ function main() {
         // steps 116 to 157 dB here. So the declared points are preferred, and
         // measured the same way a chosen one is. One that will not splice falls
         // back to the chooser rather than being used anyway.
+        //
+        // The SFZ counts frames in the source file, and nothing is trimmed any
+        // more, so these are simply the bank's own numbers over the file's own
+        // length -- no rebasing, and no chance of that rebasing being the thing
+        // that was wrong.
         let loop = null;
         let E = null;
-        if (cfg.loop !== false) E = loopEnvelope(wav, from, end);
+        if (cfg.loop !== false) E = loopEnvelope(wav, 0, wav.frames);
         if (entry.loop && E) {
-          const len = end - from;
-          const a = (entry.loop[0] - from) / len;
-          const b = (entry.loop[1] - from) / len;
+          const a = entry.loop[0] / wav.frames;
+          const b = entry.loop[1] / wav.frames;
           if (a >= 0 && b > a && b <= 1 && seamOf(E, a, b) <= SEAM_DB) {
             loop = { start: a, end: b };
           }
         }
-        if (!loop && E) loop = findLoop(wav, from, end, cfg, E);
+        if (!loop && E) loop = findLoop(wav, 0, wav.frames, cfg, E);
 
-        const prepared = prepare(wav, from, end, { ...cfg, stereo });
-        const mp3 = encodeMp3(withMarker(prepared.channels, MARKER), wav.sampleRate,
+        const take = layout(wav, stereo);
+        const mp3 = encodeMp3(take.channels, wav.sampleRate,
           stereo ? BITRATE.stereo : BITRATE.mono);
 
         const name = `${String(midi).padStart(3, '0')}-${i}.mp3`;
@@ -722,14 +727,20 @@ function main() {
 
         hits.push({
           f: `${cfg.pack}/${name}`,
-          // Every take is already normalised to the family target, so this is 1.
-          // It used to be 1/gain, which undid that normalisation and handed the
-          // app each recording's original level instead -- and those span 30 dB
-          // (the piano is recorded 30 dB below the xylophone), so the piano was
-          // inaudible next to a mallet. The family target IS the playing level.
-          g: 1,
-          srcPeak: +peak.toFixed(5),
-          dur: +(prepared.len / wav.sampleRate).toFixed(3),
+          // Which recording this file is. See the note in collectFreepats(): it
+          // exists so the pack can be compared against the recordings rather
+          // than against its own description of them.
+          src: entry.src,
+          // The playing level, as a number. This is exactly the gain prepare()
+          // used to multiply into the sample data before encoding, and the mix it
+          // produces is the mix this pack has always had. What changed is where
+          // it is applied: the sampler multiplies by this, so the MP3 on disk is
+          // the recording. Without it the roster falls apart -- the recordings
+          // span about 30 dB, the piano that far below the xylophone -- so this
+          // is a balance setting and not a correction for anything.
+          g: take.peak > 0 ? +(cfg.target / take.peak).toFixed(6) : 1,
+          srcPeak: +take.peak.toFixed(5),
+          dur: +(wav.frames / wav.sampleRate).toFixed(3),
           // Fractions of this take, so they hold at any playbackRate.
           loop: loop ? [+loop.start.toFixed(4), +loop.end.toFixed(4)] : null,
           // This take's own rate. It used to live once per key, written by every
@@ -745,7 +756,7 @@ function main() {
           // How wide the recording was, measured from its own channels. Null for
           // a mono take. tools/check-recording-fidelity.mjs decodes the shipped
           // file and compares this against what is actually in it.
-          sm: prepared.sideMid,
+          sm: take.sideMid,
         });
 
         rates.set(midi, rate);
@@ -862,10 +873,11 @@ function main() {
     );
   }
   console.log(`\ntotal: ${(totalBytes / 1048576).toFixed(2)} MB across ${rows.length} instruments`);
-  console.log(`manifest: ${JSON.stringify({
-    markerSamples: MARKER,
+  console.log(`manifest v${manifest.version}: ` + JSON.stringify({
+    processed: 'none - samples are the recordings, re-encoded only',
+    balance: 'per-take gain in notes[m].hits[].g, applied at playback',
     keys: Object.fromEntries(Object.entries(manifest.instruments).map(([k, v]) => [k, Object.keys(v.notes).length])),
-  })}`);
+  }));
 
   const owed = Object.entries(manifest.credits).filter(([, cs]) => cs.some((c) => c.licence !== 'CC0 1.0 Universal (public domain)'));
   if (owed.length) {

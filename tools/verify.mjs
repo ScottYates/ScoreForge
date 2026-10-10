@@ -228,6 +228,25 @@ if (guard.code !== 0) {
   }
 }
 
+// Is the pack still just the recordings? The fidelity check above asks whether
+// the samples came through intact; this asks the prior question -- whether they
+// were touched at all. The builder used to trim, normalise, prepend a marker
+// and cut every take at four seconds, and all four of those are audible and
+// none of them throws, so the claim that the pack is the recordings has to be
+// measured rather than asserted. Every shipped file is decoded and compared
+// against the WAV it was made from.
+const unprocessed = await run(process.execPath, [path.join(root, 'tools/check-pack-is-unprocessed.mjs')],
+  { allowFail: true });
+console.log(unprocessed.out.trim());
+if (unprocessed.code !== 0) {
+  for (const line of unprocessed.out.split('\n')) {
+    if (line.trim().startsWith('- ') || line.startsWith('PACK IS NOT')) failures.push(line.trim());
+  }
+  if (!unprocessed.out.includes('PACK IS NOT')) {
+    failures.push('pack unprocessed: ' + (unprocessed.err.trim() || 'check failed'));
+  }
+}
+
 if (report) console.log(`self-test: ${report.result} - ${report.pass} passed, ${report.fail} failed`);
 
 if (failures.length) {

@@ -14,8 +14,9 @@
  *   node tools/check-codec-delay.mjs
  *
  * Run it when the pack's encoder settings change. If the shift is not the same
- * for every setting, the sampler must not assume a constant -- see the marker
- * scheme in src/js/audio/sampler.js.
+ * for every setting, the sampler must not assume a constant -- so it does not.
+ * findOnset() measures the first sound in each decoded buffer at load, which
+ * absorbs the encoder delay whatever it happens to be for that file.
  */
 import fs from 'node:fs';
 import os from 'node:os';

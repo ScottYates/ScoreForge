@@ -172,17 +172,28 @@ instrument with a note currently sounding is never dropped. Picking a single ver
 large instrument may take the cache over the budget rather than refuse to play it;
 `node tools/check-decode-budget.mjs` measures that this actually happens.
 
-Rebuild the pack with `npm run pack` (see [Development](#development)). Two
-things about it are worth knowing before changing the encoder settings:
+Rebuild the pack with `npm run pack` (see [Development](#development)). The
+builder does nothing to the recordings — no trim, no normalisation, no marker,
+no truncation — so three things are worth knowing before changing it:
 
+- **Every file is its source WAV, re-encoded.** Nothing is written into the audio
+  that the FreePats banks did not contain.
+  `node tools/check-pack-is-unprocessed.mjs` decodes every shipped file and
+  compares it against the WAV it came from, and fails if a take's level, length,
+  channel count or stereo width has moved.
 - **Chrome does not strip LAME's encoder delay.** An encoded note arrives about
   1105 samples (25 ms) late — and 1524 for stereo at 96 kbps, so it is not a
-  constant. Every file therefore carries 1024 samples of digital silence at the
-  front, and the sampler finds the real onset in each decoded buffer at decode
-  time. `node tools/check-codec-delay.mjs` measures it.
+  constant. The pack therefore prepends nothing at all; the sampler finds the
+  first sound in each decoded buffer at decode time and starts there, which
+  absorbs the encoder delay and the recording's own leading silence together.
+  `node tools/check-codec-delay.mjs` measures the delay.
 - **The recordings are not recorded at comparable levels** — the piano sits 30 dB
-  under the tubular bells. Each take is normalised to a per-family target at build
-  time, and that target is the playing level.
+  under the tubular bells. Each take carries a gain in the manifest that puts its
+  family at a common peak, and the sampler applies it at playback. That is the
+  whole of the mix balance: it is a number, not an edit to the recording.
+- **Keeping the takes in full costs pack size.** It is about a fifth more than
+  truncating them to 4 s did. `node tools/make-pack.mjs --bitrate 128` trades
+  quality back for size without touching anything else.
 
 [freepats]: https://freepats.zenvoid.org/ (sample banks, CC0 and GPL-3+exception)
 
@@ -482,6 +493,10 @@ tools/
   check-codec-delay.mjs measure MP3 encode+decode latency
   check-sampler-audio.mjs  render the real pack and measure it
   check-recording-fidelity.mjs is a take still the recording it was cut from
+  check-pack-is-unprocessed.mjs is the pack still just the recordings
+  check-no-unguarded-deletes.mjs nothing deletes outside guard.mjs / guard.py
+  lib/guard.mjs        the only file allowed to delete anything (JS side)
+  guard.py             the same rule for the Python backend
   check-cursor.mjs      is the playback cursor the colour we chose, where it should be
   check-transport.mjs   press Play / Stop / Back-to-start and read the UI back
   check-piano-voice.mjs measure the synth piano against the recorded one
@@ -504,6 +519,29 @@ pack/                   recorded-instrument samples + manifest.json
 tests/                  per-module test pages, all runnable headless
 docs/screenshots/
 ```
+
+### Never delete anything you did not create
+
+Two rules, both enforced rather than remembered:
+
+- **Never delete anything this repository did not create.**
+- **Never delete anything outside the working folder.**
+
+`tools/lib/guard.mjs` and `backend/guard.py` are the only files in the project
+allowed to call a delete API, and each refuses a directory that does not carry a
+`.scoreforge-owned` marker written at the moment it was created, or that resolves
+outside the repository. `node tools/check-no-unguarded-deletes.mjs` scans
+`tools/` and `backend/` for eight delete call shapes across JS, Python and
+PowerShell, then exercises both guards' refusals for real — outside the workspace,
+the workspace itself, a shared-prefix sibling, an unmarked directory, a file
+outside any claimed tree — because a guard that has never been seen to refuse is
+only known to exist.
+
+This is not ceremony. The pack builder once cleared its own output directory,
+which also held a hand-written page; the browser harness kept its profile in a
+temp directory and deleted it there; the OMR engine used `tempfile` for scratch on
+every request. All three were outside the working folder, or wider than what the
+tool had made, and none of them errored.
 
 ### Testing
 
