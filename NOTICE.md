@@ -61,7 +61,7 @@ pack:
 
 Author: The FreePats project; FSS samples recorded by its contributors. Source: <https://freepats.zenvoid.org/Guitar/steel-acoustic-guitar.html>.
 
-Changes made to the recordings: leading and trailing silence trimmed; mixed to mono; truncated to 4 s; no loop points; peak-normalised per note; encoded to MP3 at 64 kbps.
+Changes made to the recordings: mixed to mono; no loop points; levels and timing untouched; mix balance applied as playback gain; encoded to MP3 at 64 kbps.
 
 Music made with these samples is covered by the licence above. The sample
 recordings themselves remain the property of their authors, and neither the

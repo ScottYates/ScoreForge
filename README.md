@@ -132,9 +132,10 @@ that ramps in for bowed and vocal sounds, breath noise for the winds, and
 drawbar-style additive synthesis for the organ. None of these needs a network
 connection, and the whole app still fits in one file.
 
-**Recorded** (50 instruments, a `pack/` directory of ~121 MB). Real sampled
+**Recorded** (50 instruments, a `pack/` directory of ~268 MB). Real sampled
 instruments, in six picker groups: piano, organ, plucked & struck, guitar & bass,
-winds & reed, and synth.
+winds & reed, and synth. Every file is its source WAV re-encoded and nothing
+else — no trim, no normalisation, no truncation.
 
 Every one of them is a [FreePats][freepats] bank. Forty-nine are CC0; the FSS
 steel-string acoustic guitar is GPL-3.0-or-later with the FreePats sound-sample
@@ -600,7 +601,7 @@ piece parking at the last bar after it finished, and Stop leaving a cursor on
 the first note that was not there before you pressed anything.
 
 `check-sampler-audio.mjs` serves the repository over http, loads the actual
-131 MB pack, renders every instrument offline and reports its peak, how late its
+268 MB pack, renders every instrument offline and reports its peak, how late its
 attack lands and whether a held note outlives its sample — then renders the same
 chord through the app's own `renderToBuffer` export path. The fast suite uses
 synthetic buffers and cannot tell you whether the encoded pack is audible; this

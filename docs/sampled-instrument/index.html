@@ -263,6 +263,7 @@ addEventListener('keydown', (e) => {
 
 window.__selfTest = async function () {
   const out = { keys: 0, renders: 0, silent: [], levelChanged: [], late: [], layers: {}, peaks: {}, transposed: 0,
+    transposedKeys: new Set(),
     looped: [], rateChanged: [], detuned: [], skipped: [], offsetUsed: [] };
   const ac = audio();
   const sr = ac.sampleRate;
@@ -275,7 +276,7 @@ window.__selfTest = async function () {
     for (const layer of inst.notes[midi].layers) {
     const { buffer, onsetSec } = await load(layer.file);
     out.layers[layer.file] = (out.layers[layer.file] || 0) + 1;
-    if (layer.cents !== 0) out.transposed++;
+    if (layer.cents !== 0) out.transposedKeys.add(midi);
 
     // Render it exactly as play() would, then measure what came out.
     const secs = Math.min(2.5, buffer.duration);
@@ -334,6 +335,12 @@ window.__selfTest = async function () {
     }
   }
   out.keys = keys.length;
+  // Keys, not layers. Counting layers produced "110 of 88", which reads as a
+  // counting bug because it is: the bank has 176 layers across 88 keys, and the
+  // question being asked -- how many keys are played at a shifted rate -- is
+  // about keys. The Set does not survive JSON, so it is reduced here.
+  out.transposed = out.transposedKeys.size;
+  delete out.transposedKeys;
   return out;
 };
 

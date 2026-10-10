@@ -13,20 +13,27 @@ node tools/serve.mjs docs/sampled-instrument          # or whatever you use
 
 ## What the builder does to the recordings: nothing
 
+This document was written when the pack builder still trimmed, normalised,
+prepended a marker, truncated at 4 s and applied a family loudness target. It no
+longer does any of those — the pack is the recordings, re-encoded — so the table
+that used to set this instrument against it has nothing to compare.
+
+What is left is that both do the same thing, and this is the smaller, fully
+auditable version of it:
+
 | | pack builder | this |
 |---|---|---|
-| trims leading/trailing silence | yes | **no** |
-| peak-normalises every note to a family target | yes | **no** |
-| finds and stores loop points | yes | **no** |
-| prepends 1024 samples of silence | yes | **no** |
-| applies a family loudness target | yes | **no** |
-
-Every one of those is defensible for a 131 MB library playing fifty instruments
-at once, and every one of them is a reason a sample stops sounding like itself.
-None of them has been approved here, so none of them happen.
+| trims leading/trailing silence | no | **no** |
+| peak-normalises every note | no | **no** |
+| prepends silence | no | **no** |
+| truncates a take | no | **no** |
+| edits the samples at all | **no** | **no** |
+| mixes the roster | a per-take gain in the manifest | nothing — one instrument |
+| checks itself against the source WAVs | yes | yes |
 
 Levels came out at **0.999 – 1.000 peak** across all 66 source files — that is the
-bank's own recording level, left alone.
+bank's own recording level, left alone. `tools/check-pack-is-unprocessed.mjs`
+makes the same comparison for all 4,141 takes in `pack/`.
 
 ## Key mapping comes from the bank's SFZ
 
@@ -46,11 +53,11 @@ taken from the bank rather than guessed.
 ## Codec delay is measured, not worked around
 
 LAME writes its encoder delay into an MP3 and Chrome hands it back as leading
-silence, so starting at sample zero puts every hammer about 24 ms late. The
-pack prepends 1024 samples of silence to every file to hide this.
+silence, so starting at sample zero puts every hammer about 24 ms late. The pack
+used to prepend 1024 samples of silence to every file to hide this.
 
-This does not. It decodes each file once, **measures where the sound actually
-starts**, and starts the source node there — measured at 0.024 – 0.030 s
+Neither does now. The sampler decodes each file once, **measures where the sound
+actually starts**, and starts the source node there — measured at 0.024 – 0.030 s
 depending on the file. No marker, no guess, and it stays correct if the encoder
 or the bitrate changes.
 

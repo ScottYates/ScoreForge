@@ -434,7 +434,27 @@ function findLoop(wav, from, to, cfg, E) {
  */
 function layout(wav, stereo) {
   const out = [];
-  for (let c = 0; c < (stereo ? 2 : 1); c++) out.push(wav.data[c] || wav.data[0]);
+  if (stereo) {
+    // A mono take inside a stereo pack is copied to both channels rather than
+    // left ragged, since the encoder wants a matching pair.
+    out.push(wav.data[0], wav.data[1] || wav.data[0]);
+  } else if (wav.data.length === 1) {
+    out.push(wav.data[0]);
+  } else {
+    // A stereo take inside a mono pack has to be AVERAGED, not selected.
+    //
+    // Taking channel 0 and dropping channel 1 is not a mono fold-down; it throws
+    // away half the recording and whatever microphone position that half carried.
+    // The pack's stereo flag is read from whichever take the family happened to
+    // start with, so a bank whose files are not all the same width lands here,
+    // and the bug is invisible until someone notices an instrument missing a
+    // side of its image.
+    const n = wav.frames;
+    const mix = new Float32Array(n);
+    for (const ch of wav.data) for (let i = 0; i < n; i++) mix[i] += ch[i];
+    for (let i = 0; i < n; i++) mix[i] /= wav.data.length;
+    out.push(mix);
+  }
 
   let peak = 0;
   for (const ch of out) for (let i = 0; i < ch.length; i++) peak = Math.max(peak, Math.abs(ch[i]));
@@ -636,7 +656,11 @@ function main() {
 
   const manifest = {
     version: 2,
-    sampleRate: 44100,
+    // There is deliberately no sampleRate here. There used to be, hardcoded to
+    // 44100, and it was a lie: 915 of the 1,873 FreePats source files are 48 kHz
+    // and the rest are 44.1 kHz. Each MP3 carries its own source rate, nothing
+    // read the field, and a constant that is wrong for half the pack is worse
+    // than no constant. Durations are in seconds, so nothing needs it.
     /**
      * What each pack's samples came from and what they are owed. Built from
      * SOURCES, and the thing NOTICE.md and the app's credits line are
