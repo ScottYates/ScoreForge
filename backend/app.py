@@ -12,6 +12,7 @@ Runs on CPU only. `python backend/app.py` (or uvicorn backend.app:app).
 
 from __future__ import annotations
 
+import collections
 import io
 import json
 import sys
@@ -33,6 +34,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile  # noq
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse, Response  # noqa: E402
+from starlette.concurrency import run_in_threadpool  # noqa: E402
 
 import omr_engine  # noqa: E402
 import preprocess  # noqa: E402
@@ -144,7 +146,17 @@ def _store_preview(png: bytes) -> str:
 
 @app.get("/api/health")
 def health() -> dict:
-    return omr_engine.health()
+    body = omr_engine.health()
+    # How busy, so a client can warn before it uploads a 40 MB scan into a queue
+    # it already knows is long. Cheap to read and the alternative -- finding out
+    # after the upload -- wastes the user's bandwidth and the service's memory.
+    body["queue"] = {
+        "running": _GATE.holder() is not None,
+        "waiting": _GATE.queue_length(),
+        "capacity": QUEUE_CAPACITY,
+        "typicalSeconds": _DURATIONS.typical(),
+    }
+    return body
 
 
 @app.get("/api/accuracy")
@@ -305,18 +317,42 @@ async def omr(
     Recognition takes minutes on a large scan and holds this request open the
     whole time. POST /api/omr/jobs does the same work in the background and
     reports progress; this endpoint stays for callers that want one round trip.
+
+    It waits for the same admission gate the jobs use, so a synchronous caller
+    cannot quietly run alongside a queued one -- one at a time means one at a
+    time across both endpoints, not one each.
+
+    The wait happens in a worker thread rather than on the event loop. It used
+    to run inline, which meant a long transcription froze every other request
+    the service was serving; with a queue in front of the engine that would have
+    been much worse, because the polls a waiting client depends on would have
+    been frozen behind the very request it was waiting for.
     """
     data = await file.read()
     _validate_upload(data, file.filename)
+    payload = await run_in_threadpool(_transcribe_sync, data, file.filename or "upload",
+                                      mode, pages, pdf_dpi, debug)
+    return JSONResponse(payload)
+
+
+def _transcribe_sync(data: bytes, filename: str, mode: str,
+                     pages: Optional[str], pdf_dpi: int, debug: bool) -> dict:
+    """The synchronous endpoint's work, behind the shared admission gate."""
+    ticket = f"sync-{uuid.uuid4().hex}"
+    _GATE.acquire(ticket)
+    started = time.perf_counter()
     try:
-        payload = _transcribe(data, file.filename or "upload", mode, pages, pdf_dpi, debug)
+        return _transcribe(data, filename, mode, pages, pdf_dpi, debug)
     except EngineUnavailable as exc:
         raise HTTPException(503, f"recognition engine unavailable: {exc}")
     except NoMusicFound as exc:
         raise HTTPException(422, str(exc))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    return JSONResponse(payload)
+    finally:
+        elapsed = time.perf_counter() - started
+        _DURATIONS.add(elapsed)
+        _GATE.release(ticket)
 
 
 # --------------------------------------------------------------------- jobs
@@ -325,10 +361,191 @@ async def omr(
 # that is a timeout waiting to happen, behind a proxy or not, and gives the user
 # nothing to look at and no way out. So the same work can run as a job the
 # client polls, reports against, and cancels.
+#
+# And only one at a time. omr_engine takes an engine lock around inference
+# because onnxruntime sessions are not re-entrant here, but that lock made
+# waiting invisible: every job was reported `running` from the moment it was
+# created, N threads piled onto the same lock, and each client sat at 0% with no
+# way to tell "the recogniser is reading my page" from "four other people's
+# scans are ahead of me". The admission gate below replaces that queue of
+# blocked threads with an explicit one, so a waiting client can be told its
+# place in it and roughly when its turn comes.
 
 _JOBS: "dict[str, dict]" = {}
-_JOBS_LOCK = threading.Lock()
+# Reentrant, because _job_view() reads the running job's progress to work out
+# how long a waiting job has left, and every caller of _job_view is already
+# holding this lock. A plain Lock would deadlock the first time somebody polled
+# a queued job -- which is the only state this project did not have before.
+_JOBS_LOCK = threading.RLock()
 JOB_TTL_SECONDS = 3600
+
+#: How many jobs may wait for their turn before the service refuses more. Each
+#: waiting job is holding its uploaded file in memory -- up to MAX_UPLOAD_BYTES
+#: each -- so an unbounded queue is a slow way to run out of RAM. 0 disables the
+#: limit and lets jobs wait however long they take.
+QUEUE_CAPACITY = max(0, int(os.environ.get("SCOREFORGE_OMR_QUEUE", "8")))
+
+
+class _Gate:
+    """One-at-a-time admission to the recogniser, in arrival order.
+
+    `_waiting[0]` is the ticket that holds the gate and `_waiting[1:]` are the
+    ones behind it -- a single list, not a holder plus a queue. That is not a
+    detail: with the holder tracked separately, a waiter takes itself off the
+    list as soon as it wakes, which leaves the *next* one sitting at the head
+    while the first is still working, so it walks straight in behind it. Two
+    recognitions at once, every time the queue was busy.
+
+    Tickets are admitted in arrival order, so "3rd in the queue" means the same
+    thing to every client reading it. A counting semaphore could not do that:
+    it hands slots to whoever happens to be scheduled, and the number a client
+    is shown would move around for no reason.
+    """
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition(threading.Lock())
+        self._waiting: "list[str]" = []
+
+    # ---- reading it -------------------------------------------------------
+    def position(self, ticket: str) -> Optional[int]:
+        """1-based place among the waiters, or None if it holds the gate.
+
+        Index 0 of the list is the holder, so the first person actually waiting
+        sits at index 1 -- and is 1st. Adding one to the index would call them
+        2nd, which is the kind of off-by-one that makes a queue look like it
+        skipped someone when it only miscounted.
+        """
+        with self._cond:
+            if not self._waiting or self._waiting[0] == ticket:
+                return None
+            try:
+                return self._waiting.index(ticket)
+            except ValueError:
+                return None
+
+    def queue_length(self) -> int:
+        """How many are waiting -- not counting whoever is being served."""
+        with self._cond:
+            return max(0, len(self._waiting) - (1 if self._waiting else 0))
+
+    def holder(self) -> Optional[str]:
+        """The ticket currently inside, or None when the gate is idle."""
+        with self._cond:
+            return self._waiting[0] if self._waiting else None
+
+    # ---- taking and giving it up -----------------------------------------
+    def try_acquire(self, ticket: str) -> bool:
+        """Take the gate if it is free and nobody is ahead of us.
+
+        Separate from acquire() so the create path can answer "you are next" or
+        "you are 3rd" without a thread having to block first.
+        """
+        with self._cond:
+            if self._waiting:
+                return False
+            self._waiting.append(ticket)
+            return True
+
+    def acquire(self, ticket: str) -> bool:
+        """Wait until it is this ticket's turn. False if it was dropped first.
+
+        Never returns while somebody else holds the gate. The timeout is a
+        backstop for a dropped signal, not a way out: returning early because
+        the clock ran out is precisely how two jobs end up inside at once.
+        """
+        with self._cond:
+            if ticket not in self._waiting:
+                self._waiting.append(ticket)
+            while True:
+                if ticket not in self._waiting:
+                    return False        # cancelled before its turn came round
+                if self._waiting[0] == ticket:
+                    return True
+                self._cond.wait(timeout=1.0)
+
+    def release(self, ticket: str) -> None:
+        """Give the gate up, if this ticket is the one holding it."""
+        with self._cond:
+            if self._waiting and self._waiting[0] == ticket:
+                self._waiting.pop(0)
+            self._cond.notify_all()
+
+    def drop(self, ticket: str) -> bool:
+        """Remove a waiting ticket. True if it was still queued.
+
+        A job cancelled before its turn costs nothing: it never reaches the
+        engine at all. Without this it would sit in the line holding its upload
+        and a place in front of everyone for a recogniser nobody is waiting for.
+        """
+        with self._cond:
+            if ticket not in self._waiting:
+                return False
+            if self._waiting[0] == ticket:
+                return False            # already inside; release() is its job
+            self._waiting.remove(ticket)
+            self._cond.notify_all()
+            return True
+
+
+_GATE = _Gate()
+
+
+class _Durations:
+    """A short history of how long recognitions actually took here.
+
+    Used for the wait estimate. Started empty and left empty until something
+    has finished, because a made-up number on the first scan of the day is worse
+    than saying so: a client shown "about 1 min" and then waiting nine has
+    learned not to believe this panel.
+    """
+
+    def __init__(self, keep: int = 12) -> None:
+        self._keep = keep
+        self._seen: "collections.deque[float]" = collections.deque(maxlen=keep)
+
+    def add(self, seconds: float) -> None:
+        if seconds > 0:
+            self._seen.append(float(seconds))
+
+    def typical(self) -> Optional[float]:
+        """Median, not mean: one eight-page scan should not skew every answer."""
+        if not self._seen:
+            return None
+        ordered = sorted(self._seen)
+        mid = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[mid]
+        return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+_DURATIONS = _Durations()
+
+
+def _estimate_wait(job_id: str) -> Optional[float]:
+    """Seconds until this job's turn, or None when it cannot be told yet.
+
+    The work ahead of it is what is left of the job currently reading, plus
+    everyone else queued in front. Both parts are estimates and the result is
+    reported as one -- it is a "roughly when", not a schedule.
+    """
+    typical = _DURATIONS.typical()
+    if typical is None:
+        return None
+    position = _GATE.position(job_id)
+    if position is None:
+        return 0.0          # it holds the gate; it starts now
+    front = (position - 1) * typical
+    running = _GATE.holder()
+    if running and running != job_id:
+        with _JOBS_LOCK:
+            job = _JOBS.get(running)
+            if job and job["state"] == "running":
+                # Assume the job in progress takes a typical one. Scaling by
+                # what it has reported so far is the same guess with more
+                # moving parts, and a slow first variant would make the
+                # estimate for everyone behind it collapse to nothing.
+                front += typical * (1.0 - min(1.0, max(0.0, job["progress"])))
+    return round(front, 1)
 
 
 def _job_view(job: dict) -> dict:
@@ -340,6 +557,14 @@ def _job_view(job: dict) -> dict:
         "message": job["message"],
         "seconds": round(job["seconds"], 2),
     }
+    if job["state"] == "queued":
+        # Only the waiting client needs these, so they are not on every poll of
+        # every job.
+        position = _GATE.position(job["id"])
+        view["position"] = position
+        view["queueLength"] = _GATE.queue_length()
+        view["estimatedWaitSeconds"] = _estimate_wait(job["id"])
+        view["typicalSeconds"] = _DURATIONS.typical()
     if job["state"] == "done":
         view["result"] = job["result"]
     if job["state"] == "error":
@@ -353,10 +578,39 @@ def _prune_jobs() -> None:
     for jid, job in list(_JOBS.items()):
         if now - job["created"] > JOB_TTL_SECONDS and job["state"] != "running":
             _JOBS.pop(jid, None)
+            # A pruned job that was still queued still has a ticket in the gate.
+            # Its thread will notice when it is admitted and give it up, but
+            # until then it is a place in the line held by a scan nobody is
+            # waiting for -- so take it out now rather than at its turn.
+            _GATE.drop(jid)
 
 
 def _run_job(job_id: str, data: bytes, filename: str, mode: str,
              pages: Optional[str], pdf_dpi: int, debug: bool) -> None:
+    # Wait for a turn before touching the engine. This job's own thread does the
+    # waiting rather than a separate queue of ids, so the thing that blocks is
+    # the thing that will do the work -- there is no second structure to keep in
+    # step, and no window where a queued job has a place but nothing holding it.
+    #
+    # False means it was dropped from the queue while waiting -- cancelled, and
+    # the cancel handler has already written the terminal state. Nothing to do,
+    # and above all no release(): it never took the gate, so releasing would
+    # hand it on a second time.
+    if not _GATE.acquire(job_id):
+        return
+    started = time.perf_counter()
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        if job is None:
+            _GATE.release(job_id)
+            return
+        if job["cancel"].is_set():
+            # Cancelled while queued: it never reaches the engine at all.
+            job.update(state="cancelled", message="Stopped before it started", seconds=0.0)
+            _GATE.release(job_id)
+            return
+        job.update(state="running", message="Starting")
+
     def progress(fraction: float, message: str) -> None:
         with _JOBS_LOCK:
             job = _JOBS.get(job_id)
@@ -375,10 +629,23 @@ def _run_job(job_id: str, data: bytes, filename: str, mode: str,
             job = _JOBS.get(job_id)
             return bool(job and job["cancel"].is_set())
 
-    started = time.perf_counter()
+    # One release for every exit. Written out per-except it would be five
+    # copies of the same line, and the one nobody remembers is the one that
+    # wedges the gate shut for everyone behind this job.
+    #
+    # The success path is inside the try on purpose: the result is stored before
+    # the finally hands the gate on, so the next job's clock starts when this
+    # one genuinely finished rather than when it stopped computing.
     try:
         result = _transcribe(data, filename, mode, pages, pdf_dpi, debug,
                              progress=progress, cancelled=cancelled)
+        elapsed = time.perf_counter() - started
+        _DURATIONS.add(elapsed)
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if job:
+                job.update(state="done", progress=1.0, message="Done", result=result,
+                           seconds=elapsed)
     except JobCancelled:
         with _JOBS_LOCK:
             job = _JOBS.get(job_id)
@@ -416,12 +683,8 @@ def _run_job(job_id: str, data: bytes, filename: str, mode: str,
                 job.update(state="error", error=f"{type(exc).__name__}: {exc}", status=500,
                            message="Recognition failed", seconds=time.perf_counter() - started)
         return
-
-    with _JOBS_LOCK:
-        job = _JOBS.get(job_id)
-        if job:
-            job.update(state="done", progress=1.0, message="Done", result=result,
-                       seconds=time.perf_counter() - started)
+    finally:
+        _GATE.release(job_id)
 
 
 @app.post("/api/omr/jobs")
@@ -432,7 +695,12 @@ async def create_job(
     pdf_dpi: int = Form(300),
     debug: bool = Form(False),
 ) -> JSONResponse:
-    """Start a transcription in the background and return its id immediately."""
+    """Start a transcription in the background and return its id immediately.
+
+    Returns straight away whether or not the recogniser is free. The reply says
+    which: a client that is told `running` when it is really third in a queue
+    cannot show anything honest for the next few minutes.
+    """
     if mode not in {"auto", "original", "clean"}:
         raise HTTPException(400, f"unknown preprocessing mode {mode!r}")
     data = await file.read()
@@ -440,10 +708,27 @@ async def create_job(
 
     with _JOBS_LOCK:
         _prune_jobs()
+        waiting = _GATE.queue_length()
+        if QUEUE_CAPACITY and waiting >= QUEUE_CAPACITY:
+            typical = _DURATIONS.typical()
+            roughly = f" about {typical * waiting / 60:.0f} min" if typical else ""
+            raise HTTPException(
+                503,
+                f"The recogniser is busy and {waiting} job(s) are already waiting"
+                f"{roughly}. Try again once one finishes.",
+                headers={"Retry-After": str(int(typical or 60))},
+            )
         job_id = uuid.uuid4().hex
+        # Take the gate here rather than letting the worker thread discover it
+        # is second, so the reply can already carry the position. The thread's
+        # own acquire() then finds the ticket at the head and returns at once.
+        first = _GATE.try_acquire(job_id)
         _JOBS[job_id] = {
-            "id": job_id, "state": "running", "progress": 0.0,
-            "message": "Starting", "created": time.time(), "seconds": 0.0,
+            "id": job_id,
+            "state": "running" if first else "queued",
+            "progress": 0.0,
+            "message": "Starting" if first else "Waiting for the recogniser",
+            "created": time.time(), "seconds": 0.0,
             "cancel": threading.Event(), "result": None, "error": None, "status": 400,
         }
 
@@ -453,8 +738,28 @@ async def create_job(
         daemon=True,
         name=f"omr-{job_id[:8]}",
     )
-    thread.start()
-    return JSONResponse({"jobId": job_id, "state": "running"})
+    try:
+        thread.start()
+    except RuntimeError:
+        # The gate was taken above, so nothing else would ever hand it on. A
+        # thread that cannot start is rare -- the process is out of resources --
+        # but the failure it causes is this one job lost, instead of the whole
+        # service refusing every scan from then on.
+        _GATE.release(job_id)
+        with _JOBS_LOCK:
+            job = _JOBS.get(job_id)
+            if job:
+                job.update(state="error", error="the service could not start a worker",
+                           status=503, message="Engine unavailable")
+        raise HTTPException(503, "the recognition service could not start a worker")
+    # The state the service will actually be in, not an optimistic "running":
+    # if this job is behind another, saying so here is the earliest the client
+    # can learn it, and it can start showing a queue position immediately.
+    with _JOBS_LOCK:
+        job = _JOBS.get(job_id)
+        state = job["state"] if job else "running"
+        view = _job_view(job) if job else {}
+    return JSONResponse({"jobId": job_id, "state": state, "view": view})
 
 
 @app.get("/api/omr/jobs/{job_id}")
@@ -469,16 +774,27 @@ def job_status(job_id: str) -> JSONResponse:
 
 @app.post("/api/omr/jobs/{job_id}/cancel")
 def cancel_job(job_id: str) -> JSONResponse:
-    """Ask a running job to stop.
+    """Ask a job to stop.
 
-    Cancellation is checked at the boundaries between pages: inference itself is
-    a single blocking call into the engine and cannot be interrupted part-way
+    A running job is cancelled at the boundaries between pages: inference itself
+    is a single blocking call into the engine and cannot be interrupted part-way
     through a page without killing the process.
+
+    A job still waiting its turn is removed from the queue outright. It has not
+    touched the engine, so stopping it there costs nothing -- and leaving it in
+    place would hold its upload in memory and a place in the line for a scan
+    nobody is waiting for any more. Its thread notices when it is admitted and
+    finishes without starting.
     """
     with _JOBS_LOCK:
         job = _JOBS.get(job_id)
         if job is None:
             raise HTTPException(404, "no such job; it may have expired")
+        if job["state"] == "queued":
+            if _GATE.drop(job_id):
+                job.update(state="cancelled", message="Stopped before it started",
+                           seconds=0.0)
+                return JSONResponse({"jobId": job_id, "state": "cancelled"})
         if job["state"] == "running":
             job["cancel"].set()
             job["message"] = "Stopping after the current page"

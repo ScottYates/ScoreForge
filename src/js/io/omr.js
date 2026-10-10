@@ -210,6 +210,38 @@ export async function transcribeToScores(file, opts = {}) {
 /** How often to ask the service how a job is doing. */
 const JOB_POLL_MS = 600;
 
+/** Seconds, in the units a person would use for them. */
+function formatWait(seconds) {
+  if (!(seconds >= 0)) return '';
+  if (seconds < 45) return `${Math.round(seconds)} sec`;
+  const minutes = Math.round(seconds / 60);
+  return `${minutes} min`;
+}
+
+/**
+ * A job that is waiting its turn, in words: where it is in the line and
+ * roughly how long before it starts.
+ *
+ * Null for anything else, so a caller can write `describeQueue(view) ||
+ * ordinaryText` rather than repeating the state test. The estimate is only
+ * given when the service has one -- it knows how long recognitions have taken
+ * here, and it would rather say nothing than guess before it has measured
+ * anything.
+ */
+export function describeQueue(view) {
+  if (!view || view.state !== 'queued') return null;
+  const pos = view.position;
+  const where = pos == null
+    ? 'Waiting for the recogniser'
+    : pos === 1
+      ? 'Next in the queue'
+      : `${pos} ahead in the queue`;
+  const eta = view.estimatedWaitSeconds;
+  const when = eta == null ? '' : ` · about ${formatWait(eta)}`;
+  const who = view.queueLength > 1 ? ` · ${view.queueLength} waiting` : '';
+  return `${where}${when}${who}`;
+}
+
 /**
  * Consecutive failed polls to ride out before giving up on a job.
  *
@@ -287,9 +319,14 @@ export function startTranscription(file, opts = {}) {
       throw new Error(detail);
     }
     const body = await res.json();
-    // Say something the moment the job exists. Waiting for the first poll would
-    // leave the panel looking idle for a request that has already been sent.
-    emit && emit({ state: 'running', progress: 0, message: 'Starting', seconds: 0 });
+    // Say something the moment the job exists, and say what the service said
+    // rather than assuming. A job submitted while another is being read comes
+    // back already `queued`, and announcing "running" for it would be a lie
+    // that the first poll has to correct -- so the panel would show a scan
+    // being read at 0% for the whole of somebody else's transcription.
+    emit && emit(body.view || {
+      state: body.state || 'running', progress: 0, message: 'Starting', seconds: 0,
+    });
     return body.jobId;
   })();
 
@@ -305,7 +342,11 @@ export function startTranscription(file, opts = {}) {
       }
       if (view) {
         emit && emit(view);
-        if (view.state !== 'running') {
+        // `queued` is not a finished state -- the job has not started. This
+        // used to treat anything that was not `running` as terminal, so a job
+        // submitted behind another one ended immediately with "Recognition
+        // failed" for a scan that was sitting politely in line.
+        if (view.state !== 'running' && view.state !== 'queued') {
           if (view.state === 'done') return { ...view.result, base };
           if (view.state === 'cancelled') {
             const err = new Error('Stopped before the scan was finished.');

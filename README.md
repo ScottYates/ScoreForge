@@ -84,6 +84,16 @@ deskewed, and both), reads each one, and keeps whichever produced the most notes
 The result is MusicXML, which is what the page already parses, so a scan enters
 the same notation, playback and export path as a file exported from MuseScore.
 
+One scan is read at a time. The recogniser is CPU-only and the engine's sessions
+are not re-entrant, so running several at once splits the cores and gets slower
+without finishing any sooner. A scan submitted while another is being read waits
+in a queue instead: the panel says which place it is in and, once anything has
+been read on this machine, roughly how long that will be. Cancelling a scan that
+has not started takes it out of the queue at once and costs nothing.
+`SCOREFORGE_OMR_QUEUE` sets how many may wait before the service asks new
+submissions to come back later — 8 by default, since each waiting scan is held
+in memory, and `0` removes the limit.
+
 ### What it gets wrong
 
 The accuracy figures come from engraving known MusicXML to PNG, reading it back,
@@ -509,6 +519,7 @@ tools/
   drive-omr.mjs         drives the built page against a live backend
   drive-transport.mjs   one transport scenario, optionally with a screenshot
   check-omr-jobs.py     the job API against a live backend
+  check-omr-queue.py    one scan at a time, positions, queue hand-over
   check-omr-progress.py progress plumbing, without loading the model
   watch-omr-progress.py print every progress tick of one real scan
   list-recorded.mjs    what is actually in each recorded pack, and how far it shifts

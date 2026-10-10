@@ -15,7 +15,7 @@
 <div id="out">running.</div>
 
 <script type="module">
-import { startTranscription, scoresFromResult, transcribe } from '../src/js/io/omr.js';
+import { startTranscription, scoresFromResult, transcribe, describeQueue } from '../src/js/io/omr.js';
 
 /* ===================================================== assertion harness === */
 
@@ -166,6 +166,95 @@ try {
     result.engine === 'homr' && result.version === '0.7.0' && result.device === 'cpu',
     JSON.stringify({ e: result.engine, v: result.version, d: result.device }));
   eq('the base the result came from is attached', result.base, BASE);
+
+  /* ================================================================= queue == */
+
+  head('queue');
+
+  // The recogniser reads one scan at a time. A job submitted behind another is
+  // reported `queued`, which is not a finished state -- it has not started.
+  // Treating it as terminal (the old `state !== 'running'` test) ended such a
+  // job immediately with "Recognition failed", for a scan that was sitting in
+  // line behaving itself.
+  serving({
+    submit: {
+      json: {
+        jobId: JOB_ID,
+        state: 'queued',
+        view: { jobId: JOB_ID, state: 'queued', progress: 0, message: 'Waiting for the recogniser', seconds: 0, position: 2, queueLength: 2, estimatedWaitSeconds: 240 },
+      },
+    },
+    views: [
+      { jobId: JOB_ID, state: 'queued', progress: 0, message: 'Waiting for the recogniser', seconds: 0, position: 2, queueLength: 2, estimatedWaitSeconds: 240 },
+      { jobId: JOB_ID, state: 'queued', progress: 0, message: 'Waiting for the recogniser', seconds: 0, position: 1, queueLength: 1, estimatedWaitSeconds: 96 },
+      { jobId: JOB_ID, state: 'running', progress: 0.1, message: 'Rasterising', seconds: 4 },
+    ],
+  });
+
+  const queuedViews = [];
+  let queuedResult = null;
+  let queuedError = null;
+  try {
+    queuedResult = await startTranscription(scanFile('scan.png'), {
+      pollMs: 5, onProgress: (v) => queuedViews.push(v),
+    }).promise;
+  } catch (e) {
+    // Captured rather than left to escape. An uncaught throw here aborts the
+    // section, so every assertion after it never runs and the one mutation this
+    // exists for -- treating `queued` as finished -- fails the suite for a
+    // reason nobody can read back.
+    queuedError = e;
+  }
+
+  ok('a queued job is not treated as finished', !!queuedResult,
+    queuedError ? `rejected with ${JSON.stringify(queuedError.message)}`
+      : JSON.stringify(queuedResult && queuedResult.totalNotes));
+  ok('the queue position reaches the UI',
+    queuedViews.some((v) => v.state === 'queued' && v.position === 2),
+    JSON.stringify(queuedViews.map((v) => v.state + ':' + v.position)));
+  ok('the position improves as the line moves',
+    queuedViews.some((v) => v.state === 'queued' && v.position === 1));
+  ok('the wait estimate reaches the UI',
+    queuedViews.some((v) => v.estimatedWaitSeconds === 240));
+  ok('the submit is reported as queued at once, not as running',
+    queuedViews[0] && queuedViews[0].state === 'queued',
+    JSON.stringify(queuedViews[0]));
+
+  // What the panel actually says. The wording is the deliverable here: a
+  // position and a time, in units somebody can act on.
+  eq('a queued job says where it is', describeQueue({ state: 'queued', position: 3 }),
+    '3 ahead in the queue');
+  eq('the first in line is not "1 ahead"', describeQueue({ state: 'queued', position: 1 }),
+    'Next in the queue');
+  ok('a long wait is given in minutes',
+    describeQueue({ state: 'queued', position: 2, estimatedWaitSeconds: 240 }).includes('4 min'),
+    describeQueue({ state: 'queued', position: 2, estimatedWaitSeconds: 240 }));
+  ok('a short wait is given in seconds',
+    describeQueue({ state: 'queued', position: 1, estimatedWaitSeconds: 20 }).includes('20 sec'),
+    describeQueue({ state: 'queued', position: 1, estimatedWaitSeconds: 20 }));
+  eq('no estimate is left off rather than invented',
+    describeQueue({ state: 'queued', position: 1 }), 'Next in the queue');
+  ok('a running job gets no queue wording',
+    describeQueue({ state: 'running', progress: 0.4 }) === null);
+
+  // Cancelling before the turn comes costs nothing: the server drops it from
+  // the queue and never starts it.
+  serving({
+    submit: { json: { jobId: JOB_ID, state: 'queued', view: { jobId: JOB_ID, state: 'queued', progress: 0, message: 'Waiting for the recogniser', position: 1 } } },
+    final: { jobId: JOB_ID, state: 'cancelled', progress: 0, message: 'Stopped before it started', seconds: 0 },
+    on: (url, method) => (method === 'POST' && url.endsWith('/cancel')
+      ? { json: { jobId: JOB_ID, state: 'cancelled' } }
+      : null),
+  });
+  const jobQueued = startTranscription(scanFile('later.png'), { pollMs: 5 });
+  await jobQueued.jobId;
+  await new Promise((r) => setTimeout(r, 20));
+  const queuedCancel = await jobQueued.cancel();
+  eq('cancelling a queued job comes back at once', queuedCancel && queuedCancel.state, 'cancelled');
+  const cancelErr = await rejects('a job cancelled in the queue stops rather than failing',
+    jobQueued.promise, /Stopped before the scan was finished/);
+  ok('a queue cancellation is reported as a cancellation, not an error',
+    cancelErr && cancelErr.cancelled === true, JSON.stringify(cancelErr && cancelErr.cancelled));
 
   /* ================================================================ cancel == */
 

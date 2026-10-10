@@ -10,7 +10,7 @@
 
 import { resolveScore, describeScore, keyNameFromFifths } from '../score/model.js';
 import { readScoreFiles } from '../io/files.js';
-import { backendHealth, describePage, resolveBase, probeHealth, setBase, configuredBase } from '../io/omr.js';
+import { backendHealth, describePage, describeQueue, resolveBase, probeHealth, setBase, configuredBase } from '../io/omr.js';
 import { INSTRUMENTS, createInstrument } from '../audio/instruments.js';
 import { packState, packCredits, prepare } from '../audio/sampler.js';
 import { instrumentForProgram, instrumentForName } from '../audio/gm.js';
@@ -583,8 +583,14 @@ export class App {
     // page in flight. Mirror that rather than inventing a second idea of when
     // the scan has actually stopped.
     job.stopping = /stopping/i.test(view.message || '');
-    const pct = Math.round((view.progress || 0) * 100);
-    this._setBusy(job.stopping ? 'Stopping after the current page…' : `${view.message || 'Reading'} · ${pct}%`);
+    const queued = describeQueue(view);
+    // A queued job has no progress to show -- it has not started -- so putting
+    // a 0% bar and a percentage next to "2 ahead in the queue" reads as a
+    // stalled scan rather than a scan that has not had its turn.
+    const pct = queued ? '' : `${Math.round((view.progress || 0) * 100)}%`;
+    this._setBusy(job.stopping
+      ? 'Stopping after the current page…'
+      : (queued || `${view.message || 'Reading'} · ${Math.round((view.progress || 0) * 100)}%`));
     this._renderOmrSection();
   }
 
@@ -622,15 +628,16 @@ export class App {
     const card = clear(d.omrCard);
     const job = this.omrJob;
     const view = job.view || {};
+    const queued = describeQueue(view);
     const pct = Math.max(0, Math.min(100, Math.round((view.progress || 0) * 100)));
     const msg = job.stopping
       ? 'Stopping after the current page…'
-      : (view.message || 'Sending this scan to the recogniser…');
+      : (queued || view.message || 'Sending this scan to the recogniser…');
 
     card.appendChild(el('div', { class: 'omr-job' },
       el('div', { class: 'omr-job-head' },
-        el('span', { class: 'omr-job-title', text: job.stopping ? 'Stopping' : 'Reading this scan' }),
-        el('span', { class: 'omr-job-pct', text: `${pct}%` })),
+        el('span', { class: 'omr-job-title', text: job.stopping ? 'Stopping' : (queued ? 'Waiting' : 'Reading this scan') }),
+        el('span', { class: 'omr-job-pct', text: queued ? '' : `${pct}%` })),
       el('div', { class: 'omr-job-track' },
         el('div', { class: 'omr-job-fill', style: { width: `${pct}%` } })),
       el('div', { class: 'omr-job-foot' },
@@ -640,13 +647,17 @@ export class App {
           class: 'btn ghost sm',
           text: job.stopping ? 'Stopping…' : 'Abort',
           disabled: job.stopping,
-          title: 'Stop reading this scan. The page being read finishes first.',
+          title: queued
+            ? 'Take this scan out of the queue. It has not started yet, so nothing is wasted.'
+            : 'Stop reading this scan. The page being read finishes first.',
           onclick: () => this._abortOmrJob(),
         }))));
 
     card.appendChild(el('div', {
       class: 'omr-note',
-      text: 'Recognition runs in the background on the CPU, so you can carry on with the rest of the page. The transcription appears here when it is ready.',
+      text: queued
+        ? 'Only one scan is read at a time, so the CPU is not split between several. This one keeps its place; anything else you load waits behind it.'
+        : 'Recognition runs in the background on the CPU, so you can carry on with the rest of the page. The transcription appears here when it is ready.',
     }));
   }
 

@@ -248,6 +248,31 @@ if (installedBackend.code !== 0) {
   }
 }
 
+// One scan at a time. The gate is the one piece of this that can be wrong on
+// its own -- it hands out positions correctly whether or not it actually admits
+// one job at a time -- so it is checked without the engine, in seconds rather
+// than the minutes a real transcription takes. check-omr-jobs.py covers the
+// same ground over HTTP with the engine running.
+{
+  const win = process.platform === 'win32';
+  const py = path.join(root, 'backend', '.venv', win ? 'Scripts' : 'bin',
+    win ? 'python.exe' : 'python');
+  const exe = fs.existsSync(py) ? py : (win ? 'python' : 'python3');
+  const r = await run(exe, [path.join(root, 'tools/check-omr-queue.py')],
+    { allowFail: true });
+  console.log(r.out.trim() || r.err.trim() || 'omr queue: no output');
+  if (r.code !== 0) {
+    for (const line of r.out.split('\n')) {
+      if (line.trim().startsWith('FAIL ') || line.startsWith('OMR QUEUE FAILED')) {
+        failures.push(line.trim());
+      }
+    }
+    if (!r.out.includes('FAIL ') && !r.out.includes('OMR QUEUE FAILED')) {
+      failures.push('omr queue: ' + (r.err.trim() || `check exited ${r.code}`));
+    }
+  }
+}
+
 // Does the installer still re-download 157 MB of model weights on every run?
 // It rebuilds the venv each time -- correctly, since a venv whose bin/python
 // dangles cannot be repaired in place -- and homr keeps its weights inside its

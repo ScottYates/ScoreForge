@@ -224,6 +224,97 @@ try:
 except urllib.error.HTTPError as exc:
     check("unknown job is a 404", exc.code == 404, f"HTTP {exc.code}")
 
+# --- 6. one at a time, and an honest queue ----------------------------------
+# Three jobs submitted together. The service reads one scan at a time, so at
+# most one may be `running` at any instant and the rest must be `queued` with
+# increasing positions. What this replaces is the state the service used to be
+# in: three jobs all reported `running`, each sitting on the same engine lock,
+# and every client unable to tell its own wait from its own work.
+CONCURRENT = 3
+ids = [post_job("/api/omr/jobs")["jobId"] for _ in range(CONCURRENT)]
+check("three jobs submitted together", len(set(ids)) == CONCURRENT, f"{len(set(ids))} distinct ids")
+
+samples = []          # one snapshot of every job, per poll
+peak_running = 0
+positions_seen = []   # (position, queueLength) each waiting job reported
+deadline = time.time() + 1800
+while time.time() < deadline:
+    snap = [get(f"/api/omr/jobs/{j}") for j in ids]
+    samples.append(snap)
+    peak_running = max(peak_running, sum(1 for v in snap if v["state"] == "running"))
+    for v in snap:
+        if v["state"] == "queued" and v.get("position") is not None:
+            positions_seen.append((v["position"], v.get("queueLength")))
+    if all(v["state"] in ("done", "error", "cancelled") for v in snap):
+        break
+    time.sleep(0.1)
+
+check("never more than one job running at a time", peak_running == 1,
+      f"peak simultaneous 'running' = {peak_running}")
+check("at least one job waited its turn",
+      any(v["state"] == "queued" for snap in samples for v in snap),
+      "no job was ever queued")
+check("a queued job is told its position", bool(positions_seen),
+      f"{len(positions_seen)} queued observations, e.g. {positions_seen[:3]}")
+
+# Two waiting jobs must never both be told they are 1st. Comparing the set of
+# positions within each snapshot catches that directly, where an off-by-one in
+# the position arithmetic would show up as every waiter reading the same place.
+collisions = []
+for snap in samples:
+    waiting = [v["position"] for v in snap if v["state"] == "queued" and v.get("position")]
+    if len(waiting) != len(set(waiting)):
+        collisions.append(waiting)
+check("two waiting jobs never hold the same position", not collisions,
+      f"collisions: {collisions[:3]}")
+
+check("every queued job reports an estimate field",
+      all("estimatedWaitSeconds" in v for snap in samples for v in snap
+          if v["state"] == "queued"), "")
+
+final = [get(f"/api/omr/jobs/{j}") for j in ids]
+check("all three jobs finish", all(v["state"] in ("done", "error") for v in final),
+      f"{[v['state'] for v in final]}")
+check("none of them was turned away by a full queue",
+      sum(1 for v in final if v["state"] == "error") < CONCURRENT,
+      f"{[v.get('error') for v in final if v['state'] == 'error']}")
+
+# --- 7. cancelling a job that has not started --------------------------------
+# Cheap to do and the one place a queue can leak: a cancelled job that stays in
+# the line holds its upload and a place in front of everyone for a scan nobody
+# is waiting for. Submit two, cancel the one that is waiting, and require the
+# service to say it never started.
+queued_id = post_job("/api/omr/jobs")["jobId"]
+blocker = post_job("/api/omr/jobs")["jobId"]
+seen_queued = False
+deadline = time.time() + 120
+while time.time() < deadline:
+    v = get(f"/api/omr/jobs/{queued_id}")
+    if v["state"] == "queued":
+        seen_queued = True
+        break
+    if v["state"] in ("done", "error", "cancelled"):
+        break
+    time.sleep(0.1)
+check("a second job reports itself queued", seen_queued,
+      f"state={get(f'/api/omr/jobs/{queued_id}')['state']}")
+
+if seen_queued:
+    resp = post(f"/api/omr/jobs/{queued_id}/cancel")
+    check("cancelling a queued job takes it out of the line at once",
+          resp["state"] == "cancelled", json.dumps(resp))
+    time.sleep(0.3)
+    after = get(f"/api/omr/jobs/{queued_id}")
+    check("a job cancelled in the queue ends cancelled, not running",
+          after["state"] == "cancelled", f"state={after['state']}")
+
+deadline = time.time() + 900
+while time.time() < deadline:
+    if all(get(f"/api/omr/jobs/{j}")["state"] in ("done", "error", "cancelled")
+           for j in (queued_id, blocker)):
+        break
+    time.sleep(0.5)
+
 print(f"\n{total - len(fails)} passed · {len(fails)} failed")
 if fails:
     print("FAILED:\n  " + "\n  ".join(fails))
