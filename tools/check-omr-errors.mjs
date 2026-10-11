@@ -43,8 +43,10 @@ XML_NOTES = ('<?xml version="1.0"?><score-partwise version="4.0">'
     '<part id="P1"><measure number="1">'
     '<attributes><divisions>1</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>'
     '<note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice></note>'
-    '<note><pitch><step>E</step><octave>4</octave></pitch><duration>2</duration><voice>1</voice></note>'
+    '<note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note>'
     '</measure></part></score-partwise>')
+# The bar is a beat SHORT on purpose: enforce_meter pads it, so the document
+# is re-serialised by ElementTree -- the step that drops the declaration.
 XML_RESTS = ('<?xml version="1.0"?><score-partwise version="4.0">'
     '<part-list><score-part id="P1"><part-name>x</part-name></score-part></part-list>'
     '<part id="P1"><measure number="1">'
@@ -84,6 +86,10 @@ try:
     cases['survives'] = {
         'variant': r.variant,
         'notes': r.stats.get('notes'),
+        # The 2-note bar is padded by enforce_meter, so the document WAS
+        # re-serialised by ElementTree -- which drops the XML declaration the
+        # app's notation engine insists on. The engine must restore it.
+        'decl': r.musicxml.lstrip().startswith('<?xml'),
         'attempts': [{k: a.get(k) for k in ('variant', 'notes', 'error')} for a in r.variants_tried],
     }
 except Exception as e:
@@ -155,6 +161,9 @@ ok('and it ends in advice the person can act on',
 ok('a page read as zero pitched notes is a failure, not an empty score',
   c.all_empty.raised === true && c.all_empty.message.includes('0 notes'),
   JSON.stringify(c.all_empty));
+ok('a post-processed document still begins with the XML declaration',
+  c.survives.decl === true,
+  'OSMD refuses MusicXML without it, and ElementTree drops it on re-serialise');
 ok('a zero-note rendering loses to one that read music',
   c.zero_loses.variant === 'deskewed' && c.zero_loses.notes === 2,
   JSON.stringify(c.zero_loses));

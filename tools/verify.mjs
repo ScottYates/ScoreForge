@@ -216,6 +216,18 @@ if (omrErrors.code !== 0) {
   failures.push('omr errors: ' + (omrErrors.out.trim().split('\n').pop() || omrErrors.err.trim()));
 }
 
+// The score view against what the backend actually sends: ElementTree drops
+// the XML declaration on re-serialise and OSMD refuses MusicXML without it,
+// which rendered a fully playable vocal-book transcription as a BLANK page.
+// The view must draw a declaration-less document, and put the reason on the
+// paper for one it genuinely cannot draw.
+const notationLoad = await run(process.execPath, [path.join(root, 'tools/check-notation-load.mjs')],
+  { allowFail: true });
+console.log(notationLoad.out.trim());
+if (notationLoad.code !== 0) {
+  failures.push('notation load: ' + (notationLoad.out.trim().split('\n').pop() || notationLoad.err.trim()));
+}
+
 // The repair report: the post-processing above quietly rewrites what the
 // recogniser read, and the Transcription panel must say so -- above all which
 // bars were clipped or padded by POLICY, since those are where a person

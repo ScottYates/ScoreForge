@@ -122,7 +122,29 @@ export class NotationView {
       cursorsOptions: cursorOptions(this.container),
     });
     this.osmd = osmd;
-    await osmd.load(score.rawMusicXml, score.title);
+    // OSMD's string loader requires the XML declaration -- it answers
+    // "Did not find <?xml at beginning" to a document without one. Python's
+    // ElementTree drops the declaration when it re-serialises, so every
+    // scanned score the backend post-processed arrived here without it, and
+    // the score view threw instead of drawing. The app's own parser never
+    // cared, which is why the library counted 39 notes above a blank page.
+    let xml = score.rawMusicXml;
+    if (!/^\s*<\?xml/.test(xml)) xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml;
+    try {
+      await osmd.load(xml, score.title);
+    } catch (e) {
+      // A score OSMD cannot draw must say so ON the page. The old behaviour
+      // was a thrown exception and a blank sheet of paper -- nothing to act
+      // on, nothing even saying something went wrong.
+      this.osmd = null;
+      this.notAvailable = `The notation engine could not draw this score: ${e && e.message ? e.message : e}`;
+      this.container.innerHTML = '';
+      const msg = document.createElement('div');
+      msg.className = 'paper-fail';
+      msg.textContent = `${this.notAvailable} Playback and the piano roll still work.`;
+      this.container.appendChild(msg);
+      return false;
+    }
     osmd.zoom = this.zoom;
 
     // Nothing else to configure here. OSMD's Cursor constructor already defaults

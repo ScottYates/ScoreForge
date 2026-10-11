@@ -561,6 +561,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
   min-height: 60vh;
 }
 .paper svg { display: block; width: 100%; height: auto; overflow: visible; color: var(--paper-ink); }
+/* A score the notation engine refused: the reason, on the paper itself. */
+.paper .paper-fail {
+  padding: 48px 32px; max-width: 640px; margin: 0 auto;
+  color: var(--paper-ink); font-size: 14px; line-height: 1.55;
+}
 .paper .vf-* { shape-rendering: geometricPrecision; }
 .paper svg path,
 .paper svg circle,

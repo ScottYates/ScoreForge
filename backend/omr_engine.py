@@ -519,6 +519,12 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
     # unreadable strip in a panel this size. The recognition itself always ran
     # on the untrimmed image.
     preview, _ = trim_border(chosen.image)
+    # ElementTree drops the XML declaration whenever a pass above re-serialised
+    # the document, and OSMD in the app refuses a MusicXML string that does not
+    # begin with <?xml -- the score page rendered BLANK over a fully playable
+    # transcription. Restore it once, here, for whatever the passes produced.
+    if not xml_text.lstrip().startswith("<?xml"):
+        xml_text = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_text
     stats = summarise_musicxml(xml_text)
     stats["consensus"] = consensus_report.as_dict()
     stats["tripletRepair"] = triplet_report.as_dict()
