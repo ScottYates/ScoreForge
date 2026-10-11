@@ -139,9 +139,18 @@ export async function readScoreFile(file, opts = {}) {
       onProgress: (view) => opts.onOmrProgress && opts.onOmrProgress(view),
     });
     opts.onOmrStarted && opts.onOmrStarted(job);
-    const result = await job.promise;
-    const scores = scoresFromResult(file, result);
-    if (!scores.length) throw new Error(`No music could be read from ${name}.`);
+    let result, scores;
+    try {
+      result = await job.promise;
+      scores = scoresFromResult(file, result);
+      if (!scores.length) throw new Error(`No music could be read from ${name}.`);
+    } catch (e) {
+      // The failure keeps its scan: a toast evaporates, but the Transcription
+      // panel can hold the page next to what went wrong -- without the
+      // reference, the caller has nothing persistent to show.
+      if (e && typeof e === 'object') e.reference = reference;
+      throw e;
+    }
     return {
       kind: 'score',
       score: scores[0],
@@ -222,7 +231,12 @@ export async function readScoreFiles(files, opts = {}) {
     } catch (e) {
       // A job the user stopped is not a file that could not be read, and the
       // two deserve different words in the toast.
-      failed.push({ file, error: e && e.message ? e.message : String(e), cancelled: !!(e && e.cancelled) });
+      failed.push({
+        file,
+        error: e && e.message ? e.message : String(e),
+        cancelled: !!(e && e.cancelled),
+        reference: (e && e.reference) || null,
+      });
     }
   }
   return { ok, failed };

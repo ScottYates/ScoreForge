@@ -355,6 +355,17 @@ export class App {
       }
     }
     for (const f of failed) {
+      // A scan that failed keeps its page on screen: the toast evaporates in
+      // seconds, and "nothing happened" is the worst possible report. The
+      // Transcription panel holds the page next to what went wrong instead.
+      if (f.reference) {
+        this.references = this.references.filter((x) => x.url !== f.reference.url);
+        this.references.push(f.reference);
+        if (!f.cancelled) {
+          this.omrReport = { failed: true, name: f.file.name, error: f.error, reference: f.reference };
+          this._renderOmrSection();
+        }
+      }
       if (f.cancelled) toast(`Stopped reading ${f.file.name}`, 'The scan was not transcribed.', 'warn');
       else toast(`Could not read ${f.file.name}`, f.error, 'err');
     }
@@ -725,6 +736,31 @@ export class App {
     const card = clear(d.omrCard);
     if (!rep) { d.omrSec.hidden = true; return; }
     d.omrSec.hidden = false;
+
+    // A scan the recogniser could not read. The toast is gone in seconds;
+    // this stays, with the page it was looking at and the engine's own words
+    // -- which name what each rendering did -- so the next photo can be a
+    // better one instead of a rerun of the same mystery.
+    if (rep.failed) {
+      const ref = rep.reference;
+      if (ref && ref.type === 'image') {
+        card.appendChild(el('img', { class: 'omr-img', src: ref.url, alt: ref.name }));
+      } else if (ref) {
+        card.appendChild(el('embed', { class: 'omr-img', src: ref.url, type: 'application/pdf' }));
+      }
+      card.appendChild(el('div', { class: 'omr-failed' },
+        el('div', { class: 'omr-failed-head', text: `Could not read ${rep.name}` }),
+        el('div', { class: 'omr-failed-why', text: rep.error || 'The recogniser returned nothing.' })));
+      card.appendChild(el('div', {
+        class: 'omr-note',
+        text: 'The scan is kept in the Source scan panel. Photos read best sharp, '
+          + 'straight-on and evenly lit, with the staves filling the frame; pages '
+          + 'that are mostly words, or single melody lines in a vocal book, are '
+          + 'at the hard edge of what the recogniser can read.',
+      }));
+      return;
+    }
+
     const active = this.score && this.score.omr;
     const pages = rep.pages || [];
 

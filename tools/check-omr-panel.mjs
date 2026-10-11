@@ -71,14 +71,61 @@ const PROBE = `(function () {
   return JSON.stringify(out);
 })()`;
 
-const r = spawnSync(process.execPath, [path.join(root, 'tools/cdp.mjs'),
-  '--url', page, '--width', '1280', '--height', '800',
-  '--wait', 'window.ScoreForge && !!window.ScoreForge.score',
-  '--timeout', '120000', '--eval', PROBE,
-], { cwd: root, encoding: 'utf8', timeout: 300000, maxBuffer: 64 * 1024 * 1024 });
-const out = r.stdout || '';
-const env = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
-const p = JSON.parse(env.value);
+/* --- a scan the recogniser could not read, end to end -------------------
+   The whole failing path through the BUILT page: a fake backend accepts the
+   job and reports it failed, the file intake attaches the scan to the error,
+   and the panel must hold the page and the engine's words -- not just a
+   toast that evaporates. The flow is async, and --eval cannot await, so the
+   kick-off lives inside the --wait predicate (which runs in the main world)
+   and the probe reads the flag it leaves behind. */
+const FAIL_MSG = 'no music could be read from this page (original: No staffs found; '
+  + 'deskewed: No staffs found). Try a sharper, straighter, more evenly lit '
+  + 'photo where the staves fill the frame.';
+const FAIL_KICK = `(window.__FAILKICK__ || (window.__FAILKICK__ = (async () => {
+  const app = window.ScoreForge;
+  const J = (obj, status) => new Response(JSON.stringify(obj),
+    { status: status || 200, headers: { 'Content-Type': 'application/json' } });
+  window.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('/api/health')) return J({ ok: true, engine: 'homr', version: '0.7.0', device: 'cpu' });
+    if (/\\/api\\/omr\\/jobs\\/j1$/.test(u)) return J({ jobId: 'j1', state: 'failed', error: ${JSON.stringify(FAIL_MSG)} });
+    if (u.includes('/api/omr/jobs')) return J({ jobId: 'j1', state: 'running', view: { state: 'running', progress: 0, message: 'Starting', seconds: 0 } });
+    return J({ detail: 'not here' }, 404);
+  };
+  await app._probeBackend();
+  const file = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], 'vocal-book.jpg', { type: 'image/jpeg' });
+  await app.addFiles([file]);
+  window.__FAILDONE__ = true;
+})().catch((e) => { window.__FAILERR__ = String(e); window.__FAILDONE__ = true; })),
+window.__FAILDONE__ === true)`;
+
+const FAIL_PROBE = `(function () {
+  const out = { err: window.__FAILERR__ || null };
+  const sec = document.getElementById('omrSec');
+  out.sectionShown = !sec.hidden;
+  const head = document.querySelector('#omrCard .omr-failed-head');
+  const why = document.querySelector('#omrCard .omr-failed-why');
+  out.head = head ? head.textContent : null;
+  out.why = why ? why.textContent : null;
+  out.scanShown = !!document.querySelector('#omrCard img.omr-img');
+  const note = document.querySelector('#omrCard .omr-note');
+  out.advice = note ? note.textContent : null;
+  out.report = window.ScoreForge.omrReport && window.ScoreForge.omrReport.failed === true;
+  return JSON.stringify(out);
+})()`;
+
+function run(wait, probe) {
+  const r = spawnSync(process.execPath, [path.join(root, 'tools/cdp.mjs'),
+    '--url', page, '--width', '1280', '--height', '800',
+    '--wait', wait,
+    '--timeout', '120000', '--eval', probe,
+  ], { cwd: root, encoding: 'utf8', timeout: 300000, maxBuffer: 64 * 1024 * 1024 });
+  const out = r.stdout || '';
+  const env = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
+  return JSON.parse(env.value);
+}
+
+const p = run('window.ScoreForge && !!window.ScoreForge.score', PROBE);
 
 let failed = 0;
 const ok = (name, cond, detail = '') => {
@@ -105,6 +152,18 @@ ok('a flagged line looks different from a plain one', p.warnLooksDifferent === t
 ok('a clean read shows no repair section at all',
   p.cleanLines === 0 && p.cleanCaption === false,
   JSON.stringify({ lines: p.cleanLines, caption: p.cleanCaption }));
+
+const f = run(FAIL_KICK, FAIL_PROBE);
+ok('a failed scan reaches the panel, not just a toast',
+  f.err === null && f.report === true && f.sectionShown === true,
+  JSON.stringify({ err: f.err, report: f.report, shown: f.sectionShown }));
+ok('it names the file', f.head === 'Could not read vocal-book.jpg', JSON.stringify(f.head));
+ok('and carries the engine\'s own words, per rendering',
+  !!f.why && f.why.includes('original: No staffs found') && f.why.includes('deskewed:'),
+  JSON.stringify(f.why));
+ok('the scan itself stays on screen beside the failure', f.scanShown === true);
+ok('with advice the next photo can act on',
+  !!f.advice && /sharp, straight-on/.test(f.advice), JSON.stringify(f.advice));
 
 console.log(`\n${failed ? 'omr panel FAILED' : 'omr panel OK'}`);
 process.exit(failed ? 1 : 0);

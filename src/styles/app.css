@@ -414,6 +414,18 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .omr-fix.warn { color: var(--amber); }
 .omr-fix.warn::before { content: '⚠'; color: var(--amber); font-size: 9px; top: 1px; }
 
+/* A scan the recogniser could not read: the page, then the engine's words. */
+.omr-failed {
+  margin-top: 8px; padding: 8px 10px;
+  border: 1px solid rgba(255, 107, 107, .35); border-radius: 8px;
+  background: rgba(255, 107, 107, .07);
+}
+.omr-failed-head { font-size: 11.5px; font-weight: 700; color: var(--red); }
+.omr-failed-why {
+  margin-top: 3px; font-size: 10.5px; color: var(--ink-2); line-height: 1.45;
+  font-family: var(--mono);
+}
+
 /* ------------------------------------------------------- running a job --- */
 
 .omr-job {

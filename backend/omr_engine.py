@@ -422,21 +422,33 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
         # a fixed name inside the working folder is only safe if creation, use and
         # removal are serialised together. Narrowing the lock to the inner `with`
         # would let one request delete the directory another was still reading.
-        with _omr_lock:
-            # Scratch for this one inference pass. It used to be a
-            # tempfile.TemporaryDirectory, which is a delete outside the working
-            # folder on every request, against a shared system directory, with
-            # nothing to say the path was ours. owned_tree() puts it inside the
-            # repo with a receipt on disk, so removing it is claim-backed.
-            with owned_tree(
-                ROOT / ".tmp" / "omr-work",
-                "Scratch for one homr inference pass.",
-            ) as workdir:
-                text, log_lines = _run_variant(variant, workdir, on_line=on_line)
+        # A variant that crashes the engine must not take the page down with
+        # it. homr raises outright when it finds no staffs at all -- exactly
+        # what the ORIGINAL rendering of a tilted phone photo does -- and the
+        # deskewed rendering two slots later is the one built to survive that
+        # photo. It never ran: the first crash used to abort the whole loop.
+        error = None
+        try:
+            with _omr_lock:
+                # Scratch for this one inference pass. It used to be a
+                # tempfile.TemporaryDirectory, which is a delete outside the
+                # working folder on every request, against a shared system
+                # directory, with nothing to say the path was ours.
+                # owned_tree() puts it inside the repo with a receipt on disk,
+                # so removing it is claim-backed.
+                with owned_tree(
+                    ROOT / ".tmp" / "omr-work",
+                    "Scratch for one homr inference pass.",
+                ) as workdir:
+                    text, log_lines = _run_variant(variant, workdir, on_line=on_line)
+        except Exception as exc:
+            text, log_lines = None, []
+            error = str(exc).strip() or type(exc).__name__
         count = _note_count(text)
         exact, bars = count_exact_bars(text) if text else (0, 0)
-        report(base + span, f"{variant.name} read {count} notes")
-        attempts.append({
+        report(base + span,
+               f"{variant.name}: {error}" if error else f"{variant.name} read {count} notes")
+        attempt = {
             "variant": variant.name,
             "notes": count,
             # Bars whose every voice lands on the barline: the currency the
@@ -445,16 +457,30 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
             "bars": bars,
             "steps": variant.report.get("steps", {}),
             "log": log_lines if debug else [],
-        })
+        }
+        if error:
+            attempt["error"] = error
+        attempts.append(attempt)
         readings.append((variant.name, text))
         # (notes, -index) so earlier variants win ties.
         if text and (best is None or count > best[0]):
             best = (count, -index, text, log_lines, variant)
 
-    if best is None:
+    # A reading with zero pitched notes is not music: a page of lyrics and
+    # highlighter can come back as well-formed MusicXML full of rests, and
+    # that used to ship to the app as a SUCCESSFUL, silently empty score.
+    # Failing loudly -- with what each rendering actually did -- is the only
+    # version of this the person at the other end can act on.
+    if best is None or best[0] == 0:
+        tried = "; ".join(
+            f"{a['variant']}: {a['error']}" if a.get("error")
+            else f"{a['variant']}: {a['notes']} notes"
+            for a in attempts)
         raise ValueError(
-            "no music could be read from this page. Try a sharper, straighter, "
-            "more evenly lit photo where the staves fill the frame."
+            "no music could be read from this page"
+            + (f" ({tried})" if tried else "")
+            + ". Try a sharper, straighter, more evenly lit photo where the "
+            "staves fill the frame."
         )
 
     report(0.96, "Building the score")

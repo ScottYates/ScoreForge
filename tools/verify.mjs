@@ -204,6 +204,18 @@ if (omrTempo.code !== 0) {
   failures.push('omr tempo: ' + (omrTempo.out.trim().split('\n').pop() || omrTempo.err.trim()));
 }
 
+// The variant loop's failure policy: one crashing rendering must not take
+// the page down (homr raises outright on "no staffs", which is what a tilted
+// photo's ORIGINAL rendering does -- the deskewed one must still run), and a
+// page read as zero pitched notes is a failure with the engine's words in
+// it, never a silently empty "success".
+const omrErrors = await run(process.execPath, [path.join(root, 'tools/check-omr-errors.mjs')],
+  { allowFail: true });
+console.log(omrErrors.out.trim());
+if (omrErrors.code !== 0) {
+  failures.push('omr errors: ' + (omrErrors.out.trim().split('\n').pop() || omrErrors.err.trim()));
+}
+
 // The repair report: the post-processing above quietly rewrites what the
 // recogniser read, and the Transcription panel must say so -- above all which
 // bars were clipped or padded by POLICY, since those are where a person
