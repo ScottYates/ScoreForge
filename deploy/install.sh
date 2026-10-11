@@ -63,7 +63,7 @@ VENV="$PREFIX/.venv"
 # the install reported success. tools/check-installed-backend.mjs now holds the
 # list to the imports that actually exist, so a module cannot be added to
 # backend/ without being installed.
-BACKEND_FILES="app.py guard.py omr_engine.py preprocess.py requirements.txt"
+BACKEND_FILES="app.py guard.py omr_engine.py preprocess.py triplets.py requirements.txt"
 # homr stores its ONNX weights inside its own installed package, so they live
 # inside $VENV and are destroyed by every rebuild below. This sits outside the
 # venv so they can be carried across it. Deliberately not under $VENV, and not

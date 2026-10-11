@@ -29,6 +29,7 @@ import numpy as np
 
 from guard import owned_tree, remove_owned_file, ROOT
 from preprocess import Page, Variant, build_variants, encode_png, trim_border
+from triplets import repair_triplets
 
 ENGINE_NAME = "homr"
 ENGINE_VERSION = "0.7.0"
@@ -424,12 +425,19 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
 
     report(0.96, "Building the score")
     _, neg_index, xml_text, log_lines, chosen = best
+    # Repair triplet runs the engine read as straight. Engravers print the
+    # "3" on the first group of a passage and trust the reader for the rest;
+    # the engine does the same, and every such bar comes back half again too
+    # long. The pass converts only what accounts for a bar's overflow
+    # EXACTLY, and reports the bars it refused -- see backend/triplets.py.
+    xml_text, triplet_report = repair_triplets(xml_text)
     # The preview is shown next to the transcription, so trim the blank paper
     # around the music -- a full A4 page of mostly white shrinks to an
     # unreadable strip in a panel this size. The recognition itself always ran
     # on the untrimmed image.
     preview, _ = trim_border(chosen.image)
     stats = summarise_musicxml(xml_text)
+    stats["tripletRepair"] = triplet_report.as_dict()
     report(0.99, "Done")
     return PageResult(
         index=page.index,

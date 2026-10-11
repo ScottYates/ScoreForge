@@ -357,6 +357,13 @@ def run_piece(piece: str, mode: str, tmp: Path) -> dict:
     if not xml_path.exists():
         return {"piece": piece, "mode": mode, "error": "homr produced no MusicXML", "seconds": elapsed}
 
+    # The service repairs unmarked triplet runs before returning a score, so
+    # the accuracy table must measure the repaired output -- the thing a user
+    # actually receives -- not the engine's raw reading.
+    from triplets import repair_triplets
+    repaired, _rep = repair_triplets(xml_path.read_text(encoding="utf-8"))
+    xml_path.write_text(repaired, encoding="utf-8")
+
     try:
         gt = read_ground_truth(gt_file)
     except ValueError as exc:

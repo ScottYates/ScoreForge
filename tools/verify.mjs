@@ -183,6 +183,17 @@ if (omrVariants.code !== 0) {
   failures.push('omr variants: ' + (omrVariants.out.trim().split('\n').pop() || omrVariants.err.trim()));
 }
 
+// The triplet repair: engravers print the "3" over a passage's first group
+// and the recogniser reads the rest straight, so every such bar comes back
+// half again too long. The pass converts only what explains a bar's overflow
+// exactly, and refuses the rest -- stdlib python, runs everywhere.
+const omrTriplets = await run(process.execPath, [path.join(root, 'tools/check-omr-triplets.mjs')],
+  { allowFail: true });
+console.log(omrTriplets.out.trim());
+if (omrTriplets.code !== 0) {
+  failures.push('omr triplets: ' + (omrTriplets.out.trim().split('\n').pop() || omrTriplets.err.trim()));
+}
+
 // The Concert Grand used to get *brighter* as it rang, which no struck string
 // does. It passes the module suites either way -- they assert what the config
 // says, not what came out of the speaker -- so it is measured from rendered
