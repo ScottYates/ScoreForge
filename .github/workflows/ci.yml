@@ -6,10 +6,16 @@ name: CI
 #   verify -- runs the real self-test in a headless browser against the BUILT
 #             single-file HTML, i.e. exactly the artifact that ships
 #
-# The Python recognition backend is deliberately not exercised here: it needs
+# The Python recognition MODEL is deliberately not exercised here: it needs
 # ONNX weights (a ~37 MB download) and the GPU-free ONNX Runtime stack, which
 # is slow on a shared runner. Its accuracy is measured separately and
-# reproducibly via tools/score_omr.py -- see the README.
+# reproducibly via tools/score_omr.py -- see the README. The backend's cheap
+# halves ARE exercised: the one-at-a-time gate and the preprocessing variants
+# only need FastAPI and OpenCV, so the verify job installs those (pinned to
+# backend/requirements.txt) and npm test runs their checks for real. Without
+# them the checks skip with a reason -- which is how CI sat red from the day
+# the gate check landed: the runner had no FastAPI, the check treated that as
+# a failure, and every push since reported the same missing-module traceback.
 
 on:
   push:
@@ -70,6 +76,13 @@ jobs:
       - uses: browser-actions/setup-chrome@v1
         with:
           chrome-version: stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      # The light backend deps only -- no homr, no onnxruntime, no weights.
+      # Versions pinned to backend/requirements.txt so CI tests what ships.
+      - name: Backend deps for the gate and preprocessing checks
+        run: pip install fastapi==0.142.4 python-multipart==0.0.32 opencv-python-headless==5.0.0.93 numpy==2.5.3
       - run: npm ci
       - run: npm run build
       # tools/cdp.mjs finds Chrome on Linux via /usr/bin/google-chrome-stable,

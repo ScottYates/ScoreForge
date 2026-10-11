@@ -23,6 +23,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
+# The gate lives in app.py, whose import drags in the backend's web stack.
+# Where that stack is not installed -- a CI runner without the backend
+# requirements, a checkout without the venv -- this check cannot run, and the
+# honest verdict is a loud skip, not a failure: the gate is exercised wherever
+# the deps exist (the dev host, and CI once it installs the light backend
+# deps). Skipped is exit 0 with a reason, mirroring the pack checks that skip
+# without the FreePats sources rather than failing or silently passing.
+import importlib.util
+
+_missing = [m for m in ("fastapi", "cv2", "numpy") if importlib.util.find_spec(m) is None]
+if _missing:
+    print(f"skip  omr queue: backend deps not installed ({', '.join(_missing)}) -- "
+          "pip install fastapi python-multipart opencv-python-headless numpy to run it")
+    raise SystemExit(0)
+
 import app  # noqa: E402
 
 fails: list[str] = []
