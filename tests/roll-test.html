@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Piano roll tests</title>
+<style>
+  body { background:#111; color:#ddd; font:12px ui-monospace,Consolas,monospace; margin:0; padding:12px; }
+  #out { white-space:pre-wrap; }
+  .pass { color:#7fd18a; }
+  .fail { color:#ff6b6b; font-weight:bold; }
+  #host { position:absolute; left:-9000px; width:800px; height:400px; }
+  #host canvas { display:block; }
+</style>
+</head>
+<body>
+<div id="out">running.</div>
+<div id="host"><canvas id="rc"></canvas></div>
+
+<!--
+  Does the piano roll keep the music in view while it plays?
+
+  The canvas is pane-sized and shows a window onto the piece. The playhead
+  used to be drawn at an absolute x while the note culling assumed a window
+  that followed it: the playhead walked off the right edge within seconds and
+  the notes were culled off the left, so playback past the first screen showed
+  an empty, motionless pane. These tests drive the view by geometry: wherever
+  the playhead is sent, it must be inside the pane and the culling window must
+  be the window the pane shows.
+-->
+<script type="module">
+import { PianoRoll } from '../src/js/render/roll.js';
+
+const lines = [];
+let pass = 0, fail = 0;
+const failures = [];
+const out = document.getElementById('out');
+function head(t) { lines.push('', '== ' + t + ' ' + '='.repeat(Math.max(0, 56 - t.length))); }
+function ok(name, cond, detail = '') {
+  if (cond) { pass++; lines.push(`  PASS  ${name}`); }
+  else { fail++; failures.push(name); lines.push(`<span class="fail">  FAIL  ${name}${detail ? '  - ' + detail : ''}</span>`); }
+}
+
+const X0 = 78;
+
+/** A minute of eighth notes walking a scale: something at every moment. */
+function longPiece() {
+  const notes = [];
+  for (let i = 0; i < 240; i++) {
+    notes.push({ id: 'n' + i, midi: 48 + (i % 24), time: i * 0.25, duration: 0.22, velocity: 0.8, partId: 'p' });
+  }
+  return notes;
+}
+
+/**
+ * Non-background pixel count in a horizontal slice of the note area.
+ * `fromFrac`/`toFrac` are fractions of the pane width, so "the right third"
+ * can be asserted on its own -- a culling window glued to the playhead keeps
+ * pixels near the playhead and empties exactly that region.
+ */
+function inkIn(canvas, ctx, fromFrac = 0, toFrac = 1) {
+  const left = Math.round((X0 + (canvas.width / roll._dpr - X0) * fromFrac) * roll._dpr) + 4;
+  const right = Math.round((X0 + (canvas.width / roll._dpr - X0) * toFrac) * roll._dpr) - 4;
+  const d = ctx.getImageData(left, 30, Math.max(1, right - left), canvas.height - 60).data;
+  // Count NOTE pixels, not any pixels: the grid, the row stripes and the bar
+  // lines ink the whole pane whether or not a single note is drawn, which is
+  // exactly the failure this measures. The test part draws in the palette's
+  // default blue, so blue dominance is the discriminator.
+  let ink = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 2] > d[i] + 30 && d[i + 2] > d[i + 1] + 20 && d[i + 2] > 90) ink++;
+  }
+  return ink;
+}
+
+const canvas = document.getElementById('rc');
+const roll = new PianoRoll(canvas, {});
+
+try {
+  roll.setScore(longPiece(), null, 60);
+  const w = roll._w;
+  ok('the pane has a real size', w >= 700, `w=${w}`);
+  ok('at rest the view starts at zero', roll.viewStart === 0 && roll.xForTime(0) === X0,
+    `viewStart ${roll.viewStart}, x(0) ${roll.xForTime(0)}`);
+
+  head('the view follows the playhead');
+  {
+    roll.setPlayhead(30);
+    roll.draw();
+    const px = roll.xForTime(30);
+    ok('thirty seconds in, the playhead is inside the pane', px >= X0 && px <= w,
+      `x(30) = ${px.toFixed(1)} with pane width ${w}`);
+    ok('because the view moved, not the geometry', roll.viewStart > 0, `viewStart ${roll.viewStart.toFixed(2)}`);
+    ok('the start of the piece has scrolled off the left', roll.xForTime(0) < X0, `x(0) = ${roll.xForTime(0).toFixed(1)}`);
+    ok('and the pane is showing notes, not an empty strip', inkIn(canvas, roll.ctx) > 500,
+      `${inkIn(canvas, roll.ctx)} inked pixels`);
+    ok('including far from the playhead -- the whole window is drawn, not a sliver around it',
+      inkIn(canvas, roll.ctx, 0.66, 1) > 150, `${inkIn(canvas, roll.ctx, 0.66, 1)} inked pixels in the right third`);
+  }
+
+  head('between jumps the view holds still');
+  {
+    const before = roll.viewStart;
+    roll.setPlayhead(31);   // still well inside the window
+    ok('a tick inside the window does not move the view', roll.viewStart === before,
+      `viewStart ${before.toFixed(2)} -> ${roll.viewStart.toFixed(2)}`);
+    // Walk the playhead right out of the window: the view must jump to keep it.
+    roll.setPlayhead(31 + (w - X0) / roll.pixelsPerSecond);
+    const px = roll.xForTime(roll.playhead);
+    ok('leaving the window drags the view along', px >= X0 && px <= w, `x = ${px.toFixed(1)}`);
+  }
+
+  head('seeks land in view, in both directions');
+  {
+    roll.setPlayhead(0);
+    ok('back to the start rewinds the view', roll.viewStart === 0 && roll.xForTime(0) === X0,
+      `viewStart ${roll.viewStart}`);
+    roll.setPlayhead(55);
+    ok('a long forward seek is in view', roll.xForTime(55) >= X0 && roll.xForTime(55) <= w,
+      `x(55) = ${roll.xForTime(55).toFixed(1)}`);
+  }
+
+  head('coordinates agree with the view');
+  {
+    roll.setPlayhead(30);
+    const t = roll.timeForX(roll.xForTime(23.7));
+    ok('timeForX inverts xForTime under a scrolled view', Math.abs(t - 23.7) < 1e-6, `${t}`);
+    // Click-to-seek goes through timeForX, so a click on the playhead must
+    // yield the playhead's own time, not the time of that x at view start 0.
+    const clickT = roll.timeForX(roll.xForTime(roll.playhead));
+    ok('a click lands at the time the pane shows there', Math.abs(clickT - roll.playhead) < 1e-6, `${clickT}`);
+  }
+} catch (e) {
+  fail++;
+  failures.push('EXCEPTION');
+  lines.push('', `<span class="fail">EXCEPTION ${(e && e.stack) || e}</span>`);
+  console.error(e);
+}
+
+const summary = `${pass} passed, ${fail} failed`;
+lines.unshift(`<span class="${fail ? 'fail' : 'pass'}">PIANO ROLL: ${summary}</span>`);
+out.innerHTML = lines.join('\n');
+window.__RESULT__ = { passed: pass, failed: fail, summary, fatal: null, failures };
+window.__DONE__ = true;
+document.title = `roll ${summary}`;
+</script>
+</body>
+</html>

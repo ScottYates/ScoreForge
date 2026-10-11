@@ -24,6 +24,7 @@ export class PianoRoll {
     this.duration = 0;
     this.playhead = 0;
     this.pixelsPerSecond = 46;
+    this.viewStart = 0;   // seconds at the left edge of the note area
     this.rowH = 9;         // adapts to the piece's range in centreView()
     this.scrollY = 0;     // in semitones from the bottom
     this.lit = new Map(); // note.id -> expiry time, for the "sounding" tint
@@ -47,6 +48,7 @@ export class PianoRoll {
     this.timing = timing;
     this.duration = Math.max(1, durationSec || 0);
     this.lit.clear();
+    this.viewStart = 0;
     this.centreView();
   }
 
@@ -98,12 +100,35 @@ export class PianoRoll {
 
   setZoom(pps) {
     this.pixelsPerSecond = Math.max(8, Math.min(400, pps));
+    this._followPlayhead();
     this.draw();
   }
 
   setPlayhead(t) {
     this.playhead = t;
+    this._followPlayhead();
     this._scheduleDraw();
+  }
+
+  /**
+   * Keep the playhead inside the pane by moving the view, not the playhead.
+   *
+   * The view scrolls only when the playhead leaves the window -- off the left
+   * after a seek, or past the right 80% while playing -- and then places it at
+   * 30% from the left, so each jump buys most of a pane of music before the
+   * next one. Between jumps the view is still, which is what leaves manual
+   * scrolling (shift+wheel) usable while the piece plays.
+   */
+  _followPlayhead() {
+    const w = this._w || (this.canvas.clientWidth || 800);
+    const x0 = 78;
+    const span = (w - x0) / this.pixelsPerSecond;
+    if (span <= 0) return;
+    const px = this.xForTime(this.playhead);
+    if (px < x0 || px > w - 0.2 * (w - x0)) {
+      const target = this.playhead - 0.3 * span;
+      this.viewStart = Math.max(0, Math.min(target, this.duration - span * 0.5));
+    }
   }
 
   flash(note) {
@@ -126,9 +151,9 @@ export class PianoRoll {
     return Math.round((y - 22) / this.rowH + this.scrollY - rows);
   }
 
-  xForTime(t) { return 78 + t * this.pixelsPerSecond; }
+  xForTime(t) { return 78 + (t - this.viewStart) * this.pixelsPerSecond; }
 
-  timeForX(x) { return Math.max(0, (x - 78) / this.pixelsPerSecond); }
+  timeForX(x) { return Math.max(0, (x - 78) / this.pixelsPerSecond + this.viewStart); }
 
   draw() {
     const c = this.ctx;
@@ -182,17 +207,24 @@ export class PianoRoll {
     // Notes
     const now = performance.now();
     const x0 = 78;
-    const scrollX = this.playhead * this.pixelsPerSecond - (x0 + 40);
-    const viewStart = Math.max(0, scrollX / this.pixelsPerSecond);
+    // Cull against the window the view actually shows. The old culling used a
+    // window derived from the playhead on the assumption that the view
+    // followed it -- it did not, so as playback advanced, notes still sitting
+    // visibly in the pane were culled off its left while the playhead walked
+    // off its right.
+    const viewStart = this.viewStart;
     const viewEnd = viewStart + (w - x0) / this.pixelsPerSecond;
 
     for (const n of this.notes) {
       if (n.time > viewEnd || n.time + n.duration < viewStart) continue;
       const y = this.yForMidi(n.midi);
       if (y < 14 || y > h) continue;
-      const x = this.xForTime(n.time);
+      // A note that began before the window clips at the gutter instead of
+      // being drawn across the key labels.
+      const x = Math.max(x0 - 1, this.xForTime(n.time));
       const nx = this.xForTime(n.time + Math.max(0.05, n.duration));
       const wdt = Math.max(2, nx - x - 1);
+      if (nx < x0) continue;
       const col = (this.partColors && this.partColors.get(n.partId)) || PALETTE[0];
       const alpha = 0.42 + 0.5 * Math.min(1, n.velocity);
       const nh = Math.max(3, Math.min(9, this.rowH - 2));
@@ -281,7 +313,11 @@ export class PianoRoll {
       this.setZoom(this.pixelsPerSecond * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
     } else if (e.shiftKey) {
       e.preventDefault();
-      this.canvas.parentElement.scrollLeft += e.deltaY;
+      // The canvas is pane-sized and scrolls by moving its own view window;
+      // the old parentElement.scrollLeft had nothing to move and did nothing.
+      this.viewStart = Math.max(0, Math.min(this.viewStart + e.deltaY / this.pixelsPerSecond,
+        Math.max(0, this.duration - 1)));
+      this.draw();
     } else {
       e.preventDefault();
       this.scrollY -= Math.sign(e.deltaY) * (e.deltaMode === 1 ? 1 : 3);

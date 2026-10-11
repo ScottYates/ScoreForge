@@ -688,6 +688,11 @@ function finalizePart(part, state, starts) {
 
   for (const note of state.notes) {
     note.quarter = startOf(note._m, note._o);
+    // Which bar the note came from, for anything that has to line this part's
+    // timeline up with another view of the same bars -- the notation cursor
+    // does, and a check that the cursor sits in the right bar needs the truth
+    // to compare against.
+    note.measure = note._m;
     delete note._m;
     delete note._o;
   }
@@ -914,6 +919,13 @@ export function parseMusicXml(xmlString, opts = {}) {
     timeSigs,
     totalQuarters,
     measureCount: barCount,
+    // The bar grid playback runs on: measureStarts[i] is the absolute quarter
+    // where bar i begins, derived from what each bar actually CONTAINS (an
+    // overfull bar gets its real length, an empty one gets none). Notation
+    // engines lay the same bars out by their own arithmetic, so anything
+    // mapping between the two timelines anchors on this grid per bar instead
+    // of trusting absolute timestamps to agree across a whole piece.
+    measureStarts: starts.slice(0, barCount + 1),
     rawMusicXml: xmlString,
     warnings,
   });

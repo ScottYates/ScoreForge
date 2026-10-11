@@ -103,6 +103,14 @@ export class NotationView {
     if (!OSMD) { this.notAvailable = 'Notation engine failed to load.'; return false; }
 
     this.notAvailable = null;
+    // The playback bar grid (score.measureStarts): where bar i begins in
+    // quarters, derived from what each bar contains. The cursor table below
+    // anchors every step to it, because OSMD's own absolute timestamps follow
+    // OSMD's measure arithmetic -- on a score with an overfull or empty bar
+    // (scanned scores produce both) the two timelines drift further apart
+    // every bar, and the cursor slides visibly off the notes it points at.
+    this._measureStarts = Array.isArray(score.measureStarts) && score.measureStarts.length
+      ? score.measureStarts : null;
     // cursorsOptions has to be passed here, not assigned after load(): OSMD reads
     // it once while applying options and hands each Cursor one entry when the
     // first page renders. There is no cursor object to mutate until then --
@@ -174,11 +182,25 @@ export class NotationView {
       cursor.reset();
       cursor.hide();
       const it = cursor.iterator;
+      const grid = this._measureStarts;
       let i = 0;
       // Guard against a pathological file; a normal score is a few thousand.
       while (!it.EndReached && i < MAX_CURSOR_STEPS) {
         const ts = it.CurrentSourceTimestamp;
-        steps.push({ quarter: fractionToQuarters(ts), i });
+        const mi = typeof it.CurrentMeasureIndex === 'number' ? it.CurrentMeasureIndex : -1;
+        let quarter = fractionToQuarters(ts);
+        // Re-anchor the step on the playback bar grid: playback's bar start
+        // plus OSMD's offset *within* the bar. Within one bar the two agree --
+        // both accumulate the same written durations -- so anchoring per bar
+        // removes exactly the part that drifts. The offset is clamped to the
+        // playback bar's own length so a bar the notation pads out (an empty
+        // bar drawn as a whole rest) cannot push its steps past the next bar.
+        if (grid && mi >= 0 && mi < grid.length - 1 && it.CurrentMeasure) {
+          const within = Math.max(0, quarter - fractionToQuarters(it.CurrentMeasure.AbsoluteTimestamp));
+          const barLen = Math.max(0, grid[mi + 1] - grid[mi]);
+          quarter = grid[mi] + Math.min(within, barLen);
+        }
+        steps.push({ quarter, measure: mi, i });
         it.moveToNext();
         i++;
       }
