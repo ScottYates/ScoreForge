@@ -325,7 +325,32 @@ def degrade(src: Path, dst: Path, mode: str) -> None:
 # --------------------------------------------------------------------------
 # Driver
 # --------------------------------------------------------------------------
+def _find_homr_python() -> list[str]:
+    """Interpreters on this machine that look like they carry homr."""
+    import platform
+    candidates = []
+    win = platform.system() == "Windows"
+    for base in (ROOT / "backend" / ".venv", Path("/opt/scoreforge/.venv")):
+        exe = base / ("Scripts/python.exe" if win else "bin/python")
+        if exe.exists():
+            candidates.append(str(exe))
+    return candidates
+
+
 def run_piece(piece: str, mode: str, tmp: Path) -> dict:
+    import importlib.util
+
+    if importlib.util.find_spec("homr") is None:
+        # The traceback version of this message cost a real debugging stop:
+        # plain `python` is rarely the interpreter the recogniser lives in.
+        found = _find_homr_python()
+        hint = ("try:  " + found[0] + " tools/score_omr.py") if found else (
+            "no venv found here -- on the dev machine use backend\\.venv\\Scripts\\python.exe, "
+            "on an installed host /opt/scoreforge/.venv/bin/python")
+        raise SystemExit(
+            "score_omr: this interpreter has no homr installed; the measurement "
+            "needs the backend venv.\n  " + hint)
+
     from homr.main import ProcessingConfig, process_image
     from homr.music_xml_generator import XmlGeneratorArguments
 

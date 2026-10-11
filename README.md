@@ -140,6 +140,32 @@ The time signature is taken from whatever bar lines the recogniser can see, so a
 page engraved without interior barlines can come back as one long bar instead of
 4/4. Durations are unaffected.
 
+Triplets are the engine's one systematic rhythm error, and the service repairs
+the half of it that arithmetic can prove. Engravers print the "3" over a
+passage's first group and trust the reader for the rest; the engine does the
+same, reads the unmarked groups as straight notes, and every such bar comes
+back half again too long -- a Moonlight-sonata page came back with nearly every
+pitch right and every bar overfull. After recognition, bars whose overflow is
+accounted for EXACTLY by whole groups of three equal unmarked notes get those
+groups converted to triplets; bars whose overflow has no exact 3:2 explanation
+are left alone and named in the transcription report, because shrinking an
+error is not fixing it. On that Moonlight page this repairs 10 of the 18
+overfull bars; the other 8 are voice-assignment misreads the engine itself
+would have to get right. `backend/triplets.py`;
+`node tools/check-omr-triplets.mjs` exercises the contract without the engine.
+
+Scans also carry no tempo -- the notes engine ignores words -- so every scan
+used to play at the app's default, which made that same "Adagio sostenuto."
+page run at double speed. The service now OCRs the top of the page with the
+text engine homr already uses for titles, reads a printed metronome mark
+(which wins outright, within the range a metronome can plausibly print) or a
+tempo term (longest match, against a table of conventional values), and
+writes the result into the MusicXML together with the matched words, so the
+Transcription panel can say where the tempo came from. A page with no tempo
+text plays as before, and a document that already declares a tempo is never
+overwritten. `backend/tempo_text.py`; `node tools/check-omr-tempo.mjs` covers
+detection and injection without the OCR.
+
 ## Instruments
 
 There are two kinds, and both are in the same per-part list: the recordings

@@ -29,6 +29,7 @@ import numpy as np
 
 from guard import owned_tree, remove_owned_file, ROOT
 from preprocess import Page, Variant, build_variants, encode_png, trim_border
+from tempo_text import detect_tempo, inject_tempo
 from triplets import repair_triplets
 
 ENGINE_NAME = "homr"
@@ -202,6 +203,32 @@ def _run_variant(variant: Variant, workdir: Path,
     tail = [line for line in log.getvalue().splitlines() if line.strip()]
     log_lines = [f"[{elapsed:.2f}s] {line}" for line in tail[-6:]]
     return text, log_lines
+
+
+_text_reader = None
+
+
+def _ocr_top_lines(image) -> list[str]:
+    """OCR'd text fragments from the top third of a page, in reading order.
+
+    The same RapidOCR engine homr uses for title detection, built once per
+    process. The top third is where a movement's tempo heading lives; reading
+    the whole page would hand detect_tempo() every lyric and footnote.
+    """
+    global _text_reader
+    if _text_reader is None:
+        from rapidocr import RapidOCR
+
+        _text_reader = RapidOCR()
+    top = image[: max(1, image.shape[0] // 3), :]
+    result = _text_reader(top)
+    if not result or result.txts is None:
+        return []
+    boxes = result.boxes
+    txts = list(result.txts)
+    order = sorted(range(len(txts)),
+                   key=lambda i: (float(boxes[i][0][1]), float(boxes[i][0][0])) if boxes is not None else (0.0, i))
+    return [txts[i] for i in order]
 
 
 def _note_count(xml_text: Optional[str]) -> int:
@@ -431,6 +458,19 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
     # long. The pass converts only what accounts for a bar's overflow
     # EXACTLY, and reports the bars it refused -- see backend/triplets.py.
     xml_text, triplet_report = repair_triplets(xml_text)
+    # Read the tempo the engraver printed. The notes engine ignores words, so
+    # a scan otherwise has no tempo at all and plays at the app's default --
+    # an "Adagio sostenuto" page at twice any sane speed. The OCR is the same
+    # engine homr itself uses for titles; where it is unavailable or finds
+    # nothing, the scan stays tempo-less, as before.
+    tempo_info = None
+    try:
+        lines = _ocr_top_lines(chosen.image)
+        tempo_info = detect_tempo(lines)
+        if tempo_info:
+            xml_text = inject_tempo(xml_text, tempo_info["bpm"], tempo_info["matched"])
+    except Exception as exc:  # OCR is best-effort; never fail a scan over it
+        tempo_info = {"error": f"{type(exc).__name__}: {exc}"}
     # The preview is shown next to the transcription, so trim the blank paper
     # around the music -- a full A4 page of mostly white shrinks to an
     # unreadable strip in a panel this size. The recognition itself always ran
@@ -438,6 +478,7 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
     preview, _ = trim_border(chosen.image)
     stats = summarise_musicxml(xml_text)
     stats["tripletRepair"] = triplet_report.as_dict()
+    stats["tempoText"] = tempo_info
     report(0.99, "Done")
     return PageResult(
         index=page.index,

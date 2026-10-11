@@ -194,6 +194,16 @@ if (omrTriplets.code !== 0) {
   failures.push('omr triplets: ' + (omrTriplets.out.trim().split('\n').pop() || omrTriplets.err.trim()));
 }
 
+// The tempo-text reader: the notes engine ignores words, so a scan marked
+// "Adagio sostenuto" played at the app's default -- double speed. Detection
+// and injection are pure stdlib python; the OCR half runs on a real host.
+const omrTempo = await run(process.execPath, [path.join(root, 'tools/check-omr-tempo.mjs')],
+  { allowFail: true });
+console.log(omrTempo.out.trim());
+if (omrTempo.code !== 0) {
+  failures.push('omr tempo: ' + (omrTempo.out.trim().split('\n').pop() || omrTempo.err.trim()));
+}
+
 // The Concert Grand used to get *brighter* as it rang, which no struck string
 // does. It passes the module suites either way -- they assert what the config
 // says, not what came out of the speaker -- so it is measured from rendered
