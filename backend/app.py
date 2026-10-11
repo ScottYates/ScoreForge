@@ -837,10 +837,15 @@ def pack(path: str) -> FileResponse:
     if not str(target).startswith(str(_PACK.resolve())) or not target.is_file():
         raise HTTPException(404, "no such sample")
     media = "application/json" if target.name == "manifest.json" else "audio/mpeg"
-    # Immutable: every rebuild of the pack changes the filenames, so a cached
-    # copy is never stale in a way that matters.
+    # The audio may be cached for a week: a rebuild re-encodes the takes, and a
+    # fresh manifest exposes any file that no longer matches. The manifest
+    # itself may NOT: its name never changes, and a week-old cached copy fed a
+    # newer page an older pack -- the load finished "ready" and every
+    # instrument the roster had gained quietly played the synthesiser. It is a
+    # few kilobytes; revalidate it every time.
+    cache = "no-cache" if target.name == "manifest.json" else "public, max-age=604800"
     return FileResponse(target, media_type=media,
-                        headers={"Cache-Control": "public, max-age=604800"})
+                        headers={"Cache-Control": cache})
 
 
 def main() -> None:

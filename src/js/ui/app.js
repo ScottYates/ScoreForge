@@ -433,7 +433,14 @@ export class App {
     const pct = p ? Math.round((p.done / Math.max(1, p.total)) * 100) : Math.round(s.progress * 100);
 
     let text, tone;
-    if (s.state === 'ready') {
+    if (s.missing && s.missing.length) {
+      // Worse than any loading state, and it can coexist with "ready": the
+      // server handed this page a pack older than the app, so the instruments
+      // named in it will play the synthesiser while everything else reports
+      // success. Say so before saying ready.
+      text = `the sample pack this page fetched is older than the app — ${s.missing.length} instrument${s.missing.length === 1 ? ' is' : 's are'} missing and will play the synthesiser. Hard-refresh (Ctrl+Shift+R); if it persists, rebuild pack/ on the server.`;
+      tone = 'bad';
+    } else if (s.state === 'ready') {
       text = `recorded instruments ready — ${s.loaded.length} instruments`;
       tone = 'ok';
     } else if (s.state === 'loading') {

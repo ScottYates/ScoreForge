@@ -135,12 +135,18 @@ export function packState() {
     progress: loadProgress,
     state: loadState,
     error: loadError,
+    // Roster packs the fetched manifest does not contain. Non-empty means the
+    // server (or a cache in front of it) handed this page a pack older than
+    // the app, and the instruments named here are falling back to the
+    // synthesiser however "ready" the rest of the pack is.
+    missing: missingPacks.slice(),
   };
 }
 
 let loadProgress = 0;
 let loadState = 'idle';   // idle | loading | ready | failed | unavailable
 let loadError = null;
+let missingPacks = [];    // roster packs absent from the fetched manifest
 
 /**
  * Fetch the whole pack, compressed. Decoding is `prepare`'s job.
@@ -172,7 +178,14 @@ export function loadPack(onProgress) {
   loadPromise = (async () => {
     let manifest;
     try {
-      const res = await fetch(`${base}/manifest.json`, { cache: 'force-cache' });
+      // The manifest must revalidate. It is the one file whose name never
+      // changes, and force-cache here handed a week-old copy to a newer app:
+      // the load finished "ready" with every instrument the OLD pack had and
+      // none that the roster now asks for, so every part quietly fell back to
+      // the synthesiser on a page that said ready. The audio files keep
+      // force-cache below -- they are large, and a mismatch between them and
+      // a fresh manifest is caught by the roster check that follows.
+      const res = await fetch(`${base}/manifest.json`, { cache: 'no-cache' });
       if (!res.ok) throw new Error(`manifest ${res.status} ${res.statusText}`);
       manifest = await res.json();
     } finally {
@@ -196,6 +209,12 @@ export function loadPack(onProgress) {
     // pack and quietly play the synthesiser. preparePack() fetches whatever
     // keys it needs that the background fetch has not reached yet.
     fetchBase = base;
+    // The pack the server offered, against the packs the roster will ask for.
+    // A mismatch is not a failed load -- what did arrive still plays -- but it
+    // must be said out loud: the silent version of this is a page that reports
+    // "ready" while every instrument plays its modelled fallback.
+    missingPacks = [...new Set(PACK_OF.values())]
+      .filter((id) => !manifest.instruments[id]).sort();
     for (const [id, inst] of Object.entries(manifest.instruments)) {
       packs.set(id, {
         id, ...inst, credits: manifest.credits?.[id] || [],
@@ -405,6 +424,17 @@ export async function preparePack(packId, midis, onProgress) {
     pack = packs.get(packId);
   }
   if (!pack) {
+    // "Loaded and ready, but not there" has one ordinary cause: the manifest
+    // this page fetched is older than the app asking, usually a cached copy.
+    // Name that, and what to do about it, rather than reporting a state that
+    // reads like success.
+    if (missingPacks.includes(packId)) {
+      return Promise.reject(new Error(
+        `sample pack "${packId}" is missing from the pack this page fetched -- ` +
+        'the server is offering an older pack than this app expects. ' +
+        'Hard-refresh the page (Ctrl+Shift+R); if it persists, rebuild pack/ on the server.'
+      ));
+    }
     return Promise.reject(new Error(
       `sample pack "${packId}" is not loaded (${loadState}: ${loadError || 'no detail'})`
     ));
@@ -1038,6 +1068,7 @@ export function __clearPacks() {
   preparing.clear();
   fetched.clear();
   fetching.clear();
+  missingPacks = [];
   fetchBase = null;
   manifestReady = null;
   demand = 0;

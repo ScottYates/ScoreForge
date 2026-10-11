@@ -34,6 +34,9 @@ import {
   hasPack, isPackDecoded, filesForKeys,
   loadPack, preparePack, packState, __setPackBase,
 } from '../src/js/audio/sampler.js';
+// For the stale-manifest tests below: importing the roster is what fills the
+// sampler's roster-to-pack table, exactly as the real page does.
+import '../src/js/audio/instruments.js';
 
 /* ===================================================== assertion harness === */
 
@@ -686,6 +689,57 @@ try {
     ok('and so is the second', late > 0.02, `peak ${late.toFixed(5)} in [1.8, 2.3]`);
     ok('and the gap between them is really a gap', peakIn(0.9, 1.7) < 1e-4,
       `peak ${peakIn(0.9, 1.7).toFixed(6)} in [0.9, 1.7]`);
+  }
+
+  /* ===================== a pack older than the app must say so ========== */
+
+  head('a server offering an older pack than the app is called out');
+
+  {
+    // The real event: the page fetched a cached, week-old manifest. The load
+    // finished "ready" with every instrument that old pack had -- and none the
+    // roster had gained since, so every part played the synthesiser on a page
+    // reporting success. The mismatch has to be loud, and the manifest must
+    // revalidate rather than trust whatever a cache holds.
+    const BASE = 'http://stale.test/pack';
+    const oldManifest = { version: 2, credits: {}, instruments: {
+      'old-bank': { name: 'Old Bank', lo: 60, hi: 60, sustains: false,
+        notes: { 60: { rate: 1, hits: [{ f: 'old-bank/60.mp3', g: 1, dur: 0.1, loop: null }] } } },
+    } };
+    let manifestCacheMode = null;
+    const realFetch = window.fetch;
+    window.fetch = async (url, init = {}) => {
+      const rel = decodeURIComponent(String(url).slice(BASE.length + 1));
+      if (rel === 'manifest.json') {
+        manifestCacheMode = init.cache || null;
+        return new Response(JSON.stringify(oldManifest), { status: 200 });
+      }
+      return new Response(new ArrayBuffer(8), { status: 200 });
+    };
+    try {
+      __clearPacks();
+      __setPackBase(BASE);
+      await loadPack();
+
+      ok('the manifest is revalidated, never taken from a cache on faith',
+        manifestCacheMode === 'no-cache', `fetch cache mode: ${manifestCacheMode}`);
+
+      const st = packState();
+      ok('the load itself still succeeds for what the old pack has', st.state === 'ready', `${st.state}: ${st.error}`);
+      ok('but every roster pack the manifest lacks is reported missing',
+        st.missing.length > 0 && st.missing.includes('fp-upright'),
+        `missing ${st.missing.length}, has fp-upright: ${st.missing.includes('fp-upright')}`);
+
+      let err = null;
+      try { await preparePack('fp-upright', [60]); } catch (e) { err = e; }
+      ok('preparing a missing pack says the pack is older than the app, and what to do',
+        !!err && /older pack than this app/.test(err.message) && /Hard-refresh/.test(err.message),
+        err ? err.message : 'resolved');
+    } finally {
+      window.fetch = realFetch;
+      __setPackBase(null);
+      __clearPacks();
+    }
   }
 
   head('housekeeping');
