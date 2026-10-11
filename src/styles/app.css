@@ -1012,9 +1012,84 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 1180px) {
   :root { --rail: 224px; --insp: 286px; }
 }
+
+/* Hidden except in the phone layout, where they open the drawers. */
+.mobile-only { display: none; }
+
+/* ------------------------------------------------------------ phone layout
+   Below 940px the sidebars used to be `display: none`, which amputated the
+   app on a phone: no library, no parts and instruments, no key and tempo, no
+   Settings panel (where the pack status and the scan panel live). They are
+   drawers now -- everything the desktop has, reachable from two buttons in
+   the top bar -- and the fixed-height transport becomes a wrapping one. */
 @media (max-width: 940px) {
-  #app { grid-template-columns: 0 minmax(0,1fr) 0; }
-  .rail, .insp { display: none; }
+  #app {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+    grid-template-rows: var(--topbar) minmax(0, 1fr) auto;
+  }
+  .mobile-only { display: inline-flex; }
+
+  .rail, .insp {
+    position: fixed;
+    top: var(--topbar);
+    bottom: 0;
+    width: min(86vw, 340px);
+    max-width: 92vw;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    background: var(--bg-elev);
+    box-shadow: var(--shadow-3);
+    transition: transform .22s var(--ease);
+  }
+  .rail  { left: 0;  border-right: 1px solid var(--line-2); transform: translateX(-105%); }
+  .insp  { right: 0; border-left: 1px solid var(--line-2);  transform: translateX(105%); }
+  .rail.open, .insp.open { transform: none; }
+  /* The drawers out-rank the desktop collapse classes. */
+  #app.no-rail .rail, #app.no-insp .insp { display: flex; }
+
+  .drawer-scrim {
+    position: fixed; inset: 0;
+    background: rgba(5, 7, 11, .55);
+    z-index: 55;
+  }
+  .drawer-scrim[hidden] { display: none; }
+
+  /* Top bar: the title's metadata and button labels give way to the
+     essentials; every control stays. */
+  .doc-title .m { display: none; }
+  .top-actions .btn .btn-label { display: none; }
+  .top-actions .btn { padding: 7px 9px; }
+
+  /* Transport: one fixed row becomes two wrapping ones -- scrub first, full
+     width, then the buttons and steppers. The meters are display, not
+     control, and go first when space runs out. */
+  .transport {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 8px 12px;
+    row-gap: 6px;
+  }
+  .scrub { flex: 1 1 100%; order: -1; }
+  .tp-div { display: none; }
+
+  .stage-bar { flex-wrap: wrap; }
+
+  /* Touch sizing. Also: controls at 16px font, or iOS zooms the page on
+     every focus of a select or input. */
+  .btn, .tp-btn, .tab { min-height: 42px; }
+  .btn.ghost.icon.sm { min-height: 36px; }
+  .mini { min-width: 38px; min-height: 38px; }
+  select, input[type="text"], input[type="number"] { font-size: 16px; }
+  .dropzone { padding: 26px 14px; }
+}
+
+@media (max-width: 560px) {
+  .brand .name { display: none; }
+  .meters { display: none; }
+  #zoomLabel { display: none; }
+  .topbar { gap: 8px; padding: 0 10px; }
 }
 
 .sr {

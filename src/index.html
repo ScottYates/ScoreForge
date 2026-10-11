@@ -49,8 +49,12 @@
       <span class="m" id="docMeta"></span>
     </div>
     <div class="top-actions">
-      <button class="btn" id="btnOpen"><svg><use href="#i-open"/></svg>Open score</button>
-      <button class="btn primary" id="btnExport" disabled><svg><use href="#i-export"/></svg>Export MP3</button>
+      <!-- Phone layout only: the sidebars become slide-in drawers, and these
+           are the only way to reach the library and the score controls there. -->
+      <button class="btn ghost icon mobile-only" id="btnRailToggle" title="Library" aria-label="Library"><svg><use href="#i-note"/></svg></button>
+      <button class="btn ghost icon mobile-only" id="btnInspToggle" title="Score controls" aria-label="Score controls"><svg><use href="#i-sliders"/></svg></button>
+      <button class="btn" id="btnOpen"><svg><use href="#i-open"/></svg><span class="btn-label">Open score</span></button>
+      <button class="btn primary" id="btnExport" disabled><svg><use href="#i-export"/></svg><span class="btn-label">Export MP3</span></button>
     </div>
   </header>
 
@@ -92,15 +96,15 @@
       <section class="sec">
         <div class="sec-head"><span class="sec-title">About the sound</span></div>
         <p style="color:var(--ink-3);font-size:11.5px;line-height:1.55;margin:0">
-          Most instruments are <b style="color:var(--ink-2);font-weight:600">physically modelled
-          synthesis</b> built in Web&nbsp;Audio — inharmonic piano strings, hammer transients,
-          bowed vibrato, wind breath. Nothing is streamed or downloaded for those, which is why the
-          whole app fits in one file and works offline.
+          Every part plays <b style="color:var(--ink-2);font-weight:600">recorded samples</b> by
+          default — fifty real instruments from the FreePats collection, fetched once as a pack
+          when the page is served over http. Their status and credits are in Settings.
         </p>
         <p style="color:var(--ink-3);font-size:11.5px;line-height:1.55;margin:8px 0 0">
-          The <b style="color:var(--ink-2);font-weight:600">Recorded</b> group is the exception: nine
-          real sampled instruments, downloaded once as a small pack. Their status and credits are
-          in Settings. Everything else works without them.
+          The <b style="color:var(--ink-2);font-weight:600">Synthesised</b> groups are the offline
+          fallback: physically modelled synthesis built in Web&nbsp;Audio — inharmonic piano
+          strings, hammer transients, bowed vibrato, wind breath. Nothing is downloaded for those,
+          so a page opened straight from disk still plays.
         </p>
       </section>
     </div>
@@ -282,6 +286,7 @@
   </footer>
 </div>
 
+<div class="drawer-scrim" id="drawerScrim" hidden></div>
 <div class="toasts" id="toasts"></div>
 <div id="modalRoot"></div>
 <input type="file" id="fileInput" multiple accept=".musicxml,.xml,.mxl,.mscz,.mscx,.mid,.midi,.kar,.rmi,.png,.jpg,.jpeg,.webp,.gif,.bmp,.pdf" style="display:none">

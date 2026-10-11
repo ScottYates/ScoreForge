@@ -156,6 +156,34 @@ export class App {
 
     d.btnBrowse.addEventListener('click', () => d.fileInput.click());
     d.btnOpen.addEventListener('click', () => d.fileInput.click());
+
+    // The phone layout's drawers. The sidebars are fixed off-canvas panels
+    // below 940px, and these are the only way in -- so this is plain and
+    // sturdy: one drawer at a time, the scrim closes whichever is open, and
+    // none of it runs on desktop, where the buttons are display:none.
+    {
+      const rail = document.querySelector('.rail');
+      const insp = document.querySelector('.insp');
+      const scrim = document.getElementById('drawerScrim');
+      const railBtn = document.getElementById('btnRailToggle');
+      const inspBtn = document.getElementById('btnInspToggle');
+      const close = () => {
+        rail.classList.remove('open');
+        insp.classList.remove('open');
+        scrim.hidden = true;
+      };
+      const toggle = (panel, other) => {
+        other.classList.remove('open');
+        const open = panel.classList.toggle('open');
+        scrim.hidden = !open;
+      };
+      if (railBtn && inspBtn && scrim) {
+        railBtn.addEventListener('click', () => toggle(rail, insp));
+        inspBtn.addEventListener('click', () => toggle(insp, rail));
+        scrim.addEventListener('click', close);
+      }
+      this._closeDrawers = close;
+    }
     d.btnAddMore.addEventListener('click', () => d.fileInput.click());
     d.fileInput.addEventListener('change', (e) => {
       this.addFiles([...e.target.files]);

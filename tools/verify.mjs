@@ -204,6 +204,17 @@ if (omrTempo.code !== 0) {
   failures.push('omr tempo: ' + (omrTempo.out.trim().split('\n').pop() || omrTempo.err.trim()));
 }
 
+// The phone layout: below 940px the sidebars used to be display:none, which
+// amputated the app on a phone. They are drawers now, and this drives the
+// BUILT page at phone and desktop viewports to prove every control is still
+// reachable and touch-sized.
+const mobile = await run(process.execPath, [path.join(root, 'tools/check-mobile.mjs')],
+  { allowFail: true });
+console.log(mobile.out.trim());
+if (mobile.code !== 0) {
+  failures.push('mobile: ' + (mobile.out.trim().split('\n').pop() || mobile.err.trim()));
+}
+
 // The Concert Grand used to get *brighter* as it rang, which no struck string
 // does. It passes the module suites either way -- they assert what the config
 // says, not what came out of the speaker -- so it is measured from rendered
