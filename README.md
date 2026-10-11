@@ -82,8 +82,14 @@ installed package, so a development venv that gets deleted takes them with it;
 repeat `deploy/install.sh` from fetching them again.
 
 Given a scan, the service decodes it (respecting EXIF rotation) or rasterises
-each PDF page, builds four renderings of the page (as-is, contrast lifted,
-deskewed, and both), reads each one, and keeps whichever produced the most notes.
+each PDF page, builds up to four renderings of the page (as-is, contrast
+lifted, deskewed, and both), reads each one, and keeps whichever produced the
+most notes. Renderings that come out byte-identical are read once: on a
+straight page the deskew step is a no-op, so such a page costs two inference
+passes, not four — a tilted photo still gets all four. The recognition models
+are also loaded in the background when the service starts
+(`SCOREFORGE_OMR_WARM=0` turns that off), so the first scan no longer pays
+for the model load on top of its own reading.
 The result is MusicXML, which is what the page already parses, so a scan enters
 the same notation, playback and export path as a file exported from MuseScore.
 
@@ -114,6 +120,14 @@ photographed scores, 92% on photocopies. To reproduce:
 ```powershell
 python tools/score_omr.py --write fixtures/accuracy.json
 ```
+
+A fourth condition, `--degrade book`, measures the hardest common case: a
+phone photo of a spiral songbook, with page curl into the binding, a binding
+shadow, mild perspective, highlighter bands over the music and warm uneven
+light. It is part of the default run, so the next `--write` adds its row
+here. If its numbers disappoint, that is the measurement doing its job — the
+fix is a better photo (flatten the page, fill the frame, straight on) far
+more often than a better engine setting.
 
 The page fetches those numbers from the service and shows them in the
 Transcription panel.

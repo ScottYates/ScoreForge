@@ -170,6 +170,19 @@ if (defaults.code !== 0) {
   failures.push('default samples: ' + (defaults.out.trim().split('\n').pop() || defaults.err.trim()));
 }
 
+// The OMR front end pays one full inference pass per page rendering, and a
+// straight page used to pay four passes for two distinct images: deskew() is
+// a no-op there and returned identical pixels under a different name. This
+// drives backend/preprocess.py with synthetic pages (cv2, no model) and
+// requires the duplicate renderings folded away -- and kept when a page is
+// genuinely skewed. Skips with a reason when cv2 is not installed.
+const omrVariants = await run(process.execPath, [path.join(root, 'tools/check-omr-variants.mjs')],
+  { allowFail: true });
+console.log(omrVariants.out.trim());
+if (omrVariants.code !== 0) {
+  failures.push('omr variants: ' + (omrVariants.out.trim().split('\n').pop() || omrVariants.err.trim()));
+}
+
 // The Concert Grand used to get *brighter* as it rang, which no struck string
 // does. It passes the module suites either way -- they assert what the config
 // says, not what came out of the speaker -- so it is measured from rendered

@@ -275,6 +275,49 @@ def degrade(src: Path, dst: Path, mode: str) -> None:
                                      cv2.THRESH_BINARY, 31, 12)
         cv2.imwrite(str(dst), gray)
 
+    elif mode == "book":
+        # A phone photo of a spiral songbook: the page curls into the binding,
+        # the shot is slightly off-axis, the binding shadows the inner edge,
+        # a highlighter has been over some of the music, and the light is
+        # warm and uneven. Modelled on a real rehearsal-book photo; each
+        # ingredient is mild on its own, which is exactly what makes the
+        # combination representative.
+        rng = np.random.default_rng(11)
+
+        # Page curl: columns displace vertically on a half-sine that is
+        # strongest near the left (binding) edge.
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+        curl = (np.sin(np.pi * (xx / w) * 0.5) - 1.0) * -0.018 * h  # 0 at right, ~1.8% at left
+        map_y = np.clip(yy + curl, 0, h - 1)
+        img = cv2.remap(img, xx, map_y, cv2.INTER_LINEAR, borderValue=(255, 255, 255))
+
+        # Mild perspective: the camera is a little below-right of centre.
+        src_pts = np.float32([[0, 0], [w, 0], [w, h], [0, h]])
+        dst_pts = np.float32([[w * 0.015, h * 0.010], [w * 0.995, 0],
+                              [w, h], [w * 0.005, h * 0.985]])
+        img = cv2.warpPerspective(img, cv2.getPerspectiveTransform(src_pts, dst_pts),
+                                  (w, h), borderValue=(255, 255, 255))
+
+        # Highlighter: translucent warm-pink bands across a few note regions,
+        # the way a singer marks their line.
+        overlay = img.copy()
+        for i in range(3):
+            y0 = int(h * (0.22 + 0.25 * i) + rng.integers(-10, 10))
+            x0 = int(w * 0.12 + rng.integers(0, int(w * 0.1)))
+            x1 = x0 + int(w * (0.25 + 0.15 * rng.random()))
+            cv2.rectangle(overlay, (x0, y0), (min(x1, w - 4), y0 + int(h * 0.035)),
+                          (193, 182, 255), -1)
+        img = cv2.addWeighted(overlay, 0.38, img, 0.62, 0)
+
+        # Binding shadow on the left, warm uneven light over the rest.
+        shade = 1.0 - 0.30 * np.exp(-xx / (w * 0.08)) - 0.10 * ((xx / w) ** 2)
+        img = np.clip(img.astype(np.float32) * shade[..., None], 0, 255)
+        img[..., 0] *= 0.96   # slightly warm: pull blue down
+        noise = rng.normal(0, 5, img.shape)
+        img = np.clip(img + noise, 0, 255).astype(np.uint8)
+        img = cv2.GaussianBlur(img, (3, 3), 0)
+        cv2.imwrite(str(dst), img, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+
     else:
         raise ValueError(f"unknown degrade mode {mode!r}")
 
@@ -347,7 +390,8 @@ def build_report(rows: list[dict]) -> dict:
         f1 = (2 * p * r / (p + r)) if (p + r) else 0.0
         modes[mode] = {
             "label": {"none": "printed score", "photo": "phone photo",
-                      "scan": "photocopy scan"}[mode],
+                      "scan": "photocopy scan",
+                      "book": "spiral songbook photo (curl, shadow, highlighter)"}[mode],
             "fixtures": a["fixtures"],
             "notes": a["notes"],
             "tp": a["tp"], "fp": a["fp"], "fn": a["fn"],
@@ -376,7 +420,7 @@ def build_report(rows: list[dict]) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("pieces", nargs="*", default=[])
-    ap.add_argument("--degrade", default="none", choices=["none", "photo", "scan"])
+    ap.add_argument("--degrade", default="none", choices=["none", "photo", "scan", "book"])
     ap.add_argument("--json", action="store_true", help="print the full report as JSON")
     ap.add_argument("--write", metavar="PATH",
                     help="write the JSON report to a file (used to publish /api/accuracy)")
@@ -385,7 +429,7 @@ def main() -> int:
     pieces = args.pieces or ["simple", "ode", "rhythm", "grand", "sharps"]
     os.environ.setdefault("PYTHONWARNINGS", "ignore")
 
-    modes = ["none", "photo", "scan"] if args.pieces == [] and args.degrade == "none" else [args.degrade]
+    modes = ["none", "photo", "scan", "book"] if args.pieces == [] and args.degrade == "none" else [args.degrade]
     rows: list[dict] = []
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)

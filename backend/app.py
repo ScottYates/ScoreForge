@@ -131,6 +131,25 @@ app.add_middleware(
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
+
+@app.on_event("startup")
+def _warm_engine_early() -> None:
+    """Build the recognition engine while nobody is waiting on it.
+
+    warm_up() is already lazy and lock-guarded, but lazy means the FIRST scan
+    pays for the model load on top of its own inference -- the slowest scan a
+    user ever sees is their first one. Warming from a daemon thread at startup
+    moves that cost to the seconds after boot, when nobody is watching. A scan
+    arriving mid-warm just waits on the same lock it always did, so the worst
+    case is unchanged; the common case loses the whole model-load wait.
+
+    SCOREFORGE_OMR_WARM=0 opts out, for machines where the service should not
+    hold the models in memory until a scan actually arrives.
+    """
+    if os.environ.get("SCOREFORGE_OMR_WARM", "1") == "0":
+        return
+    threading.Thread(target=omr_engine.warm_up, name="omr-warm", daemon=True).start()
+
 _previews: dict[str, bytes] = {}
 _PREVIEW_LIMIT = 24
 

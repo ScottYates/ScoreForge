@@ -214,12 +214,38 @@ def denoise(img: np.ndarray) -> tuple[np.ndarray, dict]:
 # ---------------------------------------------------------------------------
 # Variant construction
 # ---------------------------------------------------------------------------
+def _dedupe(variants: List[Variant]) -> List[Variant]:
+    """Drop every rendering that is byte-identical to an earlier one.
+
+    Each variant costs one full inference pass, and the passes dwarf everything
+    in this file. A straight page makes deskew() a no-op that returns the same
+    pixels -- and "deskew+contrast" then equals "contrast" -- so the caller was
+    paying four passes for two distinct images. Identical input is identical
+    output, so folding duplicates cannot change which reading wins; it only
+    stops the same reading being computed twice. The fold is recorded on the
+    surviving variant so the report still says what was considered.
+    """
+    seen: dict = {}
+    kept: List[Variant] = []
+    for v in variants:
+        key = (v.image.shape, v.image.tobytes())
+        prior = seen.get(key)
+        if prior is None:
+            seen[key] = v
+            kept.append(v)
+        else:
+            folded = prior.report.setdefault("sameAs", [])
+            folded.append(v.name)
+    return kept
+
+
 def build_variants(page: Page, mode: str = "auto") -> List[Variant]:
     """Produce the candidate renderings the caller should try.
 
     mode:
       "original" -- size-normalised and nothing else
-      "auto"     -- original, contrast-lifted, deskewed, and enhanced+deskewed
+      "auto"     -- original, contrast-lifted, deskewed, and enhanced+deskewed,
+                    minus any rendering identical to an earlier one
       "clean"    -- deskew + contrast + denoise (use for scans and photocopies)
     """
     base, size_info = fit_page(page.image)
@@ -241,13 +267,13 @@ def build_variants(page: Page, mode: str = "auto") -> List[Variant]:
         clean, skew2 = deskew(clean)
         variants.append(Variant("clean", clean.copy(),
                                 {"steps": {**size_info, **contrast_info, **denoise_info, **skew2}}))
-        return variants
+        return _dedupe(variants)
 
     if mode == "auto":
         both, contrast2 = enhance_contrast(straight)
         variants.append(Variant("deskew+contrast", both.copy(),
                                 {"steps": {**size_info, **skew_info, **contrast2}}))
-    return variants
+    return _dedupe(variants)
 
 
 def load_pages(data: bytes, filename: str, pdf_dpi: int = 300,
