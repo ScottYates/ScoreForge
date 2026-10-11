@@ -33,7 +33,7 @@ const PY = `
 import json, sys
 sys.path.insert(0, ${JSON.stringify(path.join(root, 'backend'))})
 import xml.etree.ElementTree as ET
-from triplets import repair_triplets, enforce_meter
+from triplets import repair_triplets, enforce_meter, merge_consensus
 
 def doc(measures):
     return ('<?xml version="1.0"?><score-partwise version="4.0">'
@@ -148,6 +148,61 @@ cases['meter_clean'] = {'untouched': fixed11 == ok11,
                         'empty_report': met11.as_dict() == {'barsClipped': [], 'barsPadded': [],
                                                             'notesDropped': 0, 'notesTrimmed': 0, 'restsAdded': 0}}
 
+# --- per-bar consensus across the page's other readings -----------------
+def pnote(d, p='C'):
+    return ('<note><pitch><step>%s</step><octave>4</octave></pitch>'
+            '<duration>%d</duration><voice>1</voice></note>' % (p, d))
+def rnote(d):
+    return '<note><rest/><duration>%d</duration><voice>1</voice></note>' % d
+
+base = doc('<measure number="1">' + ATTRS + pnote(48) + '</measure>'
+           + '<measure number="2">' + pnote(6) * 9 + '</measure>'
+           + '<measure number="3">' + pnote(24, 'E') * 2 + '</measure>')
+
+good = doc('<measure number="1">' + ATTRS + pnote(48) + '</measure>'
+           + '<measure number="2">' + pnote(12, 'G') * 4 + '</measure>'
+           + '<measure number="3">' + pnote(48, 'D') + '</measure>')
+out, rep = merge_consensus(base, [('contrast', good)])
+cases['consensus_swap'] = {'report': rep.as_dict(), 'gotG': '<step>G</step>' in out,
+                           'bar3kept': '<step>D</step>' not in out, 'sums': voice_sums(out)}
+
+# A reading that saw a different number of bars is misaligned from the first
+# extra barline on: its bar 2, however exact, is not evidence about the
+# winner's bar 2. This one is longer than the base so that, were the guard
+# gone, its exact bar 2 would be swapped in (a shorter reading would merely
+# crash the lookup, which proves nothing about the alignment rule).
+long = doc('<measure number="1">' + ATTRS + pnote(48) + '</measure>'
+           + '<measure number="2">' + pnote(12, 'G') * 4 + '</measure>'
+           + '<measure number="3">' + pnote(48, 'D') + '</measure>'
+           + '<measure number="4">' + pnote(48, 'A') + '</measure>')
+out2, rep2 = merge_consensus(base, [('deskewed', long)])
+cases['consensus_shape'] = {'untouched': out2 == base, 'report': rep2.as_dict()}
+
+# A mid-piece clef change: the base's broken bar 2 carries <attributes>, the
+# candidate's exact bar 2 does not. Swapping would delete the clef change.
+CLEF = '<attributes><clef><sign>F</sign><line>4</line></clef></attributes>'
+attr_broken = doc('<measure number="1">' + ATTRS + pnote(48) + '</measure>'
+                  + '<measure number="2">' + CLEF + pnote(6) * 9 + '</measure>')
+attr_good = doc('<measure number="1">' + ATTRS + pnote(48) + '</measure>'
+                + '<measure number="2">' + pnote(48, 'G') + '</measure>')
+out3, rep3 = merge_consensus(attr_broken, [('contrast', attr_good)])
+cases['consensus_attrs'] = {'untouched': out3 == attr_broken, 'report': rep3.as_dict()}
+
+# The other direction: the candidate's exact bar carries a clef change the
+# base never saw. Transplanting it would inject a bogus clef.
+plain_broken = doc('<measure number="1">' + ATTRS + pnote(48) + '</measure>'
+                   + '<measure number="2">' + pnote(6) * 9 + '</measure>')
+clefy_good = doc('<measure number="1">' + ATTRS + pnote(48) + '</measure>'
+                 + '<measure number="2">' + CLEF + pnote(48, 'G') + '</measure>')
+out3b, rep3b = merge_consensus(plain_broken, [('contrast', clefy_good)])
+cases['consensus_attrs_cand'] = {'untouched': out3b == plain_broken, 'report': rep3b.as_dict()}
+
+resty = doc('<measure number="1">' + ATTRS + pnote(48) + '</measure>'
+            + '<measure number="2">' + rnote(48) + '</measure>'
+            + '<measure number="3">' + pnote(24, 'E') * 2 + '</measure>')
+out4, rep4 = merge_consensus(base, [('silent', resty)])
+cases['consensus_rests'] = {'untouched': out4 == base, 'report': rep4.as_dict()}
+
 print(json.dumps(cases))
 `;
 
@@ -198,6 +253,21 @@ ok('a short voice gets an explicit rest for the beat the reader lost',
   JSON.stringify(c.meter_pad));
 ok('meter enforcement leaves a correct bar untouched byte for byte',
   c.meter_clean.untouched === true && c.meter_clean.empty_report === true, JSON.stringify(c.meter_clean));
+
+ok('a broken bar is replaced by an exact bar from another reading, and named',
+  c.consensus_swap.report.barsSwapped.length === 1 && c.consensus_swap.report.barsSwapped[0].from === 'contrast'
+    && c.consensus_swap.gotG === true && c.consensus_swap.sums[1]['1'] === 48,
+  JSON.stringify(c.consensus_swap.report));
+ok('a bar the winner read exactly is never replaced', c.consensus_swap.bar3kept === true);
+ok('a reading with a different shape is not evidence, and is ignored',
+  c.consensus_shape.untouched === true && c.consensus_shape.report.candidates === 0,
+  JSON.stringify(c.consensus_shape.report));
+ok('a bar carrying attributes is never swapped, even broken',
+  c.consensus_attrs.untouched === true, JSON.stringify(c.consensus_attrs.report));
+ok('a candidate bar carrying attributes is never transplanted',
+  c.consensus_attrs_cand.untouched === true, JSON.stringify(c.consensus_attrs_cand.report));
+ok('a bar of rests is exact but says nothing, and is not used',
+  c.consensus_rests.untouched === true, JSON.stringify(c.consensus_rests.report));
 
 console.log(`\n${failed ? 'omr triplets FAILED' : 'omr triplets OK'}`);
 process.exit(failed ? 1 : 0);

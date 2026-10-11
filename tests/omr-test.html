@@ -15,7 +15,7 @@
 <div id="out">running.</div>
 
 <script type="module">
-import { startTranscription, scoresFromResult, transcribe, describeQueue } from '../src/js/io/omr.js';
+import { startTranscription, scoresFromResult, transcribe, describeQueue, describeRepairs } from '../src/js/io/omr.js';
 
 /* ===================================================== assertion harness === */
 
@@ -441,6 +441,64 @@ try {
     raw.pages[0].musicxml.includes('<work-title>Alpha</work-title>'),
     raw.pages[0].musicxml.slice(0, 60));
   eq('the preview key is read from the page, not invented', built[0].omr.preview, null);
+
+  /* ================================= the repair report the panel renders === */
+
+  head('what the post-processing says it changed');
+
+  // The full story: every pass did something. One line per pass, bar numbers
+  // on every line, and the policy repairs -- the clipped and padded bars that
+  // substituted the time signature for the reading -- flagged for proofing.
+  const repaired = describeRepairs({ stats: {
+    consensus: { barsSwapped: [{ number: '2', from: 'contrast' }, { number: '7', from: 'contrast' }], candidates: 2 },
+    tripletRepair: { measuresSeen: 12, measuresOverfull: 4, measuresRepaired: 3, notesConverted: 36, measuresUnrepairable: ['9'] },
+    tempoText: { bpm: 54, source: 'tempo term', matched: 'adagio sostenuto' },
+    meterRepair: { barsClipped: [{ number: '9', dropped: 2, trimmed: 0 }, { number: '11', dropped: 0, trimmed: 1 }],
+                   barsPadded: [{ number: '4', padded: 24 }], notesDropped: 2, notesTrimmed: 1, restsAdded: 1 },
+  } });
+  eq('every pass that changed something gets a line', repaired.length, 6);
+  ok('the consensus line names the bars and the reading they came from',
+    repaired[0].text.includes('Bars 2 and 7') && repaired[0].text.includes('contrast reading')
+      && repaired[0].check === false,
+    repaired[0].text);
+  ok('the triplet line counts the notes and bars it converted',
+    repaired[1].text.includes('36 notes') && repaired[1].text.includes('3 bars') && repaired[1].check === false,
+    repaired[1].text);
+  ok('the tempo line gives the number and the words it was read from',
+    repaired[2].text.includes('♩=54') && repaired[2].text.includes('adagio sostenuto') && repaired[2].check === false,
+    repaired[2].text);
+  ok('a bar the triplet pass refused is flagged to check against the scan',
+    repaired[3].text.includes('Bar 9') && repaired[3].text.includes('check against the scan')
+      && repaired[3].check === true,
+    repaired[3].text);
+  ok('a clipped bar is flagged with its number, but a refused bar is not told twice',
+    repaired[4].text.includes('Bar 11') && !repaired[4].text.includes('9')
+      && repaired[4].text.includes('check against the scan') && repaired[4].check === true,
+    repaired[4].text);
+  ok('a padded bar is flagged with its number',
+    repaired[5].text.includes('Bar 4') && repaired[5].text.includes('rests') && repaired[5].check === true,
+    repaired[5].text);
+
+  // A clean read says nothing: no lines to render, no panel section.
+  eq('a page that needed no repairs reports none', describeRepairs({ stats: {
+    consensus: { barsSwapped: [], candidates: 3 },
+    tripletRepair: { measuresSeen: 12, measuresOverfull: 0, measuresRepaired: 0, notesConverted: 0, measuresUnrepairable: [] },
+    tempoText: null,
+    meterRepair: { barsClipped: [], barsPadded: [], notesDropped: 0, notesTrimmed: 0, restsAdded: 0 },
+  } }).length, 0);
+  eq('a page with no stats at all reports none', describeRepairs({}).length, 0);
+  eq('a tempo OCR failure is not dressed up as a repair', describeRepairs({ stats: {
+    tempoText: { error: 'RuntimeError: onnx' },
+  } }).length, 0);
+
+  // Six clipped bars would be a wall of numbers; the count carries the news.
+  const many = describeRepairs({ stats: {
+    meterRepair: { barsClipped: '1 2 3 4 5 6 7'.split(' ').map((n) => ({ number: n, dropped: 1, trimmed: 0 })),
+                   barsPadded: [], notesDropped: 7, notesTrimmed: 0, restsAdded: 0 },
+  } });
+  ok('a long list of bars is elided to a count and the first few',
+    many.length === 1 && many[0].text.includes('7 bars (1, 2, 3, 4, …)'),
+    JSON.stringify(many));
 
   window.fetch = realFetch;
 } catch (e) {

@@ -401,6 +401,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
   margin-top: 8px; font-size: 10.5px; color: var(--ink-3); line-height: 1.45;
 }
 
+/* What the post-processing changed, one line per repair. The flagged lines
+   are the policy repairs — clipped or padded bars — worth proofing. */
+.omr-fixes { margin-top: 8px; display: grid; gap: 3px; }
+.omr-fix {
+  font-size: 10.5px; color: var(--ink-2); line-height: 1.45;
+  padding-left: 14px; position: relative;
+}
+.omr-fix::before {
+  content: '✓'; position: absolute; left: 0; color: var(--ink-3);
+}
+.omr-fix.warn { color: var(--amber); }
+.omr-fix.warn::before { content: '⚠'; color: var(--amber); font-size: 9px; top: 1px; }
+
 /* ------------------------------------------------------- running a job --- */
 
 .omr-job {

@@ -204,6 +204,18 @@ if (omrTempo.code !== 0) {
   failures.push('omr tempo: ' + (omrTempo.out.trim().split('\n').pop() || omrTempo.err.trim()));
 }
 
+// The repair report: the post-processing above quietly rewrites what the
+// recogniser read, and the Transcription panel must say so -- above all which
+// bars were clipped or padded by POLICY, since those are where a person
+// should proof the result against the scan. The wording lives in the omr-test
+// suite; this drives the BUILT page to prove the stats reach the pixels.
+const omrPanel = await run(process.execPath, [path.join(root, 'tools/check-omr-panel.mjs')],
+  { allowFail: true });
+console.log(omrPanel.out.trim());
+if (omrPanel.code !== 0) {
+  failures.push('omr panel: ' + (omrPanel.out.trim().split('\n').pop() || omrPanel.err.trim()));
+}
+
 // The phone layout: below 940px the sidebars used to be display:none, which
 // amputated the app on a phone. They are drawers now, and this drives the
 // BUILT page at phone and desktop viewports to prove every control is still

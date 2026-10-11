@@ -397,3 +397,93 @@ export function describePage(page) {
   if (s.tempo) bits.push(`♩=${s.tempo}`);
   return bits.join(' · ');
 }
+
+/** "Bars 2, 7 and 9", with the count spelled out past five. */
+function bars(numbers) {
+  const ns = numbers.map(String);
+  if (ns.length > 5) return `${ns.length} bars (${ns.slice(0, 4).join(', ')}, …)`;
+  if (ns.length === 1) return `Bar ${ns[0]}`;
+  return `Bars ${ns.slice(0, -1).join(', ')} and ${ns[ns.length - 1]}`;
+}
+
+/**
+ * What the post-processing did to one transcribed page, one line per repair.
+ *
+ * The recogniser's output is corrected in four passes (consensus across the
+ * page's other readings, exact triplet restoration, a tempo read off the
+ * page's own text, and bars held to the printed meter), and each pass says
+ * what it changed. Silence here would make the cleaned output look like a
+ * first-read miracle; worse, the meter pass CLIPS what it cannot explain, and
+ * a person proofing the transcription deserves to know which bars those were.
+ * Every line is {text, check}: `check` marks the repairs that substitute
+ * policy for reading -- the ones worth comparing against the scan.
+ */
+export function describeRepairs(page) {
+  const s = page.stats || {};
+  const out = [];
+
+  const con = s.consensus || {};
+  const swapped = con.barsSwapped || [];
+  if (swapped.length) {
+    const byReading = new Map();
+    for (const b of swapped) {
+      if (!byReading.has(b.from)) byReading.set(b.from, []);
+      byReading.get(b.from).push(b.number);
+    }
+    const from = [...byReading.entries()]
+      .map(([name, ns]) => `${bars(ns).toLowerCase()} from the ${name} reading`);
+    out.push({
+      text: `${bars(swapped.map((b) => b.number))} taken from other readings of this page`
+        + ` (${from.join('; ')}) — the chosen reading broke there, another landed on the barline.`,
+      check: false,
+    });
+  }
+
+  const trip = s.tripletRepair || {};
+  if (trip.notesConverted) {
+    out.push({
+      text: `${trip.notesConverted} notes re-marked as triplets in ${trip.measuresRepaired}`
+        + ` bar${trip.measuresRepaired === 1 ? '' : 's'} the recogniser read straight.`,
+      check: false,
+    });
+  }
+
+  const tempo = s.tempoText;
+  if (tempo && tempo.bpm) {
+    out.push({
+      text: `Tempo ♩=${tempo.bpm} from the page's ${tempo.source} (“${tempo.matched}”).`,
+      check: false,
+    });
+  }
+
+  // A bar the triplet pass refused is usually the same bar the meter pass
+  // then clips, so the refusal and the clip read as one story, not two lines.
+  const met = s.meterRepair || {};
+  const refused = trip.measuresUnrepairable || [];
+  if (refused.length) {
+    out.push({
+      text: `${bars(refused)} overflowed with no exact triplet explanation`
+        + ' — check against the scan.',
+      check: true,
+    });
+  }
+  const clipped = (met.barsClipped || []).map((b) => b.number)
+    .filter((n) => !refused.includes(n));
+  if (clipped.length) {
+    out.push({
+      text: `${bars(clipped)} overfilled the time signature and ${clipped.length === 1 ? 'was' : 'were'}`
+        + ' clipped at the barline — check against the scan.',
+      check: true,
+    });
+  }
+  const padded = (met.barsPadded || []).map((b) => b.number);
+  if (padded.length) {
+    out.push({
+      text: `${bars(padded)} came up short and ${padded.length === 1 ? 'was' : 'were'}`
+        + ' padded with rests — check against the scan.',
+      check: true,
+    });
+  }
+
+  return out;
+}

@@ -10,7 +10,7 @@
 
 import { resolveScore, describeScore, keyNameFromFifths } from '../score/model.js';
 import { readScoreFiles } from '../io/files.js';
-import { backendHealth, describePage, describeQueue, resolveBase, probeHealth, setBase, configuredBase } from '../io/omr.js';
+import { backendHealth, describePage, describeQueue, describeRepairs, resolveBase, probeHealth, setBase, configuredBase } from '../io/omr.js';
 import { INSTRUMENTS, DEFAULT_INSTRUMENT, createInstrument, packFor } from '../audio/instruments.js';
 import { packState, packCredits, prepare } from '../audio/sampler.js';
 import { instrumentForProgram, instrumentForName } from '../audio/gm.js';
@@ -779,6 +779,21 @@ export class App {
       ));
     }
 
+    // What the post-processing changed on the page on screen. The repairs that
+    // substitute policy for reading — a clipped or padded bar — are flagged,
+    // with their bar numbers, so proofing starts where the reading was weakest.
+    const shownPage = active && pages.find((p) => p.page === active.page);
+    const repairs = shownPage ? describeRepairs(shownPage) : [];
+    if (repairs.length) {
+      card.appendChild(el('div', { class: 'omr-fixes' },
+        el('span', { class: 'omr-try-cap', text: 'Cleaned up after reading' }),
+        ...repairs.map((r) => el('div', {
+          class: 'omr-fix' + (r.check ? ' warn' : ''),
+          text: r.text,
+        }))
+      ));
+    }
+
     const acc = this.omrAccuracy;
     if (acc && acc.summary) {
       const s = acc.summary;
@@ -793,7 +808,7 @@ export class App {
 
     // Only offer the save for the page on screen, and only once the report has
     // a body to save -- a page the recogniser gave up on has no MusicXML.
-    const shown = active && pages.find((p) => p.page === active.page);
+    const shown = shownPage;
     if (shown && shown.musicxml) {
       card.appendChild(el('div', { class: 'omr-save' },
         el('button', {

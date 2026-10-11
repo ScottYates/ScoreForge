@@ -344,3 +344,157 @@ def enforce_meter(xml_text: str) -> tuple[str, MeterReport]:
     if not changed:
         return xml_text, report
     return ET.tostring(root, encoding="unicode"), report
+
+
+# ---------------------------------------------------------------------------
+# Per-bar consensus across the page's variant readings.
+# ---------------------------------------------------------------------------
+@dataclass
+class ConsensusReport:
+    bars_swapped: List[dict] = field(default_factory=list)
+    candidates: int = 0
+
+    def as_dict(self) -> dict:
+        return {"barsSwapped": list(self.bars_swapped), "candidates": self.candidates}
+
+
+def _meter_states(root: ET.Element):
+    """Per part, the (divisions, beats, beat_type) in force at each measure."""
+    out = []
+    for part in root.findall("part"):
+        divisions, beats, beat_type = 1, 4, 4
+        states = []
+        for measure in part.findall("measure"):
+            d = measure.find(".//divisions")
+            if d is not None and (d.text or "").strip().isdigit():
+                divisions = int(d.text)
+            ts = measure.find(".//time")
+            if ts is not None:
+                try:
+                    beats = int(ts.findtext("beats") or beats)
+                    beat_type = int(ts.findtext("beat-type") or beat_type)
+                except ValueError:
+                    pass
+            states.append((divisions, beats, beat_type))
+        out.append(states)
+    return out
+
+
+def _measure_exact(measure: ET.Element, state: tuple[int, int, int]) -> bool:
+    """Every voice sums to the bar's nominal length, and something sounds."""
+    divisions, beats, beat_type = state
+    nominal = _nominal_length(divisions, beats, beat_type)
+    if nominal <= 0:
+        return False
+    by_voice: dict[str, int] = {}
+    pitched = 0
+    for n in measure.findall("note"):
+        if n.find("pitch") is not None:
+            pitched += 1
+        if n.find("chord") is not None:
+            continue
+        v = n.findtext("voice") or "1"
+        by_voice[v] = by_voice.get(v, 0) + _dur(n)
+    if not by_voice or pitched == 0:
+        return False
+    return all(total == nominal for total in by_voice.values())
+
+
+def count_exact_bars(xml_text: str) -> tuple[int, int]:
+    """(bars whose every voice lands on the barline, bars seen)."""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return (0, 0)
+    exact = total = 0
+    for part, states in zip(root.findall("part"), _meter_states(root)):
+        for measure, state in zip(part.findall("measure"), states):
+            total += 1
+            if _measure_exact(measure, state):
+                exact += 1
+    return (exact, total)
+
+
+def merge_consensus(base_xml: str, others: List[tuple[str, str]]) -> tuple[str, ConsensusReport]:
+    """Replace the winner's metrically broken bars with exact ones from the
+    other readings of the SAME page.
+
+    The page is read up to four times (the preprocessing variants) and one
+    whole-page winner used to be kept while the rest were thrown away -- yet a
+    bar one rendering fluffs is often clean in another. This takes, bar by
+    bar, the first other reading whose bar lands exactly on the meter when
+    the winner's does not. The rules are all exactness and alignment, never
+    preference:
+
+      * a candidate reading must have the same parts and the same number of
+        bars -- otherwise its bar N is not evidence about the winner's bar N;
+      * the meter in force at that bar must agree between the two readings;
+      * a bar carrying <attributes> is never swapped in either direction --
+        transplanting a clef, key or division change would corrupt
+        everything after it;
+      * the candidate bar must itself be exact and actually sound (a bar of
+        rests is "exact" and says nothing).
+
+    A winner's exact bar is never touched, so two readings that agree cost
+    nothing, and every swap is named in the report with the reading it came
+    from.
+    """
+    report = ConsensusReport()
+    try:
+        base_root = ET.fromstring(base_xml)
+    except ET.ParseError:
+        return base_xml, report
+
+    base_parts = base_root.findall("part")
+    base_states = _meter_states(base_root)
+
+    candidates = []
+    for name, xml in others:
+        if not xml:
+            continue
+        try:
+            root = ET.fromstring(xml)
+        except ET.ParseError:
+            continue
+        parts = root.findall("part")
+        if len(parts) != len(base_parts):
+            continue
+        if any(len(p.findall("measure")) != len(bp.findall("measure"))
+               for p, bp in zip(parts, base_parts)):
+            continue
+        candidates.append((name, parts, _meter_states(root)))
+    report.candidates = len(candidates)
+    if not candidates:
+        return base_xml, report
+
+    changed = False
+    for pi, (base_part, states) in enumerate(zip(base_parts, base_states)):
+        measures = base_part.findall("measure")
+        for mi, (measure, state) in enumerate(zip(measures, states)):
+            if measure.find("attributes") is not None:
+                continue
+            if _measure_exact(measure, state):
+                continue
+            for name, parts, cstates in candidates:
+                cmeasure = parts[pi].findall("measure")[mi]
+                if cstates[pi][mi] != state:
+                    continue
+                if cmeasure.find("attributes") is not None:
+                    continue
+                if not _measure_exact(cmeasure, state):
+                    continue
+                # Swap the bar's contents, keep the bar's identity.
+                number = measure.get("number")
+                replacement = ET.fromstring(ET.tostring(cmeasure))
+                if number is not None:
+                    replacement.set("number", number)
+                base_part.insert(list(base_part).index(measure), replacement)
+                base_part.remove(measure)
+                measures[mi] = replacement
+                report.bars_swapped.append({"number": number or str(mi + 1), "from": name})
+                changed = True
+                break
+
+    if not changed:
+        return base_xml, report
+    return ET.tostring(base_root, encoding="unicode"), report

@@ -30,7 +30,7 @@ import numpy as np
 from guard import owned_tree, remove_owned_file, ROOT
 from preprocess import Page, Variant, build_variants, encode_png, trim_border
 from tempo_text import detect_tempo, inject_tempo
-from triplets import enforce_meter, repair_triplets
+from triplets import count_exact_bars, enforce_meter, merge_consensus, repair_triplets
 
 ENGINE_NAME = "homr"
 ENGINE_VERSION = "0.7.0"
@@ -389,6 +389,7 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
     report(0.08, f"Prepared {len(variants)} renderings to try")
     started = time.perf_counter()
     attempts: List[dict] = []
+    readings: List[tuple[str, Optional[str]]] = []
     best: Optional[tuple[int, int, str, List[str], Variant]] = None
 
     total = max(1, len(variants))
@@ -433,13 +434,19 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
             ) as workdir:
                 text, log_lines = _run_variant(variant, workdir, on_line=on_line)
         count = _note_count(text)
+        exact, bars = count_exact_bars(text) if text else (0, 0)
         report(base + span, f"{variant.name} read {count} notes")
         attempts.append({
             "variant": variant.name,
             "notes": count,
+            # Bars whose every voice lands on the barline: the currency the
+            # consensus merge below trades in, and worth seeing per reading.
+            "exactBars": exact,
+            "bars": bars,
             "steps": variant.report.get("steps", {}),
             "log": log_lines if debug else [],
         })
+        readings.append((variant.name, text))
         # (notes, -index) so earlier variants win ties.
         if text and (best is None or count > best[0]):
             best = (count, -index, text, log_lines, variant)
@@ -452,6 +459,12 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
 
     report(0.96, "Building the score")
     _, neg_index, xml_text, log_lines, chosen = best
+    # Per-bar consensus first: a bar this reading fluffed is often clean in
+    # one of the others, which were computed anyway and thrown away. Exact
+    # bars only, same-shaped readings only; see merge_consensus().
+    others = [(name, text) for name, text in readings
+              if text and name != chosen.name]
+    xml_text, consensus_report = merge_consensus(xml_text, others)
     # Repair triplet runs the engine read as straight. Engravers print the
     # "3" on the first group of a passage and trust the reader for the rest;
     # the engine does the same, and every such bar comes back half again too
@@ -481,6 +494,7 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
     # on the untrimmed image.
     preview, _ = trim_border(chosen.image)
     stats = summarise_musicxml(xml_text)
+    stats["consensus"] = consensus_report.as_dict()
     stats["tripletRepair"] = triplet_report.as_dict()
     stats["meterRepair"] = meter_report.as_dict()
     stats["tempoText"] = tempo_info
