@@ -188,6 +188,17 @@ export class Engine {
     return ch;
   }
 
+  /**
+   * Let every channel retire voices the clock has passed. Offline renders
+   * call this from their suspend points; see renderToBuffer.
+   */
+  sweep(when) {
+    if (!this._channels) return;
+    for (const ch of this._channels.values()) {
+      if (typeof ch.inst.sweep === 'function') ch.inst.sweep(when);
+    }
+  }
+
   _destroyChannels() {
     if (!this._channels) return;
     for (const ch of this._channels.values()) {

@@ -647,6 +647,24 @@ export function createSampledInstrument(packId, ctx, outputNode) {
 
   const cap = 48;
   const active = [];
+  // Nodes of voices retired ahead of the clock, parked under the time their
+  // fade is done. Same contract as the synthesiser's kit.graveyard: the graph
+  // may only lose a node once the clock has passed its end, so reap, sweep
+  // and dispose detach from here as the clock catches up. See the long
+  // comment in drop().
+  const graveyard = [];
+  function drainGraveyard(upTo) {
+    const now = Number.isFinite(upTo) ? upTo : ctx.currentTime;
+    let w = 0;
+    for (let i = 0; i < graveyard.length; i++) {
+      if (graveyard[i].at <= now) {
+        for (const n of graveyard[i].nodes) { try { n.disconnect(); } catch (e) { /* gone */ } }
+      } else {
+        graveyard[w++] = graveyard[i];
+      }
+    }
+    graveyard.length = w;
+  }
   const params = { level: 1, decay: 1 };
   let sustain = false;
   let disposed = false;
@@ -851,12 +869,15 @@ export function createSampledInstrument(packId, ctx, outputNode) {
         // it then removes it from the graph entirely, and the note never
         // sounds: an exported MP3 kept only the notes still ringing at the end
         // of the piece, which read as a silent file with a blip at the close.
-        // So the nodes are detached only once the clock itself has passed the
-        // stop. Before that they stay in the graph, where the stop that is
-        // already scheduled ends them, and -- no longer referenced from here --
-        // they are collected on their own.
+        // So a voice retired ahead of the clock parks its nodes in the
+        // graveyard under its stop time, and reap, sweep and dispose detach
+        // them once the clock has genuinely passed -- merely forgetting them
+        // would leave them processing in the graph with nobody able to find
+        // them for the rest of the render.
         if (ctx.currentTime >= this.hardStopAt) {
           for (const n of [src, amp]) { try { n.disconnect(); } catch (e) { /* gone */ } }
+        } else {
+          graveyard.push({ at: this.hardStopAt, nodes: [src, amp] });
         }
       },
     };
@@ -907,6 +928,7 @@ export function createSampledInstrument(packId, ctx, outputNode) {
   }
 
   function reap(when) {
+    drainGraveyard(ctx.currentTime);
     for (let i = active.length - 1; i >= 0; i--) {
       const v = active[i];
       if (v.hardStopAt <= when) { v.drop(); active.splice(i, 1); }
@@ -954,6 +976,8 @@ export function createSampledInstrument(packId, ctx, outputNode) {
     const t = Math.max(Number.isFinite(Number(when)) ? Number(when) : ctx.currentTime, ctx.currentTime);
     for (const v of active.slice()) { v.hardStop(t); v.drop(); }
     active.length = 0;
+    // Teardown: nothing will sweep later, so the graveyard goes now.
+    drainGraveyard(Infinity);
     stats.voices = 0;
     disposed = true;
   }
@@ -965,6 +989,8 @@ export function createSampledInstrument(packId, ctx, outputNode) {
     sampled: true,
     noteOn,
     noteOff,
+    /** See the synthesiser's sweep(): offline-render housekeeping. */
+    sweep(when) { reap(Number.isFinite(Number(when)) ? Number(when) : ctx.currentTime); },
     setSustain,
     allNotesOff,
     setParam,

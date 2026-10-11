@@ -379,6 +379,26 @@ async function run() {
     check('offline: a re-struck key keeps its first strike',
       peakIn(re.a, 0.05, 0.7) > 0.01 && peakIn(re.a, 1.2, 1.9) > 0.01,
       { first: r4(peakIn(re.a, 0.05, 0.7)), second: r4(peakIn(re.a, 1.2, 1.9)) });
+
+    // And the vibration it replaced is parked as DONE AT THE RE-STRIKE, not at
+    // its natural decay's far-off end. The engine never sends note-offs -- a
+    // struck string rings its whole decay -- so a re-struck bass key's old
+    // nodes otherwise sit in the graph under a stop half a minute away, and an
+    // offline render drags every one of them to its last sample: a rendered
+    // piece crawled at realtime while live playback was fine. The graveyard's
+    // park times are the property; the render-speed gate in the self-test is
+    // what feels it.
+    {
+      const oc = new OfflineAudioContext(2, Math.ceil(SR * 2.6), SR);
+      const inst = createInstrument('grand', oc, oc.destination);
+      inst.noteOn({ midi: 48, velocity: 0.8, when: 0.05, duration: 4 });
+      inst.noteOn({ midi: 48, velocity: 0.8, when: 1.2, duration: 4 });
+      const d = inst.debugStats();
+      check('offline: a re-struck voice parks its old nodes under the re-strike time',
+        d.graveyard >= 1 && d.graveyardAts.every((t) => t <= 1.2 + 1e-6),
+        { graveyard: d.graveyard, ats: d.graveyardAts });
+      inst.dispose(0);
+    }
   }
 
   /* ------------------------------------------------------------- report */

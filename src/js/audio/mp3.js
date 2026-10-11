@@ -109,6 +109,21 @@ export async function renderToBuffer(o) {
   onProgress?.({ phase: 'render', ratio: 0.05, message: 'Synthesising…' });
   if (signal?.aborted) throw new RenderCancelled();
 
+  // Housekeeping stops, one per rendered second. Scheduling happens while the
+  // offline clock reads 0, so no voice can be detached during it (detaching a
+  // scheduled voice un-renders it; see the instruments' drop()). Without
+  // these stops the graph carries every voice of the piece to the end of the
+  // render, and a piece of ordinary length renders at barely realtime. At a
+  // suspend the clock HAS genuinely passed the suspend point, so sweeping
+  // there detaches exactly the voices whose scheduled end is behind the
+  // render -- the graph stays the size of what is still sounding.
+  for (let t = 1; t < seconds - 0.5; t += 1) {
+    ctx.suspend(t).then(() => {
+      engine.sweep(ctx.currentTime);
+      ctx.resume();
+    }).catch(() => { /* a suspend past the end, or an aborted render */ });
+  }
+
   const buffer = await ctx.startRendering();
   onProgress?.({ phase: 'render', ratio: 0.55, message: 'Synthesised' });
   if (signal?.aborted) throw new RenderCancelled();

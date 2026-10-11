@@ -194,24 +194,37 @@ function initVoice(kit) {
       return s;
     },
 
-    /** Forget everything and hand the shell back to the pool. */
-    drop() {
+    /**
+     * Forget everything and hand the shell back to the pool.
+     *
+     * `cutAt` is for the re-strike path: striking a ringing key replaces the
+     * string's vibration, so the old nodes are done at the moment of the new
+     * strike -- not at the natural decay's far-off end, which for an undamped
+     * bass note is half a minute away. Parking them under that natural end
+     * kept every re-struck note's whole node chain processing to the end of
+     * an offline render, which is what made a rendered piece crawl.
+     */
+    drop(cutAt) {
       // Detaching is only safe once the clock has passed this voice's end.
       // Scheduling runs ahead of the clock: an offline render places the whole
       // piece while ctx.currentTime still reads 0, so reap() retires voices --
       // and a re-struck key drops the ringing voice it reuses -- long before
       // their samples have rendered. Disconnecting them then removes them from
       // the graph and those notes never sound: an exported MP3 of the demo
-      // kept little more than its final chord. A voice only ever reaches here
-      // with its stops scheduled (release, hardStop, or the family's own
-      // start), so forgetting it is enough -- the nodes end on their own and,
-      // unreferenced, are collected. The sampler's drop() makes the same
-      // promise for the same reason.
-      const detach = ctx.currentTime >= this.freeAt;
-      for (let i = 0; i < this.nodes.length; i++) {
-        if (detach) { try { this.nodes[i].disconnect(); } catch (e) { /* already detached */ } }
-        kit.stats.nodes--;
+      // kept little more than its final chord. A voice retired early parks
+      // its nodes in the kit's graveyard instead, under the time its fade is
+      // done, and they are detached by the first reap, sweep or dispose the
+      // clock has caught up with. (Merely forgetting them is not enough:
+      // their oscillators' original stop times cannot be rescheduled -- a
+      // second stop() throws -- so an unreferenced released voice would keep
+      // its whole node chain processing to the end of an offline render.)
+      const doneAt = Math.min(this.freeAt, Number.isFinite(cutAt) ? cutAt : Infinity);
+      if (ctx.currentTime >= doneAt) {
+        for (const n of this.nodes) { try { n.disconnect(); } catch (e) { /* already detached */ } }
+      } else if (this.nodes.length) {
+        kit.graveyard.push({ at: doneAt, nodes: this.nodes.slice() });
       }
+      kit.stats.nodes -= this.nodes.length;
       this.nodes.length = 0;
       this.oscs.length = 0;
       this.vca = null;
@@ -280,7 +293,7 @@ function createAdditiveVoice(kit, cfg) {
   const sr = ctx.sampleRate;
 
   v.start = function (spec) {
-    if (v.started) { v.drop(); kit.stats.voices = Math.max(0, kit.stats.voices - 1); }
+    if (v.started) { v.drop(spec.when); kit.stats.voices = Math.max(0, kit.stats.voices - 1); }
     const { midi, velocity, when } = spec;
     const params = spec.params;
     const f0 = mtof(midi);
@@ -488,7 +501,7 @@ function createFmVoice(kit, cfg) {
   const sr = ctx.sampleRate;
 
   v.start = function (spec) {
-    if (v.started) { v.drop(); kit.stats.voices = Math.max(0, kit.stats.voices - 1); }
+    if (v.started) { v.drop(spec.when); kit.stats.voices = Math.max(0, kit.stats.voices - 1); }
     const { midi, velocity, when } = spec;
     const params = spec.params;
     const f = mtof(midi);
@@ -591,7 +604,7 @@ function createTonalVoice(kit, cfg) {
   const sr = ctx.sampleRate;
 
   v.start = function (spec) {
-    if (v.started) { v.drop(); kit.stats.voices = Math.max(0, kit.stats.voices - 1); }
+    if (v.started) { v.drop(spec.when); kit.stats.voices = Math.max(0, kit.stats.voices - 1); }
     const { midi, velocity, when } = spec;
     const params = spec.params;
     const f = mtof(midi);
@@ -1496,6 +1509,34 @@ export function createInstrument(id, ctx, outputNode) {
   const kit = {
     ctx, bus, out: bus, stats,
     /**
+     * Nodes whose voice has been retired ahead of the clock.
+     *
+     * Bookkeeping runs ahead of time on purpose -- an offline render
+     * schedules a whole piece at currentTime 0, and live playback reaps a
+     * lookahead early -- but the GRAPH may only lose a node once the clock
+     * has passed its end, or the node never renders and the note is silenced
+     * (the export-silence bug). So a voice retired early parks its nodes
+     * here with the time they are done, and every reap, sweep and dispose
+     * first detaches whatever the clock has genuinely passed. Without this,
+     * nodes forgotten early stayed in the graph with nobody able to find
+     * them, and a long piece rendered at barely realtime dragging every
+     * voice it had ever played.
+     */
+    graveyard: [],
+    drainGraveyard(upTo) {
+      const now = Number.isFinite(upTo) ? upTo : ctx.currentTime;
+      const g = kit.graveyard;
+      let w = 0;
+      for (let i = 0; i < g.length; i++) {
+        if (g[i].at <= now) {
+          for (const n of g[i].nodes) { try { n.disconnect(); } catch (e) { /* gone */ } }
+        } else {
+          g[w++] = g[i];
+        }
+      }
+      g.length = w;
+    },
+    /**
      * A band-limited wave whose upper harmonics grow with dynamics. Blowing
      * harder into a pipe or bowing harder across a string genuinely produces
      * more upper partials, and it is the single biggest reason a synth note
@@ -1554,6 +1595,7 @@ export function createInstrument(id, ctx, outputNode) {
 
   /** Deterministic reclaim: anything whose tail ended before `when` is reusable. */
   function reap(when) {
+    kit.drainGraveyard(ctx.currentTime);
     for (let i = active.length - 1; i >= 0; i--) {
       if (active[i].freeAt <= when) {
         const v = active[i];
@@ -1692,6 +1734,9 @@ export function createInstrument(id, ctx, outputNode) {
     for (const l of lfos.values()) { try { l.stop(t); } catch (e) { /* already stopped */ } }
     lfos.clear();
     for (const n of chain) { try { n.disconnect(); } catch (e) { /* already detached */ } }
+    // Teardown detaches the graveyard whatever the clock says: the instrument
+    // is going away, so there is no later sweep to wait for.
+    kit.drainGraveyard(Infinity);
     stats.voices = 0;
     disposed = true;
   }
@@ -1704,6 +1749,16 @@ export function createInstrument(id, ctx, outputNode) {
     group: groupLabel(entry),
     noteOn,
     noteOff,
+    /**
+     * Retire every voice whose scheduled end the clock has now passed.
+     *
+     * Exists for offline renders: there the clock sits at 0 while the whole
+     * piece is scheduled, so reap() inside noteOn can never detach anything
+     * (see drop()), and the graph otherwise carries every voice of the piece
+     * to the end of the render. The render loop suspends the context each
+     * rendered second and calls this with a clock that has genuinely moved.
+     */
+    sweep(when) { reap(Number.isFinite(Number(when)) ? Number(when) : ctx.currentTime); },
     setSustain,
     allNotesOff,
     setParam,
@@ -1716,6 +1771,8 @@ export function createInstrument(id, ctx, outputNode) {
       return {
         id, voices: active.length, idle: pool.length, cap,
         nodes: stats.nodes, peakNodes: stats.peakNodes,
+        graveyard: kit.graveyard.length,
+        graveyardAts: kit.graveyard.slice(0, 6).map((e) => e.at),
         peakVoices: stats.peakVoices, sustain, disposed,
       };
     },
