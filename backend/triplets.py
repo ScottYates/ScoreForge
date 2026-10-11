@@ -220,3 +220,127 @@ def repair_triplets(xml_text: str) -> tuple[str, RepairReport]:
     if report.notes_converted == 0:
         return xml_text, report
     return ET.tostring(root, encoding="unicode"), report
+
+
+# ---------------------------------------------------------------------------
+# Meter enforcement -- a scanned bar keeps its printed length.
+# ---------------------------------------------------------------------------
+@dataclass
+class MeterReport:
+    bars_clipped: List[dict] = field(default_factory=list)
+    bars_padded: List[dict] = field(default_factory=list)
+    notes_dropped: int = 0
+    notes_trimmed: int = 0
+    rests_added: int = 0
+
+    def as_dict(self) -> dict:
+        return {
+            "barsClipped": list(self.bars_clipped),
+            "barsPadded": list(self.bars_padded),
+            "notesDropped": self.notes_dropped,
+            "notesTrimmed": self.notes_trimmed,
+            "restsAdded": self.rests_added,
+        }
+
+
+def enforce_meter(xml_text: str) -> tuple[str, MeterReport]:
+    """Make every voice of every bar exactly as long as the time signature.
+
+    This is a POLICY, not an inference, and it runs only on scanned scores:
+    when the recogniser fragments a bar's voices, the exact triplet repair
+    above rightly refuses to guess -- but a bar left overfull stretches the
+    playback grid and the whole piece lurches: a small overflow displaces a
+    beat, a large one drags. For playing along, the printed meter outranks
+    misread fragments. So after the exact repairs, a voice still overfull is
+    clipped at the barline -- a note straddling it is shortened, anything
+    wholly beyond it is dropped -- and a voice short of the barline is padded
+    with an explicit rest. Every clip and pad is counted per bar in the
+    report, which travels to the transcription panel: the damage was done by
+    the misread, and this makes it visible instead of smearing it over the
+    neighbouring bars' timing.
+    """
+    report = MeterReport()
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return xml_text, report
+
+    changed = False
+    for part in root.findall("part"):
+        divisions = 1
+        beats, beat_type = 4, 4
+        for measure in part.findall("measure"):
+            d = measure.find(".//divisions")
+            if d is not None and (d.text or "").strip().isdigit():
+                divisions = int(d.text)
+            ts = measure.find(".//time")
+            if ts is not None:
+                try:
+                    beats = int(ts.findtext("beats") or beats)
+                    beat_type = int(ts.findtext("beat-type") or beat_type)
+                except ValueError:
+                    pass
+            nominal = _nominal_length(divisions, beats, beat_type)
+            if nominal <= 0:
+                continue
+
+            by_voice: dict[str, List[ET.Element]] = {}
+            for n in measure.findall("note"):
+                by_voice.setdefault(n.findtext("voice") or "1", []).append(n)
+
+            dropped = trimmed = 0
+            padded = 0
+            for voice, notes in by_voice.items():
+                groups = _chord_groups(notes)
+                cursor = 0
+                for g in groups:
+                    dur = _dur(g[0])
+                    if cursor >= nominal:
+                        for n in g:
+                            measure.remove(n)
+                            if n.find("rest") is None:
+                                dropped += 1
+                        changed = True
+                    elif cursor + dur > nominal:
+                        keep = nominal - cursor
+                        for n in g:
+                            el = n.find("duration")
+                            if el is not None:
+                                el.text = str(keep)
+                            if n.find("rest") is None:
+                                trimmed += 1
+                        changed = True
+                    cursor += dur
+                if 0 < cursor < nominal:
+                    # An explicit rest, so the bar's written length states what
+                    # playback will do -- a silent gap where the reader lost a
+                    # beat, not a shortened bar that drags every later one in
+                    # early.
+                    rest = ET.Element("note")
+                    ET.SubElement(rest, "rest")
+                    durel = ET.SubElement(rest, "duration")
+                    durel.text = str(nominal - cursor)
+                    v = ET.SubElement(rest, "voice")
+                    v.text = voice
+                    staff = notes[-1].findtext("staff") if notes else None
+                    if staff:
+                        st = ET.SubElement(rest, "staff")
+                        st.text = staff
+                    # After the voice's last note, so <backup> arithmetic for
+                    # the other voices is untouched.
+                    measure.insert(list(measure).index(notes[-1]) + 1, rest)
+                    padded += nominal - cursor
+                    report.rests_added += 1
+                    changed = True
+            if dropped or trimmed:
+                report.bars_clipped.append({"number": measure.get("number") or "?",
+                                            "dropped": dropped, "trimmed": trimmed})
+                report.notes_dropped += dropped
+                report.notes_trimmed += trimmed
+            if padded:
+                report.bars_padded.append({"number": measure.get("number") or "?",
+                                           "padded": padded})
+
+    if not changed:
+        return xml_text, report
+    return ET.tostring(root, encoding="unicode"), report

@@ -22,6 +22,9 @@
  * backend stack at all.
  */
 import { spawnSync } from 'node:child_process';
+// Also under test here: enforce_meter(), the policy pass that holds every
+// scanned bar to its printed length after the exact repairs have done what
+// arithmetic can prove. See backend/triplets.py.
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
@@ -30,7 +33,7 @@ const PY = `
 import json, sys
 sys.path.insert(0, ${JSON.stringify(path.join(root, 'backend'))})
 import xml.etree.ElementTree as ET
-from triplets import repair_triplets
+from triplets import repair_triplets, enforce_meter
 
 def doc(measures):
     return ('<?xml version="1.0"?><score-partwise version="4.0">'
@@ -115,6 +118,36 @@ raw7 = doc('<measure number="9">' + m7 + '</measure>')
 fixed7, rep7 = repair_triplets(raw7)
 cases['marked_unadjusted'] = {'untouched': fixed7 == raw7, 'report': rep7.as_dict()}
 
+# --- meter enforcement: a scanned bar keeps its printed length ----------
+# 8. The unrepairable overfull bar: clipped at the barline, with the clip
+#    counted -- not stretched into the neighbouring bars' time.
+m8 = ATTRS + ''.join(note(6) for _ in range(9)) + note(3)
+fixed8, _r8 = repair_triplets(doc('<measure number="7">' + m8 + '</measure>'))
+fixed8, met8 = enforce_meter(fixed8)
+cases['meter_clip'] = {'sums': voice_sums(fixed8), 'report': met8.as_dict()}
+
+# 9. A straddling note is shortened to fit, not dropped.
+m9 = ATTRS + note(24) + note(36)
+fixed9, met9 = enforce_meter(doc('<measure number="3">' + m9 + '</measure>'))
+cases['meter_trim'] = {'sums': voice_sums(fixed9), 'report': met9.as_dict()}
+
+# 10. A short voice is padded with an explicit rest, so a lost beat becomes
+#     a silent beat instead of a shortened bar.
+m10 = ATTRS + ''.join(note(6) for _ in range(4))
+fixed10, met10 = enforce_meter(doc('<measure number="4">' + m10 + '</measure>'))
+root10 = ET.fromstring(fixed10)
+rests = [n for n in root10.iter('note') if n.find('rest') is not None]
+cases['meter_pad'] = {'sums': voice_sums(fixed10), 'rests': len(rests),
+                      'rest_dur': rests[-1].findtext('duration') if rests else None,
+                      'report': met10.as_dict()}
+
+# 11. A bar that already adds up is untouched byte for byte.
+ok11 = doc('<measure number="1">' + ATTRS + ''.join(note(6) for _ in range(8)) + '</measure>')
+fixed11, met11 = enforce_meter(ok11)
+cases['meter_clean'] = {'untouched': fixed11 == ok11,
+                        'empty_report': met11.as_dict() == {'barsClipped': [], 'barsPadded': [],
+                                                            'notesDropped': 0, 'notesTrimmed': 0, 'restsAdded': 0}}
+
 print(json.dumps(cases))
 `;
 
@@ -152,6 +185,19 @@ ok('already-marked groups are left alone while their unmarked neighbours convert
 ok('a marked note with an unadjusted duration is a contradiction, so the bar is refused',
   c.marked_unadjusted.untouched === true && c.marked_unadjusted.report.measuresUnrepairable.includes('9'),
   JSON.stringify(c.marked_unadjusted.report));
+
+ok('an unrepairable overfull bar is clipped at the barline, and the clip is counted',
+  c.meter_clip.sums[0]['1'] === 48 && c.meter_clip.report.barsClipped.length === 1
+    && c.meter_clip.report.barsClipped[0].number === '7',
+  JSON.stringify(c.meter_clip));
+ok('a note straddling the barline is shortened, not dropped',
+  c.meter_trim.sums[0]['1'] === 48 && c.meter_trim.report.notesTrimmed === 1
+    && c.meter_trim.report.notesDropped === 0, JSON.stringify(c.meter_trim.report));
+ok('a short voice gets an explicit rest for the beat the reader lost',
+  c.meter_pad.sums[0]['1'] === 48 && c.meter_pad.rests === 1 && c.meter_pad.rest_dur === '24',
+  JSON.stringify(c.meter_pad));
+ok('meter enforcement leaves a correct bar untouched byte for byte',
+  c.meter_clean.untouched === true && c.meter_clean.empty_report === true, JSON.stringify(c.meter_clean));
 
 console.log(`\n${failed ? 'omr triplets FAILED' : 'omr triplets OK'}`);
 process.exit(failed ? 1 : 0);

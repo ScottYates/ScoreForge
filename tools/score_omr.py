@@ -385,8 +385,9 @@ def run_piece(piece: str, mode: str, tmp: Path) -> dict:
     # The service repairs unmarked triplet runs before returning a score, so
     # the accuracy table must measure the repaired output -- the thing a user
     # actually receives -- not the engine's raw reading.
-    from triplets import repair_triplets
+    from triplets import enforce_meter, repair_triplets
     repaired, _rep = repair_triplets(xml_path.read_text(encoding="utf-8"))
+    repaired, _rep2 = enforce_meter(repaired)
     xml_path.write_text(repaired, encoding="utf-8")
 
     try:

@@ -30,7 +30,7 @@ import numpy as np
 from guard import owned_tree, remove_owned_file, ROOT
 from preprocess import Page, Variant, build_variants, encode_png, trim_border
 from tempo_text import detect_tempo, inject_tempo
-from triplets import repair_triplets
+from triplets import enforce_meter, repair_triplets
 
 ENGINE_NAME = "homr"
 ENGINE_VERSION = "0.7.0"
@@ -458,6 +458,10 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
     # long. The pass converts only what accounts for a bar's overflow
     # EXACTLY, and reports the bars it refused -- see backend/triplets.py.
     xml_text, triplet_report = repair_triplets(xml_text)
+    # Then hold every bar to its printed length: what the exact repair had to
+    # refuse must not stretch or shorten the beat -- clips and pads are
+    # counted per bar in the report instead. See enforce_meter().
+    xml_text, meter_report = enforce_meter(xml_text)
     # Read the tempo the engraver printed. The notes engine ignores words, so
     # a scan otherwise has no tempo at all and plays at the app's default --
     # an "Adagio sostenuto" page at twice any sane speed. The OCR is the same
@@ -478,6 +482,7 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
     preview, _ = trim_border(chosen.image)
     stats = summarise_musicxml(xml_text)
     stats["tripletRepair"] = triplet_report.as_dict()
+    stats["meterRepair"] = meter_report.as_dict()
     stats["tempoText"] = tempo_info
     report(0.99, "Done")
     return PageResult(
