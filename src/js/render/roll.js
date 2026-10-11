@@ -33,7 +33,16 @@ export class PianoRoll {
     this._dpr = 1;
     this._raf = null;
 
-    canvas.addEventListener('pointerdown', (e) => this._onPointer(e));
+    // Touch gestures share the pointer handlers with the mouse: a quick tap
+    // seeks, a one-finger (or mouse) drag pans, two fingers pinch-zoom. The
+    // wheel keeps its own paths; `touch-action: none` on the canvas (app.css)
+    // stops the browser claiming these touches for page scroll and pinch.
+    this._pointers = new Map(); // pointerId -> last {x, y}
+    this._gesture = null;
+    canvas.addEventListener('pointerdown', (e) => this._pointerDown(e));
+    canvas.addEventListener('pointermove', (e) => this._pointerMove(e));
+    canvas.addEventListener('pointerup', (e) => this._pointerUp(e));
+    canvas.addEventListener('pointercancel', (e) => this._pointerCancel(e));
     canvas.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
 
     this._ro = new ResizeObserver(() => this.resize());
@@ -301,10 +310,109 @@ export class PianoRoll {
 
   setTimeSigs(sigs) { this.timeSigs = sigs; this._measureCache = null; }
 
-  _onPointer(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const t = this.timeForX(e.clientX - rect.left);
-    if (this.onSeek) this.onSeek(Math.min(this.duration, t));
+  /* ------------------------------------------------- pointer gestures
+   * A tap (under 8px of travel, under 350ms) seeks, exactly as the old
+   * pointerdown handler did -- but decided on pointerup, so that the same
+   * finger can also start a drag. One pointer dragging pans: horizontal
+   * moves `viewStart` (time), vertical moves `scrollY` (pitch), both with
+   * the clamps the wheel paths use. Two pointers pinch: the zoom follows
+   * the distance between them (same 8..400 bounds as setZoom) and the time
+   * that was under their midpoint stays under their midpoint, so the music
+   * grows around the fingers instead of sliding away from them.
+   */
+  static TAP_SLOP_PX = 8;
+  static TAP_MS = 350;
+
+  _clampViewStart(v) {
+    return Math.max(0, Math.min(v, Math.max(0, this.duration - 1)));
+  }
+
+  _pointerDown(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // Capture so a drag that leaves the canvas keeps reporting to it. A
+    // synthetic PointerEvent has no active pointer to capture; ignore that.
+    try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
+    this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this._pointers.size === 1) {
+      this._gesture = {
+        mode: 'tap',
+        startX: e.clientX, startY: e.clientY, startAt: performance.now(),
+        viewStart0: this.viewStart, scrollY0: this.scrollY,
+      };
+    } else if (this._pointers.size === 2) {
+      const [a, b] = [...this._pointers.values()];
+      const rect = this.canvas.getBoundingClientRect();
+      this._gesture = {
+        mode: 'pinch',
+        dist0: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+        pps0: this.pixelsPerSecond,
+        midTime0: this.timeForX((a.x + b.x) / 2 - rect.left),
+      };
+    } // a third finger keeps whatever gesture the first two were making
+  }
+
+  _pointerMove(e) {
+    const p = this._pointers.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    const g = this._gesture;
+    if (!g) return;
+
+    if (g.mode === 'pinch') {
+      if (this._pointers.size < 2) return;
+      const [a, b] = [...this._pointers.values()];
+      const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+      // setZoom's own bounds, but not setZoom itself: it chases the playhead,
+      // which would wrench the view away from the fingers mid-pinch.
+      this.pixelsPerSecond = Math.max(8, Math.min(400, g.pps0 * (dist / g.dist0)));
+      const rect = this.canvas.getBoundingClientRect();
+      const midX = (a.x + b.x) / 2 - rect.left;
+      this.viewStart = this._clampViewStart(g.midTime0 - (midX - 78) / this.pixelsPerSecond);
+      this.draw();
+      return;
+    }
+
+    const dx = e.clientX - g.startX;
+    const dy = e.clientY - g.startY;
+    if (g.mode === 'tap' && Math.hypot(dx, dy) <= PianoRoll.TAP_SLOP_PX) return;
+    g.mode = 'drag';
+    this.viewStart = this._clampViewStart(g.viewStart0 - dx / this.pixelsPerSecond);
+    // The notes follow the finger: y grows with (midi - scrollY), so moving
+    // the finger down means less scrollY, not more.
+    this.scrollY = g.scrollY0 - dy / this.rowH;
+    this.clampScroll();
+    this.draw();
+  }
+
+  _pointerUp(e) {
+    if (!this._pointers.delete(e.pointerId)) return;
+    const g = this._gesture;
+    if (g && g.mode === 'tap' && this._pointers.size === 0) {
+      const travelled = Math.hypot(e.clientX - g.startX, e.clientY - g.startY);
+      const held = performance.now() - g.startAt;
+      if (travelled <= PianoRoll.TAP_SLOP_PX && held <= PianoRoll.TAP_MS) {
+        const rect = this.canvas.getBoundingClientRect();
+        const t = this.timeForX(e.clientX - rect.left);
+        if (this.onSeek) this.onSeek(Math.min(this.duration, t));
+      }
+    }
+    if (this._pointers.size === 0) {
+      this._gesture = null;
+    } else if (this._pointers.size === 1 && g && g.mode === 'pinch') {
+      // Lifting one finger of a pinch leaves the other dragging from where
+      // it is now -- not tapping, so the leftover finger cannot seek.
+      const [rest] = [...this._pointers.values()];
+      this._gesture = {
+        mode: 'drag',
+        startX: rest.x, startY: rest.y, startAt: performance.now(),
+        viewStart0: this.viewStart, scrollY0: this.scrollY,
+      };
+    }
+  }
+
+  _pointerCancel(e) {
+    this._pointers.delete(e.pointerId);
+    if (this._pointers.size === 0) this._gesture = null;
   }
 
   _onWheel(e) {

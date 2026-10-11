@@ -560,7 +560,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 .roll-wrap { position: absolute; inset: 0; overflow: auto; }
-.roll-wrap canvas { display: block; }
+/* The canvas owns its touches: one finger pans the view, two pinch the zoom
+   (render/roll.js). Without this the browser claims them for page scroll and
+   pinch-zoom and the roll never sees a pointermove. */
+.roll-wrap canvas { display: block; touch-action: none; }
 
 /* ------------------------------------------------------------------ insp */
 
@@ -1083,6 +1086,27 @@ input[type="range"]::-moz-range-thumb {
   .mini { min-width: 38px; min-height: 38px; }
   select, input[type="text"], input[type="number"] { font-size: 16px; }
   .dropzone { padding: 26px 14px; }
+
+  /* The export dialog. The desktop footer is one row -- render, a spacer,
+     two downloads -- which runs 130px past a 390px screen and put the
+     Download MP3 button beyond reach. Let the footer wrap and the buttons
+     share the width; cap the modal so the close button at its top and the
+     footer at its bottom are both on screen; give the close button a real
+     touch target (its icon is 30px wide). */
+  .scrim { padding: 14px; }
+  .modal { max-height: calc(100vh - 28px); }
+  .modal-head .btn { min-width: 42px; }
+  .modal-foot { flex-wrap: wrap; }
+  .modal-foot .btn { flex: 1 1 auto; justify-content: center; }
+
+  /* Toasts: the fixed-height-transport offset is wrong here (the transport
+     wraps to two or three rows), so bottom-anchored toasts sat on the play
+     controls. Put them under the top bar instead, full width minus a gutter. */
+  .toasts {
+    left: 10px; right: 10px;
+    top: calc(var(--topbar) + 10px); bottom: auto;
+  }
+  .toast { min-width: 0; max-width: none; width: 100%; }
 }
 
 @media (max-width: 560px) {
@@ -1090,6 +1114,20 @@ input[type="range"]::-moz-range-thumb {
   .meters { display: none; }
   #zoomLabel { display: none; }
   .topbar { gap: 8px; padding: 0 10px; }
+  /* One field per row: three abreast leaves each select ~90px, which cuts
+     the option text ("44.1 kHz — CD") mid-word. */
+  .grid3 { grid-template-columns: 1fr; }
+}
+
+/* 320px (iPhone SE and kin): everything above still holds -- the transport
+   and stage bar wrap, the drawers are proportional -- so this block only
+   tightens the chrome. Display elements may go; controls never do. */
+@media (max-width: 360px) {
+  .topbar { gap: 6px; padding: 0 8px; }
+  .top-actions { gap: 6px; }
+  .brand .mark { box-shadow: none; }
+  .transport { padding: 8px; gap: 8px 10px; }
+  .stage-bar { padding: 8px; }
 }
 
 .sr {

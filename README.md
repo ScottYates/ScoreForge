@@ -588,6 +588,7 @@ tools/
   guard.py             the same rule for the Python backend
   check-cursor.mjs      is the playback cursor the colour we chose, where it should be
   check-transport.mjs   press Play / Stop / Back-to-start and read the UI back
+  check-mobile.mjs      the phone layout: drawers, roll touch gestures, the export dialog, 320px
   check-default-samples.mjs  load a score, press Play at once: is it the recording?
   check-piano-voice.mjs measure the synth piano against the recorded one
   drive-omr.mjs         drives the built page against a live backend
