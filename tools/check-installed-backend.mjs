@@ -52,6 +52,24 @@ check('install.sh ships the backend from $BACKEND_FILES in both places',
   loops.filter((l) => l === '$BACKEND_FILES').length === 2,
   `${loops.length} loop(s) over a file list: ${loops.join(' | ')}`);
 
+// ---- the pin-conflicted packages go in via --no-deps -------------------------
+// homr pins opencv<5 and docuwarp pins pillow==10.4.0; both are deliberate
+// lies to pip's resolver, which answers ResolutionImpossible if either is
+// left in the main `pip install -r`. The installer must filter BOTH out of
+// the bulk install and add each back alone with --no-deps -- this broke for
+// real: docuwarp landed in requirements.txt without the filter and the
+// install died on the user's machine at the Pillow conflict.
+const req = fs.readFileSync(path.join(BACKEND, 'requirements.txt'), 'utf8');
+for (const pkg of ['homr', 'docuwarp']) {
+  const pinned = new RegExp(`^\\s*${pkg}[=<>~!]`, 'm').test(req);
+  if (!pinned) continue; // not pinned at all -- nothing to filter
+  check(`install.sh filters ${pkg} out of the bulk pip install`,
+    new RegExp(`grep -Ev '[^']*${pkg}[^']*'`).test(sh), 'no grep -Ev filter names it');
+  check(`install.sh installs ${pkg} alone with --no-deps`,
+    new RegExp(`--no-deps "?\\$?\\{?${pkg.toUpperCase()}_SPEC`).test(sh),
+    'no --no-deps install for it');
+}
+
 // ---- the imports that actually exist ----------------------------------------
 /** Sibling modules: a bare `import x` / `from x import y`, no dots, not a stdlib
  *  or third-party package. Parsed from the top-level statements only, because a

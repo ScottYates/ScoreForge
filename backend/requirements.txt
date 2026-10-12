@@ -14,10 +14,18 @@ onnxruntime==1.30.0         # CPU execution provider only
 rapidocr==3.9.2             # title detection inside homr
 
 # --- page flattening ---------------------------------------------------------
-# UVDoc document dewarping, ONNX on the CPU, model included in the wheel.
-# Spiral-bound and hand-held pages carry true 3D curl that rotation-only
-# deskew cannot fix, and curl breaks staff detection before reading begins.
-docuwarp[cpu]==1.0.2
+# UVDoc document dewarping, ONNX on the CPU, both models included in the
+# wheel. Spiral-bound and hand-held pages carry true 3D curl that
+# rotation-only deskew cannot fix, and curl breaks staff detection before
+# reading begins.
+#
+# Installed by deploy/install.sh with --no-deps, like homr above: docuwarp
+# pins pillow==10.4.0 outright, which pip treats as ResolutionImpossible
+# against the Pillow this stack actually runs -- yet its code imports only
+# numpy, onnxruntime and basic PIL (Image.open/fromarray), all pinned in
+# this file at newer versions. No [cpu] extra: that extra is just
+# onnxruntime, which is pinned above.
+docuwarp==1.0.2
 
 # --- image handling ----------------------------------------------------------
 # homr pins opencv-python < 5.0.0 but its own code imports cv2.typing, which

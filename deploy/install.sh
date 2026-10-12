@@ -271,8 +271,10 @@ REQ="$PREFIX/backend/requirements.txt"
 # treats that as a hard conflict (ResolutionImpossible), not the "harmless warning"
 # the file's comment describes. So: install everything else first, then homr alone
 # with --no-deps; its remaining dependencies are already pinned in the file.
+# docuwarp gets the same treatment for the same reason: it pins pillow==10.4.0
+# outright while importing only basic PIL, numpy and onnxruntime.
 REQ_REST="$(mktemp)"; trap 'rm -f "$REQ_REST"' EXIT
-grep -Ev '^[[:space:]]*homr([=<>~! ]|$)' "$REQ" > "$REQ_REST"
+grep -Ev '^[[:space:]]*(homr|docuwarp)([=<>~! ]|$)' "$REQ" > "$REQ_REST"
 # NumPy >= 2.4 wheels need x86-64-v2 (SSE4.2/POPCNT). Virtual CPUs such as QEMU's
 # default "qemu64"/"kvm64" lack them and numpy fails at import. Fall back to the
 # last 2.3 release (no such baseline). Force either way with NUMPY_SPEC=...
@@ -292,11 +294,18 @@ HOMR_SPEC="$(grep -E '^[[:space:]]*homr([=<>~! ]|$)' "$REQ" | sed 's/[[:space:]]
 [ -n "$HOMR_SPEC" ] || die "no homr entry in $REQ"
 
 "${PIP[@]}" install --prefer-binary -r "$REQ_REST" \
-    || die "dependency install failed (numpy==2.5.3 requires Python >= $PY_MIN; this venv is $("$VPY" -V 2>&1))"
+    || die "dependency install failed -- the pip output above names the conflict. (One known cause: the pinned numpy requires Python >= $PY_MIN; this venv is $("$VPY" -V 2>&1).)"
 # homr's other runtime deps that are not in requirements.txt (read from its metadata).
 # types-Pillow is one of these: it is stubs only, but homr declares it as a hard
 # requirement, so leaving it out makes `pip check` report a conflict forever.
 "${PIP[@]}" install --no-deps "$HOMR_SPEC"
+# Page dewarping is optional by design -- the backend falls back to plain
+# deskew without it -- so a failure here warns instead of killing the install.
+DOCUWARP_SPEC="$(grep -E '^[[:space:]]*docuwarp([=<>~! ]|$)' "$REQ" | sed 's/[[:space:]]*#.*//; s/[[:space:]]//g')"
+if [ -n "$DOCUWARP_SPEC" ]; then
+    "${PIP[@]}" install --no-deps "$DOCUWARP_SPEC" \
+        || warn "docuwarp did not install; page dewarping is disabled (deskew still runs)"
+fi
 "$VPY" - <<'PY' > "$REQ_REST.homr"
 from importlib.metadata import requires
 from packaging.requirements import Requirement
@@ -340,7 +349,9 @@ sys.path.insert(0, "$PREFIX/backend")
 import guard, preprocess, omr_engine, app
 print("    backend imports from $PREFIX/backend")
 PY
-"${PIP[@]}" check 2>&1 | sed 's/^/    pip check: /' | grep -v 'opencv-python-headless' || true
+# docuwarp's pillow==10.4.0 pin is the known, deliberate --no-deps install
+# above -- filtered like homr's opencv pin so the report stays readable.
+"${PIP[@]}" check 2>&1 | sed 's/^/    pip check: /' | grep -v 'opencv-python-headless' | grep -v 'docuwarp' || true
 
 say "Fetching model weights"
 # Restore first, download second. download_weights() skips anything already
