@@ -846,16 +846,18 @@ export class App {
     // a body to save -- a page the recogniser gave up on has no MusicXML.
     const shown = shownPage;
     if (shown && shown.musicxml) {
+      // The save is the panel's one real ACTION -- everything above it is
+      // reporting -- and as a small ghost button it read as a footnote.
+      const saveBtn = el('button', {
+        class: 'btn primary wide omr-save-btn',
+        title: `Download page ${shown.page + 1} as MusicXML`,
+        onclick: () => this._saveOmrXml(shown),
+      }, icon('export'), el('span', { text: 'Save MusicXML' }));
       card.appendChild(el('div', { class: 'omr-save' },
-        el('button', {
-          class: 'btn ghost sm',
-          text: 'Save MusicXML',
-          title: `Download page ${shown.page + 1} as MusicXML`,
-          onclick: () => this._saveOmrXml(shown),
-        }),
+        saveBtn,
         el('span', {
           class: 'omr-note',
-          text: `The MusicXML for page ${shown.page + 1}, exactly as the recogniser wrote it.` +
+          text: `The MusicXML for page ${shown.page + 1}, exactly as the recogniser wrote it — opens in MuseScore and other notation editors.` +
             (pages.length > 1 ? ' Pick a page on the right to save a different one.' : ''),
         })));
     }

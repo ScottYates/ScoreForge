@@ -469,11 +469,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 .omr-save {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; flex-direction: column; gap: 7px;
   margin-top: 10px; padding-top: 10px;
   border-top: 1px solid var(--line);
 }
-.omr-save .omr-note { margin-top: 0; flex: 1 1 auto; }
+.omr-save .omr-note { margin-top: 0; }
+/* The panel's one real action; everything above it is reporting. */
+.btn.omr-save-btn { padding: 12px 14px; font-size: 13px; font-weight: 600; }
 
 .busy-bar {
   display: inline-flex; align-items: center; gap: 7px;

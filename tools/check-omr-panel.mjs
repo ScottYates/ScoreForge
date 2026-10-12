@@ -68,6 +68,22 @@ const PROBE = `(function () {
   out.cleanCaption = [...document.querySelectorAll('#omrCard .omr-try-cap')]
     .some((c) => /cleaned/i.test(c.textContent));
 
+  // Save MusicXML is the panel's one real action, and it must LOOK like one:
+  // the primary (accent) style, the full width of the panel, touch-sized.
+  const save = document.querySelector('#omrCard .omr-save button');
+  if (save) {
+    const r = save.getBoundingClientRect();
+    const cardR = document.getElementById('omrCard').getBoundingClientRect();
+    out.save = {
+      primary: save.classList.contains('primary'),
+      width: Math.round(r.width), cardWidth: Math.round(cardR.width),
+      height: Math.round(r.height),
+      label: save.textContent.trim(),
+    };
+  } else {
+    out.save = null;
+  }
+
   return JSON.stringify(out);
 })()`;
 
@@ -152,6 +168,11 @@ ok('a flagged line looks different from a plain one', p.warnLooksDifferent === t
 ok('a clean read shows no repair section at all',
   p.cleanLines === 0 && p.cleanCaption === false,
   JSON.stringify({ lines: p.cleanLines, caption: p.cleanCaption }));
+
+ok('Save MusicXML is the panel\'s loud, primary action',
+  p.save && p.save.primary === true && p.save.height >= 36
+    && p.save.width >= p.save.cardWidth * 0.9 && p.save.label === 'Save MusicXML',
+  JSON.stringify(p.save));
 
 const f = run(FAIL_KICK, FAIL_PROBE);
 ok('a failed scan reaches the panel, not just a toast',
