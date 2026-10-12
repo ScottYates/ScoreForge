@@ -1,4 +1,4 @@
-# Build contract — internal interfaces
+# Build contract: internal interfaces
 
 Everything here is bundled into ONE self-contained HTML file. No network at runtime,
 no external assets, no `type="module"` on external scripts (inline modules are fine),
@@ -23,13 +23,13 @@ runs from `file://`.
 | `src/js/ui/*` | UI |
 | `tools/build.mjs` | esbuild bundle → single HTML |
 | `backend/app.py` | FastAPI: `/api/omr`, `/api/health`, `/api/accuracy` |
-| `backend/omr_engine.py` | homr wrapper — CPU-only config, variant ranking |
+| `backend/omr_engine.py` | homr wrapper: CPU-only config, variant ranking |
 | `backend/preprocess.py` | decode / PDF raster / deskew / contrast / resize |
 | `tools/score_omr.py` | Ground-truth accuracy suite for the recogniser |
 
 ---
 
-## 1. Score model (`src/js/score/model.js`) — READ IT
+## 1. Score model (`src/js/score/model.js`)
 
 Use `createScore`, `createPart`/`makePart`, `makeNote`, `Timing`, `resolveScore`,
 `midiToName`, `keyNameFromFifths`, `keyFifthsFromName`, `availableKeys`.
@@ -112,7 +112,7 @@ Parameters:
 Groups: `Pianos`, `Bells & Mallet`, `Plucked`, `Bowed & Sustained`, `Brass & Wind`, `Synth`.
 
 ```
-Pianos          grand          Concert Grand      (flagship — must be excellent)
+Pianos          grand          Concert Grand      (flagship; must be excellent)
                  bright-piano   Bright Piano
                  felt-piano     Felt Piano
                  rhodes         Rhodes Electric Piano
@@ -189,18 +189,18 @@ Rules the backend must not break:
   A transcription you cannot check is worse than an error.
 - **Never silently return a partial result.** A page that could not be read is an
   error for that page, not an empty score.
-- **Preview honesty.** The preview is for display only and may be cropped to the
+- **Preview.** The preview is for display only and may be cropped to the
   music; recognition always runs on the untrimmed image, and the UI says so.
 
 Rules for the fixtures (`tools/score_omr.py`, `tools/score-render.html`):
 - A ground truth must be an **independent record of what was drawn**, checked
   against the rendered page. Copying the fixture source is how the two-staff
-  fixture came to claim four bars of music in which only two were printed — and
+  fixture came to claim four bars of music in which only two were printed, and
   the OCR was blamed for the fixture's bug.
 - A grand staff interleaves both hands. Compare **per staff**; a flat comparison
   calls correct music wrong on ordering alone.
-- A check that has never been seen to fail is not a check. Break the fixture on
-  purpose and confirm the scorer refuses it.
+- A check must be seen to fail at least once. Break the fixture on purpose and
+  confirm the scorer refuses it.
 
 ---
 

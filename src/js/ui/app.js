@@ -754,9 +754,9 @@ export class App {
       card.appendChild(el('div', {
         class: 'omr-note',
         text: 'The scan is kept in the Source scan panel. Photos read best sharp, '
-          + 'straight-on and evenly lit, with the staves filling the frame; pages '
+          + 'straight-on and evenly lit, with the staves filling the frame. Pages '
           + 'that are mostly words, or single melody lines in a vocal book, are '
-          + 'at the hard edge of what the recogniser can read.',
+          + 'the hardest for the recogniser.',
       }));
       return;
     }
@@ -857,7 +857,7 @@ export class App {
         saveBtn,
         el('span', {
           class: 'omr-note',
-          text: `The MusicXML for page ${shown.page + 1}, exactly as the recogniser wrote it — opens in MuseScore and other notation editors.` +
+          text: `The MusicXML for page ${shown.page + 1}, exactly as the recogniser wrote it. Opens in MuseScore and other notation editors.` +
             (pages.length > 1 ? ' Pick a page on the right to save a different one.' : ''),
         })));
     }

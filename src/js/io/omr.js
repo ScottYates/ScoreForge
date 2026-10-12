@@ -429,8 +429,8 @@ export function describeRepairs(page) {
   if (sc.flagged) {
     out.push({
       text: `The page looks like about ${sc.estimated} staves, but the transcription`
-        + ` only accounts for ${sc.used} — part of the page was probably not read.`
-        + ' A straighter, flatter photo usually recovers the rest.',
+        + ` only accounts for ${sc.used}. Part of the page was probably not read;`
+        + ' a straighter, flatter photo usually recovers the rest.',
       check: true,
     });
   }
@@ -447,7 +447,7 @@ export function describeRepairs(page) {
       .map(([name, ns]) => `${bars(ns).toLowerCase()} from the ${name} reading`);
     out.push({
       text: `${bars(swapped.map((b) => b.number))} taken from other readings of this page`
-        + ` (${from.join('; ')}) — the chosen reading broke there, another landed on the barline.`,
+        + ` (${from.join('; ')}): the chosen reading broke there and another did not.`,
       check: false,
     });
   }
@@ -475,8 +475,8 @@ export function describeRepairs(page) {
   const refused = trip.measuresUnrepairable || [];
   if (refused.length) {
     out.push({
-      text: `${bars(refused)} overflowed with no exact triplet explanation`
-        + ' — check against the scan.',
+      text: `${bars(refused)} overflowed with no exact triplet explanation;`
+        + ' check against the scan.',
       check: true,
     });
   }
@@ -485,7 +485,7 @@ export function describeRepairs(page) {
   if (clipped.length) {
     out.push({
       text: `${bars(clipped)} overfilled the time signature and ${clipped.length === 1 ? 'was' : 'were'}`
-        + ' clipped at the barline — check against the scan.',
+        + ' clipped at the barline; check against the scan.',
       check: true,
     });
   }
@@ -493,7 +493,7 @@ export function describeRepairs(page) {
   if (padded.length) {
     out.push({
       text: `${bars(padded)} came up short and ${padded.length === 1 ? 'was' : 'were'}`
-        + ' padded with rests — check against the scan.',
+        + ' padded with rests; check against the scan.',
       check: true,
     });
   }

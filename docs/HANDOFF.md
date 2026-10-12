@@ -1,13 +1,13 @@
-# Handoff — ScoreForge, 10 October 2026
+# Handoff: ScoreForge, 10 October 2026
 
-**What this is.** State of the repository at `a8c0018`, for an agent picking the
-work up cold. It records what changed in the session that ended at that commit,
+**What this is.** State of the repository at `a8c0018`, for anyone picking the
+work up cold. It records what changed in the work that ended at that commit,
 what is now true, and what is still unproven.
 
-**What this is not.** `CONTRACT.md` is the durable interface contract — score
-model, instrument contract, parser rules, backend rules. That still holds and is
-not repeated here. This document will go stale; the commit messages will not.
-When the two disagree, trust `git log`.
+**What this is not.** `CONTRACT.md` is the interface contract: score model,
+instrument contract, parser rules, backend rules. That still holds and is not
+repeated here. This document will go stale; the commit messages will not. When
+the two disagree, trust `git log`.
 
 ---
 
@@ -22,13 +22,13 @@ first:
 1. Every route into the roster led to the model. New parts, all 128 GM
    programs and every MusicXML name mapped to a modelled instrument; samples
    played only if picked by hand.
-2. **Picking one by hand did not work either, since `6ceee06`.**
+2. **Picking one by hand had not worked since `6ceee06`.**
    `instruments.js` passes the sampler a `Map`; `__registerPackOf` read it with
    `Object.entries()`, which is `[]` for a Map. The sampler's roster-to-pack
    table was always empty, so `prepare()` decoded nothing and every recorded
    instrument silently played its modelled fallback. All 1038 suite assertions
-   passed throughout — the sampler checks call `preparePack` with pack ids and
-   never cross that seam.
+   passed throughout, because the sampler checks call `preparePack` with pack
+   ids and never cross that seam.
 
 **What is true now.**
 
@@ -36,7 +36,8 @@ first:
   `instruments.js`, the GM and name tables in `gm.js`. Families the pack has no
   recording of go to the nearest recording; `GAPS` in `gm.js` lists them.
 - The picker lists recordings first; modelled groups read "Synthesised · …".
-- Packs are registered when the manifest arrives, not when all 277 MB have.
+- Packs are registered when the manifest arrives, not when all 277 MB have
+  downloaded.
   `preparePack` fetches missing keys at high priority; the background fetch
   stands aside while it does. One missing file no longer fails the whole load.
 - `Engine.prepare` replaces a channel that was built as the fallback before its
@@ -48,9 +49,9 @@ first:
   over http against the real, throttled pack, and from `file://`.
 
 **Verified here.** Suites 1145 / 0 (routing-test new, sampler-test 46 → 60).
-`npm test` green except `check-omr-queue.py`, which needs FastAPI. 21 mutations,
-each red for the predicted assertion: 6 sampler loading, 9 routing, 6 end to
-end (including restoring the `Object.entries` bug).
+`npm test` green except `check-omr-queue.py`, which needs FastAPI. 21
+mutations, each red for the predicted assertion: 6 sampler loading, 9 routing,
+6 end to end (including restoring the `Object.entries` bug).
 
 **Not verified, and why.**
 
@@ -65,22 +66,22 @@ end (including restoring the `Object.entries` bug).
   build` on the host will produce a slightly different app bundle; that is
   expected, not a regression.
 - **Nobody has listened to it.** The checks prove which instrument each channel
-  built and that the export renders; whether, say, synth brass is an acceptable
-  stand-in for a trumpet is a judgement for a person with ears. Changing a
+  built and that the export renders; whether synth brass is an acceptable
+  stand-in for a trumpet needs a person listening. Changing a
   substitution is a one-line edit in `gm.js` plus its row in `routing-test`.
 - `check-recording-fidelity` / `check-pack-is-unprocessed` need the FreePats
   WAVs and were skipped, as before; the pack itself is untouched.
 
 **Addendum, same evening (two more commits).** `a346ba7`: vocal parts (a part
 named Voice/Choir/Soprano, GM 52-54) route to the recorded upright, never to
-the synth-pad bank -- Scott's vocal book was the test case. Then the real find:
-**offline renders dropped every note that did not overlap the end of the
-piece**, in BOTH engines. `scheduleAll` places a whole piece while the offline
+the synth-pad bank; Scott's vocal book was the test case. The bigger find:
+offline renders dropped every note that did not overlap the end of the piece,
+in both engines. `scheduleAll` places a whole piece while the offline
 clock reads 0; `reap()` (and a re-strike of a ringing key) then retires voices
 whose end lies before the note being scheduled, and `drop()` detached their
 nodes from the graph before one sample had rendered. An exported MP3 kept
-little beyond its final notes -- Scott heard his file as "silent", and he was
-right. Every suite passed throughout, because each test rendered its subject
+little beyond its final notes; Scott reported the file as "silent", and it
+nearly was. Every suite passed throughout, because each test rendered its subject
 in isolation and the export check never decoded what it exported. Both
 `drop()`s now detach only once `ctx.currentTime` has passed the voice's stop;
 before that they just forget the nodes, whose stops are already scheduled.
@@ -90,28 +91,28 @@ and requires the music to begin at the beginning. All mutation-checked.
 
 ---
 
-## 1. What happened in this session
+## 1. What happened in this round of work
 
 Six commits, in order. Each was pushed directly to `main`; no PRs, no tags, no
-GitHub releases (the project has no release process — `package.json` is at 2.0.0
+GitHub releases (the project has no release process; `package.json` is at 2.0.0
 with zero tags, and none was invented).
 
 | Commit | Change |
 |---|---|
-| `8d470f3` | Deletion guardrails — never delete what we did not create, never delete outside the working folder |
-| `051c337` | The pack is the recordings — builder stopped trimming, normalising and truncating them |
+| `8d470f3` | Deletion guardrails: never delete what we did not create, never delete outside the working folder |
+| `051c337` | The pack is the recordings: builder stopped trimming, normalising and truncating them |
 | `9a62938` | Rebuilt `pack/` from the sources and proved it: 4,172 takes verified against their WAVs |
 | `a0f9f21` | Installer no longer re-downloads 157 MB of model weights every run |
 | `962a58a` | Service could not start: `guard.py` was never installed, and the OMR scratch path was unwritable |
-| `a8c0018` | One scan read at a time, with an honest queue: place in line, rough wait, free cancellation before it starts |
+| `a8c0018` | One scan read at a time, with a queue: place in line, rough wait, free cancellation before it starts |
 
-The last two were both **found by a crash on the real host**, not by a test.
+The last two were both found by a crash on the real host, not by a test.
 
 ---
 
 ## 2. Standing rules now in force
 
-These are not suggestions. Each one exists because breaking it was observed.
+Each rule exists because breaking it caused a real failure.
 
 ### Deletion
 
@@ -122,11 +123,11 @@ repository. `tools/check-no-unguarded-deletes.mjs` scans `tools/` and `backend/`
 for eight delete shapes across JS, Python and PowerShell, and exercises both
 guards' refusals for real.
 
-**The one exception, called out rather than hidden:** `deploy/install.sh` deletes
-its own `$PREFIX/.venv` with a bash `rm -rf`. That is legitimate — the installer
-created it, and a venv whose interpreter has moved cannot be repaired in place —
-but it is outside the eight shapes the scan matches, and `deploy/` is not
-scanned. README says so.
+**The one exception:** `deploy/install.sh` deletes its own `$PREFIX/.venv`
+with a bash `rm -rf`. That is legitimate (the installer created it, and a venv
+whose interpreter has moved cannot be repaired in place), but it is outside
+the eight shapes the scan matches, and `deploy/` is not scanned. The README
+says so.
 
 ### The pack is the recordings
 
@@ -144,8 +145,8 @@ wait; cancelling one before its turn costs nothing. The synchronous
 
 ### Verify the installed tree, not the checkout
 
-`install.sh` imports the backend **as installed** — `sys.path` at
-`$PREFIX/backend`, which is what the unit gives it — and fails the install if
+`install.sh` imports the backend as installed (`sys.path` at
+`$PREFIX/backend`, which is what the unit gives it) and fails the install if
 that fails. `tools/check-installed-backend.mjs` reads the installer's file list
 and the imports that actually exist, and requires one to cover the other.
 
@@ -156,7 +157,7 @@ and the imports that actually exist, and requires one to cover the other.
 ```
 node      v24.16.0        (npm test needs Node 22+ for global WebSocket)
 python    C:\Python\Python313  (3.13.3)
-venv      backend\.venv\Scripts\python.exe   — use this, not system python
+venv      backend\.venv\Scripts\python.exe   (use this, not system python)
 freepats  C:\Users\scott\files\music\freepats\banks   50 banks, 3.44 GB WAV
 ```
 
@@ -180,33 +181,33 @@ Current verified state at `a8c0018`: `npm test` → **VERIFY OK**, self-test
 
 ---
 
-## 4. Landmines
+## 4. Known traps
 
-These cost real time to find. They will cost the next agent time again.
+Each of these cost real debugging time.
 
 **Ships from an installed copy, not the checkout.** `omr_engine.py` does
 `from guard import ...`, which resolves by bare name against
-`/opt/scoreforge/backend/`. Local runs use the checkout, so *everything worked
-locally* while the service crash-looped 1,218 times. Before adding a module to
+`/opt/scoreforge/backend/`. Local runs use the checkout, so everything worked
+locally while the service crash-looped 1,218 times. Before adding a module to
 `backend/`, check `BACKEND_FILES` in `install.sh`.
 
 **`ProtectSystem=strict` makes `/opt` read-only.** The only path the service
 writes at runtime is `$PREFIX/.tmp`, because `guard.ROOT` resolves to the install
 prefix on an installed tree. It is named in `ReadWritePaths=` and created by the
-installer *after* the `chown -R root:root` and `chmod -R a+rX` that would
+installer after the `chown -R root:root` and `chmod -R a+rX` that would
 otherwise reset its owner. A `ReadWritePaths=` entry that does not exist is a
-**start failure**, not a warning — so it is deliberately not `-` prefixed.
+start failure, not a warning, so it is not `-` prefixed.
 
 **homr keeps its ONNX weights inside its own installed package**, so they live
 inside the venv and die with every rebuild. `download_weights()` decides with
-`os.path.exists` and returns when nothing is missing — correctly written, and
+`os.path.exists` and returns when nothing is missing: correctly written, and
 useless against a fresh venv. `deploy/model_cache.py` lifts them to
 `$PREFIX/share/homr-models` and puts them back.
 
 **PowerShell mangles inline scripts.** Write helper scripts to files. String
-replacement via PowerShell has repeatedly corrupted files in this repo — use the
-`edit` tool. Heredocs are not PowerShell (`git commit -F -` silently worked once
-and I still had to move the message to a file).
+replacement via PowerShell has repeatedly corrupted files in this repo; use an
+editor or a script file instead. Heredocs are not PowerShell (`git commit -F -`
+appeared to work once and the message still had to move to a file).
 
 **`spawnSync` must never launch a browser while an HTTP server runs in the same
 Node process.** Use `spawn`.
@@ -217,7 +218,7 @@ Node process.** Use `spawn`.
 **Never put a backtick inside a JS template literal**, including in a comment
 that sits inside one. It ends the string.
 
-**FreePats filenames contain `#`.** `encodeURI` does not escape it — encode path
+**FreePats filenames contain `#`.** `encodeURI` does not escape it; encode path
 segments individually.
 
 **The deletion-guardrail harness lives in `.tmp/`.** Its first version sat in
@@ -232,12 +233,10 @@ the mutation applied. This happened once and cost a confusing debugging detour.
 
 ## 5. Still unproven
 
-Honest gaps, not hedges.
-
 - **`tools/check-omr-jobs.py` has never been executed.** It needs a live backend
-  and minutes of real CPU. Its new sections — three jobs submitted together,
+  and minutes of real CPU. Its new sections (three jobs submitted together,
   never more than one `running`, no two waiters told they are 1st, cancelling a
-  queued job ending `cancelled` — are written but unrun. Run it on the host.
+  queued job ending `cancelled`) are written but unrun. Run it on the host.
 - **The systemd unit has never been started with these changes.** `ReadWritePaths=`
   is argued from the documented semantics of `ProtectSystem=strict`, not observed.
   The installer-side import check *is* exercised by `npm test`; the unit side
@@ -247,48 +246,47 @@ Honest gaps, not hedges.
 - **The `.part` copy protection in `model_cache.py` is not covered by a test.**
   The check asserts no debris survives a clean round trip; it cannot fault-inject
   an interrupted copy.
-- **A damaged model cache cannot be detected** — it has no independent reference
-  to those bytes. It is reproduced faithfully and left where
+- **A damaged model cache cannot be detected.** There is no independent
+  reference for those bytes. It is reproduced faithfully and left where
   `download_weights()` looks, so a real download can still repair it.
 
 ---
 
 ## 6. What worked, and is worth repeating
 
-Every claim in section 2 that could have been wrong was mutation-tested. Not
-"the test passes" but "the test goes red when I break the thing, and for the
-reason I predicted". Across this session: 10 + 6 + 9 + 7 + 6 = **38 mutations**,
+Every claim in section 2 that could have been wrong was mutation-tested: the
+test goes red when the thing is broken, for the predicted reason, not merely
+"the test passes". Across this round: 10 + 6 + 9 + 7 + 6 = 38 mutations,
 each recorded with the assertion it was expected to trip.
 
 That approach found bugs that reading the code did not:
 
-- The gate **admitted two jobs at once** when the queue was busy — a waiter
-  removed itself from the list on waking, exposing the next one as head. Peak
-  measured concurrency was 3.
-- `position()` was **off by one**, because the holder occupies index 0.
-- `_job_view` **re-entered a non-reentrant lock**, deadlocking the first time
-  anyone polled a queued job. It *hangs*, so it reads as a wedged test run.
-- `find_homr` walked `rglob` **in filesystem order**, so against a real
+- The gate admitted two jobs at once when the queue was busy: a waiter removed
+  itself from the list on waking, exposing the next one as head. Peak measured
+  concurrency was 3.
+- `position()` was off by one, because the holder occupies index 0.
+- `_job_view` re-entered a non-reentrant lock, deadlocking the first time
+  anyone polled a queued job. It hangs, so it reads as a wedged test run.
+- `find_homr` walked `rglob` in filesystem order, so against a real
   `site-packages` it could return some other package.
-- A **NUL byte** in one copy of a key template literal and a space in another
+- A NUL byte in one copy of a key template literal and a space in another
   made all 4,172 lookups miss and report "0 of 4172".
 
-The recurring lesson, and the one to carry: **bookkeeping tests cannot see a
-component that fails to do its job.** The queue handed out perfectly consistent
-positions whether or not it actually admitted one at a time; every
-position-and-ordering assertion passed against the version running two jobs at
-once. What caught it was the property itself — a counter incremented and
-decremented *inside* the critical section, asserting the peak never exceeded 1.
-
-Ask what the test measures that moves together with the bug.
+The recurring lesson: bookkeeping tests cannot see a component that fails to
+do its job. The queue handed out consistent positions whether or not it
+actually admitted one at a time; every position-and-ordering assertion passed
+against the version running two jobs at once. What caught it was a counter
+incremented and decremented inside the critical section, asserting the peak
+never exceeded 1. Prefer assertions that measure something that moves together
+with the bug.
 
 Two more that generalise:
 
-- **A check's expectation must come from the source, not the description.**
+- A check's expectation must come from the source, not the description.
   Comparing the pack to its own manifest moves both sides together.
-- **Measure in the units the user sees, and put the tight assertion on the
-  median.** A gain applied to everything moves the population, not the outliers.
-  Compare RMS, not peak — peak is one sample and does not survive lossy coding.
+- Measure in the units the user sees, and put the tight assertion on the
+  median. A gain applied to everything moves the population, not the outliers.
+  Compare RMS, not peak; peak is one sample and does not survive lossy coding.
 
 ---
 
@@ -300,5 +298,5 @@ Two more that generalise:
    threshold in this repo came from measurement; the guessed ones flagged 1,837
    and 253 takes, none of which were defects.
 4. Update the relevant README section. The tools list there is the index.
-5. If a fact is stated in two places, that is a bug waiting to happen — three
-   times this session. State it once.
+5. State each fact in one place. Facts stated twice drifted apart three times
+   in one round of work.

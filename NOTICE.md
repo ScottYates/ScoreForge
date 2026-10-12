@@ -2,7 +2,7 @@
 
 ## Optional Python backend
 
-The bundled web page — `index.html` and everything in `src/` — is MIT, as
+The bundled web page (`index.html` and everything in `src/`) is MIT, as
 is this repository's own source.
 
 The optional recognition service in `backend/` is also MIT source, but it
@@ -14,7 +14,7 @@ program rather than calling it as a service, the AGPL terms apply to that
 combined work.
 
 If you intend to expose the backend to other users over a network, read the
-AGPL-3.0 terms first. The bundled page stays MIT either way — it never links
+AGPL-3.0 terms first. The bundled page stays MIT either way; it never links
 against homr.
 
 ## Bundled third-party components
@@ -42,7 +42,7 @@ Installed into `backend/.venv` and not bundled:
 ## Recorded-instrument samples
 
 `pack/` is built by `tools/make-pack.mjs` from the libraries below. The block
-between these two markers is generated from `pack/manifest.json` — edit the
+between these two markers is generated from `pack/manifest.json`; edit the
 `SOURCES` table in `tools/make-pack.mjs` and rebuild, never this file.
 
 | Samples | By | Licence | Instruments |

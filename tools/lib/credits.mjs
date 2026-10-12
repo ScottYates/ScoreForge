@@ -76,7 +76,7 @@ export function noticeBlock(manifest) {
     '## Recorded-instrument samples',
     '',
     '`pack/` is built by `tools/make-pack.mjs` from the libraries below. The block',
-    'between these two markers is generated from `pack/manifest.json` — edit the',
+    'between these two markers is generated from `pack/manifest.json`; edit the',
     '`SOURCES` table in `tools/make-pack.mjs` and rebuild, never this file.',
     '',
     '| Samples | By | Licence | Instruments |',

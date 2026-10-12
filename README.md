@@ -11,7 +11,7 @@ optical music recognition and hands back a score you can edit, transpose and
 export like any other. It runs on the CPU, so there is no graphics card
 requirement.
 
-Every part plays recorded samples by default — real FreePats instruments,
+Every part plays recorded samples by default: real FreePats instruments,
 fetched from `pack/` when the page is served over http. `index.html` is the
 build output: 1.7 MB with the notation engine, MP3 encoder, zip reader and 22
 modelled instruments inlined, so it also runs from `file://`, where there is no
@@ -86,7 +86,7 @@ each PDF page, builds up to four renderings of the page (as-is, contrast
 lifted, deskewed, and both), reads each one, and keeps whichever produced the
 most notes. Renderings that come out byte-identical are read once: on a
 straight page the deskew step is a no-op, so such a page costs two inference
-passes, not four — a tilted photo still gets all four. The recognition models
+passes instead of four. A tilted photo still gets all four. The recognition models
 are also loaded in the background when the service starts
 (`SCOREFORGE_OMR_WARM=0` turns that off), so the first scan no longer pays
 for the model load on top of its own reading.
@@ -100,8 +100,8 @@ in a queue instead: the panel says which place it is in and, once anything has
 been read on this machine, roughly how long that will be. Cancelling a scan that
 has not started takes it out of the queue at once and costs nothing.
 `SCOREFORGE_OMR_QUEUE` sets how many may wait before the service asks new
-submissions to come back later — 8 by default, since each waiting scan is held
-in memory, and `0` removes the limit.
+submissions to come back later. The default is 8, since each waiting scan is
+held in memory; `0` removes the limit.
 
 ### What it gets wrong
 
@@ -125,42 +125,41 @@ A fourth condition, `--degrade book`, measures the hardest common case: a
 phone photo of a spiral songbook, with page curl into the binding, a binding
 shadow, mild perspective, highlighter bands over the music and warm uneven
 light. It is part of the default run, so the next `--write` adds its row
-here. If its numbers disappoint, that is the measurement doing its job — the
-fix is a better photo (flatten the page, fill the frame, straight on) far
-more often than a better engine setting.
+here. Low numbers in that condition usually mean the photo needs improving
+(flatten the page, fill the frame, shoot straight on), not the engine
+settings.
 
 The page fetches those numbers from the service and shows them in the
 Transcription panel.
 
 The fixtures are engraved music, some of them synthetically degraded. Handwriting,
 curved book pages, very low contrast and dense polyphony are not in the set and
-are harder. Read the result against your scan rather than trusting it.
+are harder. Check the result against your scan.
 
 The time signature is taken from whatever bar lines the recogniser can see, so a
 page engraved without interior barlines can come back as one long bar instead of
 4/4. Durations are unaffected.
 
-Triplets are the engine's one systematic rhythm error, and the service repairs
-the half of it that arithmetic can prove. Engravers print the "3" over a
-passage's first group and trust the reader for the rest; the engine does the
-same, reads the unmarked groups as straight notes, and every such bar comes
-back half again too long -- a Moonlight-sonata page came back with nearly every
-pitch right and every bar overfull. After recognition, bars whose overflow is
-accounted for EXACTLY by whole groups of three equal unmarked notes get those
-groups converted to triplets; bars whose overflow has no exact 3:2 explanation
-are left alone and named in the transcription report, because shrinking an
-error is not fixing it. On that Moonlight page this repairs 10 of the 18
+Triplets are the engine's main systematic rhythm error, and the service
+repairs the part of it that arithmetic can prove. Engravers print the "3" over
+a passage's first group only; the engine reads the unmarked groups as straight
+notes, so every such bar comes back half again too long. A Moonlight-sonata
+page came back with nearly every pitch right and every bar overfull. After
+recognition, bars whose overflow is accounted for exactly by whole groups of
+three equal unmarked notes get those groups converted to triplets. Bars whose
+overflow has no exact 3:2 explanation are left unchanged and named in the
+transcription report. On that Moonlight page this repairs 10 of the 18
 overfull bars; the other 8 are voice-assignment misreads the engine itself
 would have to get right. `backend/triplets.py`;
 `node tools/check-omr-triplets.mjs` exercises the contract without the engine.
 
-Scans also carry no tempo -- the notes engine ignores words -- so every scan
-used to play at the app's default, which made that same "Adagio sostenuto."
-page run at double speed. The service now OCRs the top of the page with the
-text engine homr already uses for titles, reads a printed metronome mark
-(which wins outright, within the range a metronome can plausibly print) or a
-tempo term (longest match, against a table of conventional values), and
-writes the result into the MusicXML together with the matched words, so the
+Scans also carry no tempo, because the notes engine ignores words, so every
+scan used to play at the app's default. That made the same "Adagio
+sostenuto." page run at double speed. The service now OCRs the top of the
+page with the text engine homr already uses for titles, reads a printed
+metronome mark (which takes priority, within the 30-220 range) or a tempo
+term (longest match against a table of conventional values), and writes the
+result into the MusicXML together with the matched words, so the
 Transcription panel can say where the tempo came from. A page with no tempo
 text plays as before, and a document that already declares a tempo is never
 overwritten. `backend/tempo_text.py`; `node tools/check-omr-tempo.mjs` covers
@@ -172,18 +171,17 @@ There are two kinds, and both are in the same per-part list: the recordings
 first, then the modelled instruments under groups labelled *Synthesised*.
 
 **Which one a part gets.** A recording, always. A part's MusicXML instrument
-name, its MIDI program, or — when the file says neither — the default all lead
+name, its MIDI program, or (when the file says neither) the default all lead
 to a recorded instrument (`src/js/audio/gm.js`; the default, the upright piano,
 is `DEFAULT_INSTRUMENT` in `instruments.js`). All 128 General MIDI programs land
-on one. The pack has no recording of some families — bowed strings, brass,
-flute, choir, the tuned mallets, harpsichord — and those go to the nearest
+on one. The pack has no recording of some families (bowed strings, brass,
+flute, choir, the tuned mallets, harpsichord); those go to the nearest
 recording rather than to the model: synth strings for a violin, the recorder
-for a flute. Vocal parts — a part named Voice, Choir or Soprano, or the GM
-choir programs — go to the recorded upright piano, what a sung line is
-rehearsed against, never to the "Synth Pad, Choir" bank: that bank is a
-recording *of a synthesiser*, and a vocal score defaulting to it sounds like a
-synthesiser however well the sampler plays it. The substitutions are listed
-once, as `GAPS` in `gm.js`.
+for a flute. Vocal parts (a part named Voice, Choir or Soprano, or the GM
+choir programs) go to the recorded upright piano, the instrument a sung line
+is usually rehearsed against. They never default to the "Synth Pad, Choir"
+bank, which is a recording of a synthesiser and sounds like one. The
+substitutions are listed once, as `GAPS` in `gm.js`.
 
 A modelled instrument is reached in two ways only: you pick one, or a recorded
 instrument's pack cannot be had and it plays its own modelled `fallback`.
@@ -209,7 +207,7 @@ connection, and the whole app still fits in one file.
 **Recorded** (50 instruments, a `pack/` directory of ~268 MB). Real sampled
 instruments, in six picker groups: piano, organ, plucked & struck, guitar & bass,
 winds & reed, and synth. Every file is its source WAV re-encoded and nothing
-else — no trim, no normalisation, no truncation.
+else: no trim, no normalisation, no truncation.
 
 Every one of them is a [FreePats][freepats] bank. Forty-nine are CC0; the FSS
 steel-string acoustic guitar is GPL-3.0-or-later with the FreePats sound-sample
@@ -217,18 +215,17 @@ exception, so that one pack's terms are reproduced in NOTICE.md and in the app
 rather than being averaged into a blanket "FreePats is CC0" that would be false
 for it.
 
-Their filenames carry no pitch — they are `1_01.wav` and so on — so the builder
+Their filenames carry no pitch (they are `1_01.wav` and so on), so the builder
 reads each bank's own SFZ for the key map, `pitch_keycenter`, `tune` and
 author-chosen loop points rather than guessing from names.
 `tools/fetch-freepats.mjs` fetches and extracts the banks;
 `tools/freepats-banks.mjs` is the table of which bank is which instrument;
 `tools/list-recorded.mjs` reports what each one actually contains.
 
-Some banks are sampled on every key they cover and some are not — a key with no
-take of its own plays the nearest one, shifted, so no key is ever silent, but
-**how far** that shift gets varies a lot and is worth knowing before you reach
-for an instrument. `node tools/list-recorded.mjs` prints the worst shift per
-bank. Two extremes: the jaw harp is sampled on all 48 of its keys and never
+Some banks are sampled on every key they cover and some are not. A key with
+no take of its own plays the nearest one, shifted, so no key is ever silent,
+but the size of that shift varies a lot between banks.
+`node tools/list-recorded.mjs` prints the worst shift per bank. Two extremes: the jaw harp is sampled on all 48 of its keys and never
 shifts at all, while the button accordion claims the whole MIDI range but has 16
 real takes, so its extremes are transposed by nearly four octaves.
 
@@ -244,18 +241,18 @@ passing a synthesised file off as the recording. Over http the backend serves
 compressed form, in the background from start-up. Nothing waits for it to
 finish: the instruments are known as soon as the few-kilobyte manifest arrives,
 and a piece played before the download is done fetches its own keys first, at
-high priority, while the background download stands aside. The decoded PCM is not: that much MP3 is several
+high priority, while the background download pauses. The decoded PCM is not kept whole: that much MP3 is several
 gigabytes of 32-bit float, which no browser tab can be asked to hold before
 playing the first note. So a pack's PCM is decoded the first time an instrument
-that needs it is selected — only the keys the piece actually uses — and the
+that needs it is selected, and only the keys the piece actually uses. The
 decoded cache keeps a 1 GB budget, dropping least-recently-used takes. An
 instrument with a note currently sounding is never dropped. Picking a single very
 large instrument may take the cache over the budget rather than refuse to play it;
 `node tools/check-decode-budget.mjs` measures that this actually happens.
 
 Rebuild the pack with `npm run pack` (see [Development](#development)). The
-builder does nothing to the recordings — no trim, no normalisation, no marker,
-no truncation — so three things are worth knowing before changing it:
+builder does nothing to the recordings (no trim, no normalisation, no marker,
+no truncation). Before changing it, know these:
 
 - **Every file is its source WAV, re-encoded.** Nothing is written into the audio
   that the FreePats banks did not contain.
@@ -263,16 +260,16 @@ no truncation — so three things are worth knowing before changing it:
   compares it against the WAV it came from, and fails if a take's level, length,
   channel count or stereo width has moved.
 - **Chrome does not strip LAME's encoder delay.** An encoded note arrives about
-  1105 samples (25 ms) late — and 1524 for stereo at 96 kbps, so it is not a
+  1105 samples (25 ms) late, and 1524 for stereo at 96 kbps, so it is not a
   constant. The pack therefore prepends nothing at all; the sampler finds the
   first sound in each decoded buffer at decode time and starts there, which
   absorbs the encoder delay and the recording's own leading silence together.
   `node tools/check-codec-delay.mjs` measures the delay.
-- **The recordings are not recorded at comparable levels** — the piano sits 30 dB
+- **The recordings are not recorded at comparable levels.** The piano sits 30 dB
   under the tubular bells. Each take carries a gain in the manifest that puts its
-  family at a common peak, and the sampler applies it at playback. That is the
-  whole of the mix balance: it is a number, not an edit to the recording.
-- **Keeping the takes in full costs pack size.** It is about a fifth more than
+  family at a common peak, and the sampler applies it at playback; the audio
+  itself is not edited.
+- **Keeping the takes in full costs pack size**, about a fifth more than
   truncating them to 4 s did. `node tools/make-pack.mjs --bitrate 128` trades
   quality back for size without touching anything else.
 
@@ -285,10 +282,9 @@ See [Python](#python) below for the version this needs and what the installer
 does about it.
 
 Node is needed only to build the single file, and any Node from 18 works. The
-browser-driven checks (`npm test`, `npm run test:suites`) additionally need
-Node 22, because the harness talks to Chrome over the global `WebSocket` — if you
-are on 18, the build succeeds and the tests explain themselves rather than
-throwing.
+browser-driven checks (`npm test`, `npm run test:suites`) also need
+Node 22, because the harness talks to Chrome over the global `WebSocket`. On
+Node 18 the build succeeds and the tests print why they cannot run.
 
 ```bash
 git clone https://github.com/ScottYates/ScoreForge.git
@@ -304,7 +300,7 @@ sudo ./deploy/install.sh
 ```
 
 `release.sh` checks Node is new enough, confirms `index.html` actually appeared
-before handing over to the installer, and runs npm as you — only the installer is
+before handing over to the installer, and runs npm as you. Only the installer is
 escalated with sudo, so `node_modules` never ends up owned by root.
 
 | Override | Effect |
@@ -315,7 +311,7 @@ escalated with sudo, so `node_modules` never ends up owned by root.
 
 Run either script as a program, not with `source`. They create users, write under
 `/opt` and drive systemd, so sourcing one would do all of that inside your
-interactive shell and close it on the first error — both refuse if you try.
+interactive shell and close it on the first error. Both refuse if you try.
 
 That installs to `/opt/scoreforge`, creates an unprivileged `scoreforge` system
 user, installs the Python dependencies, downloads the ONNX weights, and starts
@@ -327,15 +323,15 @@ systemctl status scoreforge scoreforge-web
 curl -s http://127.0.0.1:8000/api/health
 ```
 
-The installer finishes by transcribing a fixture through the running backend and
-printing the note count, so a successful run means recognition was actually
+The installer finishes by transcribing a fixture through the running backend
+and printing the note count, so a successful run means recognition was
 exercised, not just imported.
 
 Then open <http://127.0.0.1:8000/>.
 
 ### Python
 
-Needs Python 3.12 to 3.15 — `requirements.txt` pins numpy 2.5.3, which requires
+Needs Python 3.12 to 3.15: `requirements.txt` pins numpy 2.5.3, which requires
 3.12 or newer.
 
 **The installer does not change the Python your machine already has.** It never
@@ -345,11 +341,11 @@ invokes the system package manager, writes nothing to `/usr/bin` or
 1. Use an interpreter already on `PATH` if one is in range. If several are, the
    versions it skipped are listed with the reason.
 2. Otherwise fetch a private one under `/opt/python`, along with `uv` itself if
-   needed — also under `/opt/python`, with profile editing switched off.
+   needed, also under `/opt/python`, with profile editing switched off.
 3. Point it somewhere else yourself with `PYTHON=/path/to/python3.13`.
 
 The interpreter that ends up being used is printed at the end, and so is the
-machine's own `python3` — re-read after the install and compared with what it
+machine's own `python3`, re-read after the install and compared with what it
 was before. If it moved, the install fails.
 
 Two switches, if you would rather it touched nothing:
@@ -362,8 +358,8 @@ sudo SKIP_WEB=1 ./deploy/install.sh             # backend only, no page service
 The install does **not** transcribe a test score by default. That check runs CPU
 inference, which is minutes per fixture, and it makes an install that has
 nothing else to do take that long. It is also the only part of the install that
-proves homr can actually *read* a score rather than merely import — the health
-check covers the rest — so it is skipped rather than deleted:
+proves homr can actually read a score rather than merely import (the health
+check covers the rest), so it is skipped by default rather than removed:
 
 ```bash
 sudo SKIP_SMOKE=0 ./deploy/install.sh   # transcribe a fixture end to end
@@ -374,7 +370,7 @@ Worth doing on a first install on a new machine, and after changing anything in
 so a skipped check is never silent.
 
 `deploy/release.sh` is also the upgrade path: pull, rebuild, install, in one
-step. Or run `deploy/install.sh` on its own — it leaves
+step. Or run `deploy/install.sh` on its own; it leaves
 `/etc/scoreforge/scoreforge.env` alone (backing it up to `.bak`).
 
 ### The two services
@@ -392,8 +388,9 @@ journalctl -u scoreforge-web -f
 
 The page does not depend on the backend being up. MusicXML, MuseScore and MIDI
 are read in the browser either way, and a scan with no backend behind it is kept
-as a reference image instead of being transcribed — so the web service is not
-ordered after `scoreforge.service`, and it stays up when the backend is down.
+as a reference image instead of being transcribed. The web service is therefore
+not ordered after `scoreforge.service`, and it stays up when the backend is
+down.
 
 Only `index.html` is served. The page lives in `/opt/scoreforge/www`, not in
 `/opt/scoreforge`, so the backend source and the test fixtures are not reachable
@@ -428,9 +425,8 @@ systemctl restart scoreforge scoreforge-web
 ### Serving the page somewhere else entirely
 
 The installer already runs `scoreforge-web.service`, which is a plain static
-file server on `SCOREFORGE_WEB_PORT`. To serve it yourself instead — behind
-nginx, say — stop that unit and point the page at the backend with a query
-parameter:
+file server on `SCOREFORGE_WEB_PORT`. To serve it yourself instead (behind nginx, say), stop that unit and point
+the page at the backend with a query parameter:
 
 ```
 http://127.0.0.1:3000/?api=http://127.0.0.1:9100
@@ -445,8 +441,8 @@ server and open it from disk.
 
 ### Behind a reverse proxy
 
-The service binds loopback and has no authentication. That is deliberate, and it
-is why nothing should be pointed at it directly. To reach it over a network, put
+The service binds loopback and has no authentication by design, so nothing
+should be pointed at it directly. To reach it over a network, put
 TLS and an access check in front:
 
 ```nginx
@@ -510,7 +506,7 @@ Two things are easy to get backwards here. `SCOREFORGE_ALLOWED_ORIGINS` takes th
 **page's** origin, because that is what the browser sends; `SCOREFORGE_ALLOWED_HOSTS`
 takes the **API's** hostname, because that is the Host header nginx forwards. Then
 open the page with `?api=https://api.music.example.com` on every URL you hand
-out — it is not remembered between loads.
+out; it is not remembered between loads.
 
 ### What the service exposes
 
@@ -522,11 +518,11 @@ rebind cannot either.
 
 ## Development
 
-`CONTRACT.md` is the interface contract — the score model, the instrument
-contract, the parser rules, the backend rules. It is durable and does not change
-with a session. `docs/HANDOFF.md` is the opposite: state of the tree, the
-landmines, and what is still unproven. Read that one first if you are picking
-this up cold.
+`CONTRACT.md` is the interface contract: the score model, the instrument
+contract, the parser rules, the backend rules. It changes rarely.
+`docs/HANDOFF.md` is the opposite: the state of the tree, known traps, and
+what has not been verified yet. Read that one first if you are new to the
+project.
 
 ```bash
 npm install
@@ -614,7 +610,7 @@ docs/screenshots/
 
 ### Never delete anything you did not create
 
-Two rules, both enforced rather than remembered:
+Two rules, both enforced by code:
 
 - **Never delete anything this repository did not create.**
 - **Never delete anything outside the working folder.**
@@ -624,23 +620,24 @@ allowed to call a delete API, and each refuses a directory that does not carry a
 `.scoreforge-owned` marker written at the moment it was created, or that resolves
 outside the repository. `node tools/check-no-unguarded-deletes.mjs` scans
 `tools/` and `backend/` for eight delete call shapes across JS, Python and
-PowerShell, then exercises both guards' refusals for real — outside the workspace,
+PowerShell, then exercises both guards' refusals for real: outside the workspace,
 the workspace itself, a shared-prefix sibling, an unmarked directory, a file
-outside any claimed tree — because a guard that has never been seen to refuse is
-only known to exist.
+outside any claimed tree. A guard that has never been seen to refuse has not
+been tested.
 
 The scan covers `tools/` and `backend/`, not `deploy/`. `install.sh` deletes its
 own `$PREFIX/.venv`, which it created on an earlier run and which is not
-recoverable in place if the interpreter behind it has moved — a real delete, and
-a legitimate one, but it is a bash `rm -rf` outside the eight shapes the scan
-looks for. It is the one place in the repository that deletes without asking the
-guard, and it is called out here rather than left to look covered.
+recoverable in place if the interpreter behind it has moved. That delete is
+legitimate, but it is a bash `rm -rf` outside the eight shapes the scan looks
+for. It is the one place in the repository that deletes without asking the
+guard, so it is documented here.
 
-This is not ceremony. The pack builder once cleared its own output directory,
-which also held a hand-written page; the browser harness kept its profile in a
-temp directory and deleted it there; the OMR engine used `tempfile` for scratch on
-every request. All three were outside the working folder, or wider than what the
-tool had made, and none of them errored.
+These rules exist because all three of the following happened: the pack
+builder once cleared its own output directory,
+which also held a hand-written page; the browser harness kept its profile in
+a temp directory and deleted it there; and the OMR engine used `tempfile` for
+scratch on every request. All three deleted outside the working folder, or
+wider than what the tool had made, without erroring.
 
 ### Testing
 
@@ -672,7 +669,7 @@ failure rather than a pass.
 a note makes sound, that its attack lands at the time it was scheduled, that a
 pitch with no sample falls back instead of going quiet, that a release scheduled
 *ahead* of the note still lets it sustain, and that an unloaded pack is refused
-rather than returning a voice that cannot sound. It is mutation-checked —
+rather than returning a voice that cannot sound. It is mutation-checked:
 deleting the `src.start()` in `noteOn` turns it red, and restoring the old
 `src.loop = false` on release turns it red. It also runs `loadPack()` for real
 against a stubbed fetch serving WAV bytes, and judges it by the request log: a
@@ -707,28 +704,28 @@ is still running, and reads back which instrument each channel actually built;
 then exports and reads the dialog's *Instruments* line. From `file://` it checks
 the fallback instead: modelled, audible, announced once, and an export that
 completes and says so. Every module suite passed while the app played the
-synthesiser for every part — the sampler's roster table arrived empty — and
+synthesiser for every part (the sampler's roster table arrived empty), and
 this is the check that would have shown it.
 
 `check-transport.mjs` presses the real transport buttons against the built page
 and reads back what a person would see: the time readout, the scrub bar's width,
-the play icon, and the cursor's actual place on the page. It encodes one rule —
-*sitting at the start with nothing playing looks like a fresh load, so there is
-no cursor* — and applies it to every state the buttons can reach. The module
+the play icon, and the cursor's actual place on the page. It encodes one rule
+(sitting at the start with nothing playing looks like a fresh load, so there is
+no cursor) and applies it to every state the buttons can reach. The module
 suites stub the audio engine and cannot see any of this; it is what found the
 piece parking at the last bar after it finished, and Stop leaving a cursor on
 the first note that was not there before you pressed anything.
 
 `check-sampler-audio.mjs` serves the repository over http, loads the actual
 268 MB pack, renders every instrument offline and reports its peak, how late its
-attack lands and whether a held note outlives its sample — then renders the same
-chord through the app's own `renderToBuffer` export path. The fast suite uses
+attack lands and whether a held note outlives its sample. It then renders the
+same chord through the app's own `renderToBuffer` export path. The fast suite uses
 synthetic buffers and cannot tell you whether the encoded pack is audible; this
 can, and it is what found the two facts above about codec delay and levels.
 
 `check-recording-fidelity.mjs` asks the other question: is the pack still the
 instrument that was recorded? It decodes shipped takes and measures what is in
-them against what the manifest says they should contain — the stereo width of
+them against what the manifest says they should contain: the stereo width of
 the recording it was cut from, and the pitch the take was filed under. A player
 check cannot catch that class of fault, because folding the stereo, sharing one
 rate between two takes recorded a tone apart, or looping a piano all leave the
@@ -737,8 +734,8 @@ sampler working perfectly on samples that no longer sound like themselves.
 `drive-omr` needs the backend running (`python backend/app.py`) and drives the
 built page in a headless browser. It watches the progress card the way a person
 would, saves the MusicXML and reads the bytes back, and on abort checks what the
-*backend* says the job became — a UI that merely stopped watching scores the same
-as one that actually freed the CPU.
+backend says the job became, to confirm the job was actually cancelled rather
+than the UI merely no longer watching it.
 
 The recogniser suite is separate because it needs the Python environment. It
 rejects any fixture whose declared notes disagree with what was rendered, so a
@@ -766,9 +763,10 @@ Installed into `backend/.venv`, not bundled into the page:
 | opencv-python-headless 5.0 | Apache-2.0 |
 | pypdfium2 5.14 | Apache-2.0 / PDFium (BSD-3) |
 
-homr is AGPL-3.0. That is fine for a service you run on your own machine. If you
-expose the backend to other users over a network, the AGPL terms reach it. The
-page itself stays MIT/LGPL either way, since it never links against homr.
+homr is AGPL-3.0. That is fine for a service you run on your own machine. If
+you expose the backend to other users over a network, the AGPL terms apply to
+it. The page itself stays MIT/LGPL either way, since it never links against
+homr.
 
 Music glyphs are vector paths from VexFlow's built-in font data, so no webfont
 is fetched at runtime.
@@ -786,9 +784,9 @@ is fetched at runtime.
   fallback, which the page and the export both say.
 - The pack has no recorded bowed strings, brass, flute, choir, tuned mallets or
   harpsichord. Those parts play the nearest recording (`GAPS` in `gm.js`), which
-  for strings and brass is a synthesiser that was recorded, not the instrument.
-  Vocal parts play the recorded upright instead, like a rehearsal; pick the
-  synth choir pad per part if a pad is what you want.
+  for strings and brass is a recording of a synthesiser, not of the instrument.
+  Vocal parts play the recorded upright piano; pick the synth choir pad per
+  part if a pad is what you want.
 - The recorded pack has one dynamic layer per instrument, so dynamics come from
   the sampler's gain curve rather than from velocity-layered samples. The
   upright piano is the exception: its bank ships two hammers per key and
@@ -801,8 +799,8 @@ is fetched at runtime.
   are also kept to 10 s rather than the 4 s the other families get, because an
   A2 on that bank is still audible at four.
 - The two FM pianos are labelled *synthesised* and sit with the synths. FreePats
-  calls them "FM Synthesized Piano"; calling them recorded put a keyboard that
-  was never played next to the ones that were.
+  calls them "FM Synthesized Piano", so listing them as recordings would be
+  misleading.
 - A key with no recording of its own is played by resampling its nearest
   neighbour, up to three semitones. Marimba and xylophone have gaps wide enough
   to need the full three, so those keys are a resample rather than a real take.
