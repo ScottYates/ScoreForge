@@ -27,8 +27,10 @@ from typing import List, Optional
 import cv2
 import numpy as np
 
+import audiveris as audiveris_sidecar
 from guard import owned_tree, remove_owned_file, ROOT
 from preprocess import Page, Variant, build_variants, encode_png, trim_border
+from staffcount import staff_check
 from tempo_text import detect_tempo, inject_tempo
 from triplets import count_exact_bars, enforce_meter, merge_consensus, repair_triplets
 
@@ -466,6 +468,39 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
         if text and (best is None or count > best[0]):
             best = (count, -index, text, log_lines, variant)
 
+    # Second engine, where one is installed: Audiveris reads the straightened
+    # rendering as a sidecar process. Its failure modes are decorrelated from
+    # homr's (classical segmentation vs UNet+transformer), which is exactly
+    # what the consensus merge below wants in a candidate -- and it carries
+    # lyrics, which homr drops. It competes for the win by the same note-count
+    # rule as the renderings, LAST, so homr keeps every tie; and because it
+    # runs before the failure gate, it can rescue a page homr lost outright.
+    if audiveris_sidecar.available():
+        report(0.90, "Asking Audiveris for a second reading")
+        straight = next((v for v in variants if v.name == "deskewed"), variants[0])
+        try:
+            with owned_tree(
+                ROOT / ".tmp" / "audiveris-work",
+                "Scratch for one Audiveris sidecar pass.",
+            ) as workdir:
+                a_text = audiveris_sidecar.transcribe(straight.image, Path(workdir))
+            a_error = None
+        except Exception as exc:
+            a_text, a_error = None, str(exc).strip() or type(exc).__name__
+        a_count = _note_count(a_text)
+        a_exact, a_bars = count_exact_bars(a_text) if a_text else (0, 0)
+        report(0.94, f"audiveris: {a_error}" if a_error
+               else f"audiveris read {a_count} notes")
+        attempt = {"variant": "audiveris", "notes": a_count,
+                   "exactBars": a_exact, "bars": a_bars, "steps": {}, "log": []}
+        if a_error:
+            attempt["error"] = a_error
+        attempts.append(attempt)
+        readings.append(("audiveris", a_text))
+        if a_text and a_count > 0 and (best is None or a_count > best[0]):
+            best = (a_count, -len(variants), a_text, [],
+                    Variant("audiveris", straight.image, {"steps": {}}))
+
     # A reading with zero pitched notes is not music: a page of lyrics and
     # highlighter can come back as well-formed MusicXML full of rests, and
     # that used to ship to the app as a SUCCESSFUL, silently empty score.
@@ -526,6 +561,15 @@ def transcribe_page(page: Page, mode: str = "auto", debug: bool = False,
     if not xml_text.lstrip().startswith("<?xml"):
         xml_text = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_text
     stats = summarise_musicxml(xml_text)
+    # Second opinion on the page's layout: the engine's own staff detector is
+    # the thing that fails on dense pages (the eleven-stave vocal book came
+    # back as ONE melody, as a success), so an independent classical count
+    # checks whether the transcription accounts for the staves the page
+    # visibly carries. Heuristic, so it only flags strong mismatches.
+    try:
+        stats["staffCheck"] = staff_check(chosen.image, xml_text)
+    except Exception as exc:  # the audit must never cost the page
+        stats["staffCheck"] = {"error": f"{type(exc).__name__}: {exc}"}
     stats["consensus"] = consensus_report.as_dict()
     stats["tripletRepair"] = triplet_report.as_dict()
     stats["meterRepair"] = meter_report.as_dict()

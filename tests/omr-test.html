@@ -500,6 +500,21 @@ try {
     many.length === 1 && many[0].text.includes('7 bars (1, 2, 3, 4, …)'),
     JSON.stringify(many));
 
+  // The layout audit: whole staves going unread is the loudest thing the
+  // panel can say, so a flagged mismatch leads the list, with both numbers.
+  const audited = describeRepairs({ stats: {
+    staffCheck: { estimated: 11, used: 3, flagged: true },
+    tripletRepair: { measuresSeen: 3, measuresOverfull: 1, measuresRepaired: 1,
+                     notesConverted: 3, measuresUnrepairable: [] },
+  } });
+  ok('a flagged staff mismatch leads the repair list, with both numbers',
+    audited.length === 2 && audited[0].check === true
+      && audited[0].text.includes('11 staves') && audited[0].text.includes('3'),
+    JSON.stringify(audited.map((l) => l.text.slice(0, 50))));
+  eq('an unflagged staff check says nothing', describeRepairs({ stats: {
+    staffCheck: { estimated: 8, used: 5, flagged: false },
+  } }).length, 0);
+
   window.fetch = realFetch;
 } catch (e) {
   fail++;

@@ -204,6 +204,28 @@ if (omrTempo.code !== 0) {
   failures.push('omr tempo: ' + (omrTempo.out.trim().split('\n').pop() || omrTempo.err.trim()));
 }
 
+// Page conditioning: highlighter marks are lifted to white without touching
+// ink -- not even the ink UNDER a mark -- and straighten() uses the optional
+// docuwarp dewarper when present, falls back to plain deskew when absent,
+// and survives a dewarper crash. Tested with a fake docuwarp, so it runs
+// everywhere.
+const omrPreprocess = await run(process.execPath, [path.join(root, 'tools/check-omr-preprocess.mjs')],
+  { allowFail: true });
+console.log(omrPreprocess.out.trim());
+if (omrPreprocess.code !== 0) {
+  failures.push('omr preprocess: ' + (omrPreprocess.out.trim().split('\n').pop() || omrPreprocess.err.trim()));
+}
+
+// The layout audit: an independent classical staff count against what the
+// transcription used, flagged only on strong mismatches -- the tripwire for
+// the eleven-stave page that shipped as one melody.
+const omrStaffcount = await run(process.execPath, [path.join(root, 'tools/check-omr-staffcount.mjs')],
+  { allowFail: true });
+console.log(omrStaffcount.out.trim());
+if (omrStaffcount.code !== 0) {
+  failures.push('omr staffcount: ' + (omrStaffcount.out.trim().split('\n').pop() || omrStaffcount.err.trim()));
+}
+
 // The variant loop's failure policy: one crashing rendering must not take
 // the page down (homr raises outright on "no staffs", which is what a tilted
 // photo's ORIGINAL rendering does -- the deskewed one must still run), and a

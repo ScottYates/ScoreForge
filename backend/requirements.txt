@@ -13,6 +13,12 @@ homr==0.7.0                 # AGPL-3.0. ONNX Runtime based. See README licence n
 onnxruntime==1.30.0         # CPU execution provider only
 rapidocr==3.9.2             # title detection inside homr
 
+# --- page flattening ---------------------------------------------------------
+# UVDoc document dewarping, ONNX on the CPU, model included in the wheel.
+# Spiral-bound and hand-held pages carry true 3D curl that rotation-only
+# deskew cannot fix, and curl breaks staff detection before reading begins.
+docuwarp[cpu]==1.0.2
+
 # --- image handling ----------------------------------------------------------
 # homr pins opencv-python < 5.0.0 but its own code imports cv2.typing, which
 # only exists in OpenCV 5. Installing 5.0 satisfies the import; pip emits a

@@ -31,6 +31,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "fixtures"
+# Real photographed pages with hand-corrected ground truth. No public dataset
+# of genuine phone photos exists -- every published "camera" set is a
+# synthetic distortion -- so pages added here are the only measurements that
+# speak for how the pipeline does on this user's actual books.
+PHOTOS = FIXTURES / "photos"
 
 sys.path.insert(0, str(ROOT / "backend"))
 
@@ -400,6 +405,85 @@ def run_piece(piece: str, mode: str, tmp: Path) -> dict:
     return result
 
 
+def _by_staff(notes: list[dict]) -> list[list[dict]]:
+    """Group a flat note list into staves, in order of first appearance."""
+    order: list[tuple] = []
+    groups: dict[tuple, list[dict]] = {}
+    for n in notes:
+        key = (n.get("part", "P1"), n.get("staff", 1))
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append({"midi": n["midi"], "quarters": n["quarters"]})
+    return [groups[k] for k in order]
+
+
+def discover_photos() -> list[tuple[str, Path, Path]]:
+    """(name, image, ground truth) for every pair under fixtures/photos/."""
+    if not PHOTOS.is_dir():
+        return []
+    out = []
+    for img in sorted(PHOTOS.iterdir()):
+        if img.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
+            continue
+        gt = PHOTOS / f"{img.stem}.gt.musicxml"
+        if gt.exists():
+            out.append((img.stem, img, gt))
+    return out
+
+
+def run_photo(name: str, img_path: Path, gt_path: Path, tmp: Path) -> dict:
+    """Score one REAL photographed page through the full service pipeline.
+
+    Unlike run_piece, which measures the raw engine, this goes through
+    transcribe_page -- preprocessing variants, cross-reading consensus,
+    triplet repair, meter enforcement -- because the number that matters is
+    what a person actually receives, not what the engine read first.
+    """
+    import importlib.util
+
+    if importlib.util.find_spec("homr") is None:
+        found = _find_homr_python()
+        hint = ("try:  " + found[0] + " tools/score_omr.py --photos") if found else (
+            "no venv found here -- on the dev machine use backend\\.venv\\Scripts\\python.exe, "
+            "on an installed host /opt/scoreforge/.venv/bin/python")
+        raise SystemExit(
+            "score_omr: this interpreter has no homr installed; the measurement "
+            "needs the backend venv.\n  " + hint)
+
+    from omr_engine import transcribe_page
+    from preprocess import Page, decode_image
+
+    t0 = time.perf_counter()
+    try:
+        page = transcribe_page(Page(0, decode_image(img_path.read_bytes()), "image"))
+    except Exception as exc:
+        return {"piece": name, "mode": "real",
+                "error": str(exc) or type(exc).__name__,
+                "seconds": time.perf_counter() - t0}
+    elapsed = time.perf_counter() - t0
+
+    hyp_path = tmp / f"{name}.real.musicxml"
+    hyp_path.write_text(page.musicxml, encoding="utf-8")
+    gt_notes = read_musicxml_notes(gt_path)
+    hyp_notes = read_musicxml_notes(hyp_path)
+
+    # Both sides are grouped into staves by first appearance and paired in
+    # order. When the engine read fewer staves than the page carries, the
+    # unpaired ground-truth staves score as pure misses -- which is the
+    # honest accounting for "part of the page was not read".
+    gt_staves = _by_staff(gt_notes)
+    hyp_staves = _by_staff(hyp_notes)
+    gt = {"staves": [{"index": i + 1, "name": f"staff {i + 1}", "notes": s}
+                     for i, s in enumerate(gt_staves)]}
+    hyp = [{"midi": n["midi"], "quarters": n["quarters"], "staff": i + 1}
+           for i, s in enumerate(hyp_staves) for n in s]
+    result = score_staves(gt, hyp)
+    result.update({"piece": name, "mode": "real", "seconds": elapsed,
+                   "staffCheck": (page.stats or {}).get("staffCheck")})
+    return result
+
+
 def build_report(rows: list[dict]) -> dict:
     """Shape the results for /api/accuracy, with a headline number per condition."""
     by_mode: dict[str, dict] = {}
@@ -424,7 +508,8 @@ def build_report(rows: list[dict]) -> dict:
         modes[mode] = {
             "label": {"none": "printed score", "photo": "phone photo",
                       "scan": "photocopy scan",
-                      "book": "spiral songbook photo (curl, shadow, highlighter)"}[mode],
+                      "book": "spiral songbook photo (curl, shadow, highlighter)",
+                      "real": "your own photographed pages"}[mode],
             "fixtures": a["fixtures"],
             "notes": a["notes"],
             "tp": a["tp"], "fp": a["fp"], "fn": a["fn"],
@@ -454,6 +539,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("pieces", nargs="*", default=[])
     ap.add_argument("--degrade", default="none", choices=["none", "photo", "scan", "book"])
+    ap.add_argument("--photos", action="store_true",
+                    help="score only the real photographed pages in fixtures/photos/")
     ap.add_argument("--json", action="store_true", help="print the full report as JSON")
     ap.add_argument("--write", metavar="PATH",
                     help="write the JSON report to a file (used to publish /api/accuracy)")
@@ -463,9 +550,32 @@ def main() -> int:
     os.environ.setdefault("PYTHONWARNINGS", "ignore")
 
     modes = ["none", "photo", "scan", "book"] if args.pieces == [] and args.degrade == "none" else [args.degrade]
+    if args.photos:
+        modes = []
     rows: list[dict] = []
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
+        # Real photographed pages, when any exist: the full default sweep
+        # includes them, and --photos runs only them.
+        photo_set = discover_photos() if (args.photos or (args.pieces == [] and args.degrade == "none")) else []
+        if args.photos and not photo_set:
+            print("no photo fixtures found -- see fixtures/photos/README.md to add some")
+        for name, img, gt in photo_set:
+            r = run_photo(name, img, gt, tmp)
+            rows.append(r)
+            if r.get("error"):
+                print(f"{name:<8} [real ] ERROR {r['error']}")
+                continue
+            sc = r.get("staffCheck") or {}
+            scnote = (f"  staves {sc.get('used')}/{sc.get('estimated')}"
+                      if sc.get("flagged") else "")
+            print(
+                f"{name:<8} [real ] "
+                f"notes {r['ref_notes']:>3}->{r['hyp_notes']:<3} "
+                f"tp {r['tp']:>3} fp {r['fp']:>3} fn {r['fn']:>3}  "
+                f"P {r['precision']*100:5.1f}%  R {r['recall']*100:5.1f}%  F1 {r['f1']*100:5.1f}%  "
+                f"{r['seconds']:.1f}s{scnote}"
+            )
         for mode in modes:
             for piece in pieces:
                 r = run_piece(piece, mode, tmp)

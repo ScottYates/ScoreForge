@@ -67,6 +67,11 @@ oe.build_variants = lambda p, mode='auto': [
 ]
 # Tempo OCR is best-effort and already guarded; keep it out of the way here.
 oe._ocr_top_lines = lambda image: []
+# The Audiveris sidecar is absent by default; sections below swap in fakes.
+import types
+oe.audiveris_sidecar = types.SimpleNamespace(
+    available=lambda: False,
+    transcribe=lambda image, workdir: (_ for _ in ()).throw(RuntimeError('not installed')))
 
 script = {}
 def fake_run(variant, workdir, on_line=None):
@@ -121,6 +126,84 @@ try:
 except Exception as e:
     cases['zero_loses'] = {'variant': None, 'notes': None, 'raised': str(e)}
 
+# ----- the Audiveris sidecar's place in the loop ---------------------------
+XML_MORE = XML_NOTES.replace(
+    '</measure>',
+    '<note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><voice>1</voice></note></measure>')
+
+def sidecar(text=None, raise_msg=None, on=True):
+    def transcribe(image, workdir):
+        if raise_msg:
+            raise RuntimeError(raise_msg)
+        return text
+    oe.audiveris_sidecar = types.SimpleNamespace(available=lambda: on, transcribe=transcribe)
+
+# 5. No sidecar installed: the attempt list carries no audiveris row at all.
+sidecar(on=False)
+script = {'original': XML_RESTS, 'deskewed': XML_NOTES}
+r = oe.transcribe_page(page)
+cases['no_sidecar'] = {'variants': [a['variant'] for a in r.variants_tried],
+                       'staffCheckPresent': 'staffCheck' in r.stats}
+
+# 6. The sidecar reads MORE notes than every rendering: it wins the page.
+sidecar(text=XML_MORE)
+script = {'original': XML_RESTS, 'deskewed': XML_NOTES}
+r = oe.transcribe_page(page)
+cases['sidecar_wins'] = {'variant': r.variant, 'notes': r.stats.get('notes'),
+                         'decl': r.musicxml.lstrip().startswith('<?xml')}
+
+# 7. A tie on note count: homr keeps the win -- the sidecar competes LAST.
+sidecar(text=XML_NOTES)
+script = {'original': XML_RESTS, 'deskewed': XML_NOTES}
+r = oe.transcribe_page(page)
+cases['sidecar_tie'] = {'variant': r.variant}
+
+# 8. The sidecar crashes: recorded in its attempt, page still succeeds.
+sidecar(raise_msg='Audiveris exported no score (exit 1)')
+script = {'original': XML_RESTS, 'deskewed': XML_NOTES}
+r = oe.transcribe_page(page)
+aud = [a for a in r.variants_tried if a['variant'] == 'audiveris']
+cases['sidecar_crash'] = {'variant': r.variant,
+                          'error': aud[0].get('error') if aud else None}
+
+# 9. Every homr rendering crashes but the sidecar reads music: RESCUED.
+sidecar(text=XML_NOTES)
+script = {'original': Exception('No staffs found'), 'deskewed': Exception('No staffs found')}
+try:
+    r = oe.transcribe_page(page)
+    cases['sidecar_rescue'] = {'variant': r.variant, 'notes': r.stats.get('notes')}
+except Exception as e:
+    cases['sidecar_rescue'] = {'variant': None, 'raised': str(e)}
+
+# ----- the sidecar's export parsing ----------------------------------------
+# Audiveris writes <stem>.mxl (zipped MusicXML with a META-INF folder),
+# sometimes a bare .xml, nested in a folder named after the input; .omr
+# project files sit alongside and are not scores.
+import tempfile, zipfile
+from pathlib import Path as _P
+import audiveris as av
+
+with tempfile.TemporaryDirectory() as td:
+    out = _P(td) / 'out' / 'page'
+    out.mkdir(parents=True)
+    with zipfile.ZipFile(out / 'page.mxl', 'w') as z:
+        z.writestr('META-INF/container.xml', '<container/>')
+        z.writestr('page.xml', XML_NOTES)
+    (out / 'page.omr').write_bytes(b'not a score')
+    cases['export_mxl'] = {'found': (av._read_export(_P(td)) or '').find('<pitch>') >= 0}
+
+with tempfile.TemporaryDirectory() as td:
+    out = _P(td) / 'out'
+    out.mkdir(parents=True)
+    (out / 'page.xml').write_text(XML_NOTES, encoding='utf-8')
+    (out / 'notascore.xml').write_text('<settings/>', encoding='utf-8')
+    found = av._read_export(_P(td)) or ''
+    cases['export_xml'] = {'found': '<score-partwise' in found}
+
+with tempfile.TemporaryDirectory() as td:
+    (_P(td) / 'page.omr').write_bytes(b'junk')
+    cases['export_none'] = {'found': av._read_export(_P(td))}
+
 print(json.dumps(cases))
 `;
 
@@ -167,6 +250,31 @@ ok('a post-processed document still begins with the XML declaration',
 ok('a zero-note rendering loses to one that read music',
   c.zero_loses.variant === 'deskewed' && c.zero_loses.notes === 2,
   JSON.stringify(c.zero_loses));
+
+ok('with no sidecar installed, the attempt list is homr\'s alone',
+  Array.isArray(c.no_sidecar.variants) && !c.no_sidecar.variants.includes('audiveris'),
+  JSON.stringify(c.no_sidecar));
+ok('the layout audit lands in the stats', c.no_sidecar.staffCheckPresent === true);
+ok('a sidecar that reads more notes wins the page',
+  c.sidecar_wins.variant === 'audiveris' && c.sidecar_wins.notes === 3
+    && c.sidecar_wins.decl === true,
+  JSON.stringify(c.sidecar_wins));
+ok('a tie on note count stays with homr', c.sidecar_tie.variant === 'deskewed',
+  JSON.stringify(c.sidecar_tie));
+ok('a sidecar crash is recorded and costs nothing',
+  c.sidecar_crash.variant === 'deskewed'
+    && /exported no score/.test(c.sidecar_crash.error || ''),
+  JSON.stringify(c.sidecar_crash));
+ok('the sidecar rescues a page every rendering crashed on',
+  c.sidecar_rescue.variant === 'audiveris' && c.sidecar_rescue.notes === 2,
+  JSON.stringify(c.sidecar_rescue));
+
+ok('a compressed .mxl export is unzipped past its META-INF',
+  c.export_mxl.found === true, JSON.stringify(c.export_mxl));
+ok('a bare .xml export is found, and a non-score .xml is not mistaken for it',
+  c.export_xml.found === true, JSON.stringify(c.export_xml));
+ok('an export with no score in it is None, so the caller can say so',
+  c.export_none.found === null, JSON.stringify(c.export_none));
 
 console.log(`\n${failed ? 'omr errors FAILED' : 'omr errors OK'}`);
 process.exit(failed ? 1 : 0);

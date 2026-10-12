@@ -63,7 +63,7 @@ VENV="$PREFIX/.venv"
 # the install reported success. tools/check-installed-backend.mjs now holds the
 # list to the imports that actually exist, so a module cannot be added to
 # backend/ without being installed.
-BACKEND_FILES="app.py guard.py omr_engine.py preprocess.py tempo_text.py triplets.py requirements.txt"
+BACKEND_FILES="app.py audiveris.py guard.py omr_engine.py preprocess.py staffcount.py tempo_text.py triplets.py requirements.txt"
 # homr stores its ONNX weights inside its own installed package, so they live
 # inside $VENV and are destroyed by every rebuild below. This sits outside the
 # venv so they can be carried across it. Deliberately not under $VENV, and not
@@ -594,4 +594,11 @@ $smokeline
   journalctl -u scoreforge -f
 $apihint
 $(printf '\033[33m')The service binds loopback and has no authentication.$(printf '\033[0m')
+
+Optional second engine: install Audiveris (free, AGPL) for a cross-check
+reading with lyrics -- download a release from
+https://github.com/Audiveris/audiveris/releases (releases only; the
+audiveris.com/.net domains are unaffiliated), unpack it, and set
+SCOREFORGE_AUDIVERIS=/path/to/bin/Audiveris in $ETC_DIR/scoreforge.env,
+then: systemctl restart scoreforge
 MSG

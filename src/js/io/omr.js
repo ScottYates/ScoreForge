@@ -422,6 +422,19 @@ export function describeRepairs(page) {
   const s = page.stats || {};
   const out = [];
 
+  // The loudest thing the panel can say: whole staves went unread. An
+  // independent line count audits the engine's own staff detection, which is
+  // exactly what fails on dense pages -- flagged only on strong mismatches.
+  const sc = s.staffCheck || {};
+  if (sc.flagged) {
+    out.push({
+      text: `The page looks like about ${sc.estimated} staves, but the transcription`
+        + ` only accounts for ${sc.used} — part of the page was probably not read.`
+        + ' A straighter, flatter photo usually recovers the rest.',
+      check: true,
+    });
+  }
+
   const con = s.consensus || {};
   const swapped = con.barsSwapped || [];
   if (swapped.length) {

@@ -212,6 +212,98 @@ def denoise(img: np.ndarray) -> tuple[np.ndarray, dict]:
 
 
 # ---------------------------------------------------------------------------
+# Highlighter suppression
+# ---------------------------------------------------------------------------
+# Rehearsal copies come back covered in highlighter, and on the grayscale the
+# recogniser works from, a pink or yellow bar becomes a mid-gray smudge lying
+# across the very noteheads it was marking. The marks are the one thing on a
+# printed page that is both SATURATED and BRIGHT -- ink is dark, paper is
+# colorless -- so those pixels can be lifted to white without touching either.
+# Ink underneath a mark stays dark enough to miss the brightness gate, so the
+# notes the highlighter covered survive.
+_HL_MIN_SAT = 45          # paper photographs at S≈7; ink is colorless too
+_HL_MIN_VAL_FLOOR = 110   # never call a near-black pixel a highlighter mark
+_HL_VAL_VS_PAPER = 0.65   # mark-over-paper keeps most of the paper's brightness
+_HL_MIN_FRACTION = 0.003  # below this share of the page, nothing to clear
+
+
+def suppress_highlighter(img: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Lift highlighter marks to white, leaving ink and paper alone.
+
+    The brightness gate is relative to the page's own paper (the median V):
+    a dim phone photo's pink sits well below any fixed daylight threshold,
+    while the spiral binding and shadowed edges are saturated by sensor noise
+    but DARK -- the floor keeps them, and the ink under a mark, untouched.
+    """
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    _, s, v = cv2.split(hsv)
+    paper = float(np.median(v))
+    val_gate = max(_HL_MIN_VAL_FLOOR, paper * _HL_VAL_VS_PAPER)
+    mask = (s > _HL_MIN_SAT) & (v > val_gate)
+    fraction = float(mask.mean())
+    if fraction < _HL_MIN_FRACTION:
+        return img, {"highlighter": round(fraction, 4), "highlighterCleared": False}
+    out = img.copy()
+    out[mask] = (255, 255, 255)
+    return out, {"highlighter": round(fraction, 4), "highlighterCleared": True}
+
+
+# ---------------------------------------------------------------------------
+# Page flattening (dewarp when available, rotation always)
+# ---------------------------------------------------------------------------
+# A spiral-bound page has true 3D curl near the binding that no rotation can
+# fix, and the engine's own per-staff correction only helps AFTER staffs are
+# detected -- curl breaks the detection first. UVDoc (via the `docuwarp`
+# package, ONNX on the CPU, ~15 MB) unwarps the page as a grid. It is an
+# optional dependency: where it is not installed, straighten() is exactly the
+# old rotation-only deskew, so nothing regresses.
+_dewarper = None  # None = not tried yet; False = unavailable; else Unwarp
+
+
+def _get_dewarper():
+    global _dewarper
+    if _dewarper is None:
+        try:
+            from docuwarp.unwarp import Unwarp
+
+            _dewarper = Unwarp()
+        except Exception:
+            _dewarper = False
+    return _dewarper if _dewarper is not False else None
+
+
+def dewarp_available() -> bool:
+    return _get_dewarper() is not None
+
+
+def straighten(img: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Flatten page curl when the dewarper is installed, then level the page.
+
+    The residual deskew runs in both branches: UVDoc squares the page's
+    geometry but does not promise the staff lines end up horizontal.
+    """
+    uw = _get_dewarper()
+    if uw is None:
+        out, info = deskew(img)
+        return out, {"dewarped": False, **info}
+    try:
+        from PIL import Image
+
+        pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        result = uw.inference(pil)
+        arr = np.asarray(result.convert("RGB") if hasattr(result, "convert") else result)
+        if arr.ndim == 2:
+            arr = cv2.cvtColor(arr, cv2.COLOR_GRAY2RGB)
+        out = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+        out, skew_info = deskew(out)
+        return out, {"dewarped": True, **skew_info}
+    except Exception as exc:  # a dewarp failure must never cost the page
+        out, info = deskew(img)
+        return out, {"dewarped": False,
+                     "dewarpError": f"{type(exc).__name__}: {exc}", **info}
+
+
+# ---------------------------------------------------------------------------
 # Variant construction
 # ---------------------------------------------------------------------------
 def _dedupe(variants: List[Variant]) -> List[Variant]:
@@ -249,16 +341,24 @@ def build_variants(page: Page, mode: str = "auto") -> List[Variant]:
       "clean"    -- deskew + contrast + denoise (use for scans and photocopies)
     """
     base, size_info = fit_page(page.image)
-    variants: List[Variant] = [Variant("original", base.copy(), {"steps": dict(size_info)})]
 
     if mode == "original":
-        return variants
+        return [Variant("original", base.copy(), {"steps": dict(size_info)})]
+
+    # Highlighter is cleared on the shared base, before the variants fork:
+    # every rendering benefits, and the page costs no extra inference pass.
+    base, hl_info = suppress_highlighter(base)
+    size_info = {**size_info, **hl_info}
+    variants: List[Variant] = [Variant("original", base.copy(), {"steps": dict(size_info)})]
 
     enhanced, contrast_info = enhance_contrast(base)
     variants.append(Variant("contrast", enhanced.copy(),
                             {"steps": {**size_info, **contrast_info}}))
 
-    straight, skew_info = deskew(base)
+    # straighten() is dewarp-plus-deskew where docuwarp is installed and
+    # exactly the old deskew where it is not; the variant keeps its name
+    # either way, and the steps say which one actually ran.
+    straight, skew_info = straighten(base)
     variants.append(Variant("deskewed", straight.copy(),
                             {"steps": {**size_info, **skew_info}}))
 
