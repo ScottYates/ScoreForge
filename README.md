@@ -354,15 +354,21 @@ escalated with sudo, so `node_modules` never ends up owned by root.
 | `SKIP_NPM=1` | only run the installer |
 | `SKIP_INSTALL=1` | only build |
 | `NPM_INSTALL=1` | `npm install` instead of `npm ci` |
+| `SKIP_AUDIVERIS=1` | leave out the Audiveris second engine |
+
+Any of `install.sh`'s own overrides (`PYTHON_VERSION`, `SKIP_SMOKE`,
+`SKIP_WEB` and the rest) can be exported for `release.sh` too; it passes the
+ones that are set through `sudo`, which would otherwise drop them.
 
 Run either script as a program, not with `source`. They create users, write under
 `/opt` and drive systemd, so sourcing one would do all of that inside your
 interactive shell and close it on the first error. Both refuse if you try.
 
 That installs to `/opt/scoreforge`, creates an unprivileged `scoreforge` system
-user, installs the Python dependencies, downloads the ONNX weights, and starts
-two systemd services. `index.html` is copied there too, so it works
-straight off disk with no server at all.
+user, installs the Python dependencies, downloads the ONNX weights, installs
+Audiveris as a second engine (see [Audiveris](#audiveris)), and starts two
+systemd services. `index.html` is copied there too, so it works straight off
+disk with no server at all.
 
 ```bash
 systemctl status scoreforge scoreforge-web
@@ -417,7 +423,48 @@ so a skipped check is never silent.
 
 `deploy/release.sh` is also the upgrade path: pull, rebuild, install, in one
 step. Or run `deploy/install.sh` on its own; it leaves
-`/etc/scoreforge/scoreforge.env` alone (backing it up to `.bak`).
+`/etc/scoreforge/scoreforge.env` alone (backing it up to `.bak`), apart from
+adding the Audiveris line described below the first time.
+
+### Audiveris
+
+[Audiveris](https://github.com/Audiveris/audiveris) is a second, independent
+recogniser. homr does the main reading; Audiveris reads every scan as well, and
+its reading competes to be the transcription, feeds the bar-by-bar consensus
+repair, and is the only one that carries **lyrics**. The installer sets it up:
+
+1. Downloads Audiveris 5.11.0 from its GitHub releases and checks it against the
+   pinned SHA-256. Upstream publishes Linux builds for x86_64 only; on other
+   machines this step is skipped with a warning.
+2. Unpacks the package into `/opt/scoreforge/audiveris`. It is never installed
+   with `dpkg` or `apt`, so the system package manager stays untouched, and it
+   carries its own Java runtime, so no Java is needed. Unpacking uses
+   `dpkg-deb` where it exists and `zstd` otherwise.
+3. Adds English OCR data (`eng.traineddata` from `tesseract-ocr/tessdata` 4.1.0,
+   checked against its git blob id). Without it Audiveris reads no text at all,
+   lyrics included.
+4. Caps its Java heap at 1.5 GB (`AUDIVERIS_HEAP=...` to change), since the
+   service as a whole is limited to 4 GB and homr needs its share.
+5. Transcribes a fixture with it as the `scoreforge` user, the way the service
+   will run it. This takes seconds, so unlike homr's smoke test it always runs.
+   A new version only replaces the old one after passing.
+6. Sets `SCOREFORGE_AUDIVERIS=/opt/scoreforge/audiveris/bin/Audiveris` in
+   `/etc/scoreforge/scoreforge.env`.
+
+Downloads are kept in `/opt/scoreforge/share/audiveris`, so a re-run fetches
+nothing. The engine is optional, so a failure anywhere here is a warning, not a
+failed install: the summary's `audiveris` line says whether it is in use, and
+whether lyrics OCR loaded.
+
+To leave it out, `SKIP_AUDIVERIS=1`. To switch off a copy that is already
+installed, comment out the `SCOREFORGE_AUDIVERIS` line the installer added and
+`systemctl restart scoreforge`; later installs will not add it back. If that
+line already points at a copy of your own, the installer leaves it alone and
+says so. It also refuses to replace an `/opt/scoreforge/audiveris` it did not
+create.
+
+Get Audiveris only from its GitHub releases page; the audiveris.com and
+audiveris.net sites are not affiliated with the project.
 
 ### The two services
 
@@ -674,10 +721,13 @@ been tested.
 
 The scan covers `tools/` and `backend/`, not `deploy/`. `install.sh` deletes its
 own `$PREFIX/.venv`, which it created on an earlier run and which is not
-recoverable in place if the interpreter behind it has moved. That delete is
-legitimate, but it is a bash `rm -rf` outside the eight shapes the scan looks
-for. It is the one place in the repository that deletes without asking the
-guard, so it is documented here.
+recoverable in place if the interpreter behind it has moved. When it installs or
+upgrades Audiveris it also deletes the staging directory it just made, and the
+previous `$PREFIX/audiveris` -- but only one carrying the `.scoreforge-owned`
+marker it wrote there; an unmarked directory at that path is refused, not
+replaced. These deletes are legitimate, but they are bash `rm -rf` outside the
+eight shapes the scan looks for. They are the only places in the repository that
+delete without asking the guard, so they are documented here.
 
 These rules exist because all three of the following happened: the pack
 builder once cleared its own output directory,
@@ -813,9 +863,17 @@ Installed into `backend/.venv`, not bundled into the page:
 | opencv-python-headless 5.0 | Apache-2.0 |
 | pypdfium2 5.14 | Apache-2.0 / PDFium (BSD-3) |
 
-homr is AGPL-3.0. That is fine for a service you run on your own machine. If
-you expose the backend to other users over a network, the AGPL terms apply to
-it. The page itself stays MIT/LGPL either way, since it never links against
+Unpacked into `/opt/scoreforge/audiveris` by the installer and run as a
+separate process:
+
+| Component | Licence |
+|---|---|
+| [Audiveris](https://github.com/Audiveris/audiveris) 5.11.0, with its bundled Java runtime | AGPL-3.0 |
+| [tessdata](https://github.com/tesseract-ocr/tessdata) 4.1.0 `eng.traineddata` | Apache-2.0 |
+
+homr and Audiveris are AGPL-3.0. That is fine for a service you run on your own
+machine. If you expose the backend to other users over a network, the AGPL terms
+apply to it. The page itself stays MIT/LGPL either way, since it never links against
 homr.
 
 Music glyphs are vector paths from VexFlow's built-in font data, so no webfont

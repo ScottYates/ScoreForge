@@ -37,6 +37,17 @@ Installed into `backend/.venv` and not bundled:
 | opencv-python-headless 5.0 | Apache-2.0 |
 | pypdfium2 5.14 | Apache-2.0 / PDFium BSD-3 |
 
+Unpacked into `/opt/scoreforge/audiveris` by `deploy/install.sh`, run as a
+separate process, and not bundled (`SKIP_AUDIVERIS=1` leaves it out):
+
+| Component | Licence |
+|---|---|
+| Audiveris 5.11.0, with its bundled Java runtime | AGPL-3.0 |
+| tessdata 4.1.0 `eng.traineddata` | Apache-2.0 |
+
+Audiveris is AGPL-3.0 like homr, and the same reasoning applies: the backend
+runs it as a command-line process and reads the MusicXML it writes.
+
 <!-- BEGIN generated credits -->
 
 ## Recorded-instrument samples
