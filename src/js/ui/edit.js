@@ -68,6 +68,7 @@ export class EditController {
 
   select(partId, ordinal) {
     this.sel = { partId, ordinal };
+    this._lastPartId = partId;
     if (!this.selectedNote()) this.sel = null;
     this.refresh();
   }
@@ -97,15 +98,68 @@ export class EditController {
 
   /* ---------------------------------------------------- picks from views */
 
-  /** A click on the engraved score. */
+  /** A click on the engraved score: a note selects, a rest takes a new note. */
   pickFromNotation(clientX, clientY) {
     if (!this.canEdit()) return false;
     const addr = this.app.notation.noteAtClientPoint(clientX, clientY);
     if (!addr) return false;
+    if (addr.rest) {
+      this.insertAt(addr.partId, addr.measureIndex, addr.within);
+      return true;
+    }
     const note = this._modelNoteAt(addr);
     if (!note) return false;
     this.select(addr.partId, note.xmlIndexes[0]);
     return true;
+  }
+
+  /**
+   * Put a new note where a rest is. The pitch defaults to the nearest note of
+   * the same part (a line usually continues near where it was), or the one
+   * given; the new note is selected, so the arrows tune it straight away.
+   */
+  insertAt(partId, measureIndex, within, midi = null) {
+    if (!this.canEdit()) return;
+    this._enqueue(() => {
+      const score = this.app.score;
+      const part = score.parts.find((p) => p.id === partId);
+      if (!part) return undefined;
+      const quarter = (score.measureStarts ? score.measureStarts[measureIndex] || 0 : 0) + within;
+      let pitch = midi;
+      if (pitch == null) {
+        let prev = null;
+        let next = null;
+        for (const n of part.notes) {
+          if (n.quarter <= quarter + 1e-9) prev = n;
+          else { next = next || n; }
+        }
+        pitch = prev ? prev.midi : next ? next.midi : 72;
+      }
+      pitch = Math.max(0, Math.min(127, pitch));
+      return this._applyNow(
+        { type: 'insert', partId, measureIndex, within, midi: pitch },
+        { partId, quarter, midi: pitch }
+      );
+    });
+  }
+
+  /** A double-click on empty roll space: a new note at that beat and pitch. */
+  insertFromRoll(timeSec, rollMidi) {
+    if (!this.canEdit() || !this.app.resolved) return;
+    const score = this.app.score;
+    const starts = score.measureStarts;
+    if (!starts || starts.length < 2) return;
+    const q = Math.max(0, Math.round(this.app.resolved.timing.quarterAtSeconds(timeSec) * 4) / 4);
+    let mi = 0;
+    while (mi + 2 < starts.length && starts[mi + 1] <= q + 1e-9) mi++;
+    const partId = (this.sel && this.sel.partId)
+      || this._lastPartId
+      || (score.parts[0] && score.parts[0].id);
+    if (!partId) return;
+    const part = score.parts.find((p) => p.id === partId);
+    // The roll shows sounding pitch; the file stores written pitch.
+    const written = rollMidi - (this.app.transpose | 0) - ((part && part.transpose) | 0);
+    this.insertAt(partId, mi, q - starts[mi], written);
   }
 
   /** A tap on a roll note. Tapping the selected note again deselects it. */

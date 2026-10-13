@@ -550,6 +550,30 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .edit-note b { color: var(--ink); font-family: var(--mono); }
 .edit-gap { flex: 1; }
 
+/* The help dialog. */
+.modal.help { max-width: 640px; }
+.modal.help .modal-body { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+.help-sec { margin: 0 0 18px; }
+.help-sec:last-child { margin-bottom: 4px; }
+.help-sec h3 {
+  margin: 0 0 6px; font-size: 13px; font-weight: 650; color: var(--ink);
+}
+.help-sec p { margin: 0 0 8px; }
+.help-keys { border-collapse: collapse; margin: 4px 0 10px; width: 100%; }
+.help-keys td { padding: 3px 10px 3px 0; vertical-align: top; }
+.help-keys td:first-child { white-space: nowrap; width: 150px; }
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: rgba(255,255,255,.05);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+}
+
 /* The selected notehead on the engraved score. A class rule outranks the
    fill/stroke presentation attributes VexFlow writes on these paths. */
 #paper g.sf-selected path,

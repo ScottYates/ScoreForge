@@ -36,7 +36,14 @@ const FIXTURE = '<?xml version="1.0" encoding="UTF-8"?>'
 const KICK = `(window.__K__ || (window.__K__ = (async () => {
   const out = window.__OUT__ = { steps: [] };
   window.__UNCAUGHT__ = [];
-  window.addEventListener('error', (e) => window.__UNCAUGHT__.push(String(e.message)));
+  window.addEventListener('error', (e) => {
+    const m = String(e.message);
+    // A browser housekeeping warning, not an exception from the app: it fires
+    // when layout changes faster than ResizeObserver can report, which the
+    // view switches in this probe provoke on purpose.
+    if (m.includes('ResizeObserver loop')) return;
+    window.__UNCAUGHT__.push(m);
+  });
   const app = window.ScoreForge;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const notesOf = () => app.score.parts[0].notes.map((n) => [n.quarter, n.midi, n.durationQuarters]);
@@ -137,6 +144,60 @@ const KICK = `(window.__K__ || (window.__K__ = (async () => {
   // ---- 7. escape drops the selection and the bar hides -----------------------
   key('Escape');
   out.cleared = !app.editor.sel && document.querySelector('#editBar').hidden;
+
+  // ---- 8. click a rest on the engraving: a new note appears there ------------
+  app.setView('score');
+  await sleep(500);
+  const findRestG = () => {
+    const list = app.notation.osmd && app.notation.osmd.GraphicSheet.MeasureList;
+    for (const row of list || []) {
+      for (const m of row || []) {
+        for (const se of (m && m.staffEntries) || []) {
+          for (const ve of se.graphicalVoiceEntries || []) {
+            for (const n of ve.notes || []) {
+              if (n.sourceNote && n.sourceNote.isRest && n.sourceNote.isRest()) return n;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  };
+  const restG = await waitFor(findRestG);
+  out.foundRest = !!restG;
+  if (restG) {
+    const rr = restG.getSVGGElement().getBoundingClientRect();
+    const cBefore = app.score.parts[0].notes.length;
+    out.restPicked = app.editor.pickFromNotation(rr.left + rr.width / 2, rr.top + rr.height / 2);
+    out.restInserted = !!(await waitFor(() => app.score.parts[0].notes.length === cBefore + 1));
+    out.restInsertSelected = !!app.editor.selectedNote();
+    out.restInsertBars = app.score.totalQuarters === 8;
+  }
+
+  // ---- 9. double-click empty roll space: a new note at that beat and pitch ---
+  key('Escape');
+  app.setView('roll');
+  await sleep(300);
+  const busy = (q) => app.score.parts[0].notes.some((n) =>
+    q >= n.quarter - 1e-9 && q < n.quarter + n.durationQuarters - 1e-9);
+  let qFree = -1;
+  for (let q = 0; q < 8; q += 0.5) if (!busy(q)) { qFree = q; break; }
+  out.qFree = qFree;
+  if (qFree >= 0) {
+    const wantMidi = 69;
+    const rect2 = document.querySelector('#rollCanvas').getBoundingClientRect();
+    const cx2 = app.roll.xForTime(app.resolved.timing.secondsAtQuarter(qFree)) + 2;
+    const cy2 = app.roll.yForMidi(wantMidi) + 4;
+    out.rollSpotFree = !app.roll.noteAt(cx2, cy2);
+    const c3 = app.score.parts[0].notes.length;
+    document.querySelector('#rollCanvas').dispatchEvent(new MouseEvent('dblclick', {
+      clientX: rect2.left + cx2, clientY: rect2.top + cy2, bubbles: true,
+    }));
+    out.rollInserted = !!(await waitFor(() => app.score.parts[0].notes.some((n) =>
+      Math.abs(n.quarter - qFree) < 0.26 && n.midi === wantMidi)
+      && app.score.parts[0].notes.length === c3 + 1));
+    out.rollInsertBars = app.score.totalQuarters === 8;
+  }
   out.uncaught = window.__UNCAUGHT__;
   window.__DONE2__ = true;
 })().catch((e) => { (window.__OUT__ = window.__OUT__ || {}).kickErr = String(e && e.stack || e); window.__DONE2__ = true; })),
@@ -186,6 +247,12 @@ ok('[ shrinks it again', p.shrank === true);
 ok('delete removes the note and keeps the bars', p.deleted === true && p.barsStable === true);
 ok('the selection moves on after a delete', p.selMoved === true);
 ok('escape clears the selection and hides the bar', p.cleared === true);
+ok('a rest is clickable on the engraving', p.foundRest === true && p.restPicked === true);
+ok('clicking it adds a note there, bars intact', p.restInserted === true && p.restInsertBars === true);
+ok('and the new note is selected, ready to tune', p.restInsertSelected === true);
+ok('a roll double-click on empty space adds a note at that beat and pitch',
+  p.rollSpotFree === true && p.rollInserted === true && p.rollInsertBars === true,
+  JSON.stringify({ qFree: p.qFree, free: p.rollSpotFree, inserted: p.rollInserted }));
 ok('nothing goes uncaught', Array.isArray(p.uncaught) && p.uncaught.length === 0, JSON.stringify(p.uncaught));
 
 if (sawFail) console.log('STATE: ' + JSON.stringify(p));

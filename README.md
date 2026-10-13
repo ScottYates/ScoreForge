@@ -186,6 +186,18 @@ shows where it will land and releasing commits it. The bar's *+tone* button
 adds a chord tone onto the selected note (a free interval near a third), which
 then stays selected so the arrows can tune it.
 
+To add a note, click a rest on the engraved score, or double-click an empty
+spot on the piano roll. The new note takes a quarter note (or whatever the
+rest holds, if less), starting where the click landed inside the rest; the
+rest around it stays, so the bar is unchanged. The pitch defaults to the
+nearest note of the part — the roll uses the row that was clicked — and the
+new note is selected, so the arrows and brackets tune it straight away.
+
+The app documents all of this itself: the ? key, or the ? button in the stage
+bar, opens the help (`src/js/ui/help.js`). `node tools/check-help.mjs` pins
+its load-bearing claims to behaviours the app actually has, so the help and
+the app change together or the check goes red.
+
 Every edit is a transformation of the score's own MusicXML
 (`src/js/io/xmledit.js`), after which the page re-parses and re-renders, so
 notation, roll, playback and *Save MusicXML* always agree. Edits never change

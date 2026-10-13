@@ -320,10 +320,13 @@ export class NotationView {
     }
   }
 
-  /** Graphical note -> editor address, or null for a rest. */
+  /**
+   * Graphical note -> editor address. A pitched note carries its written
+   * MIDI; a rest carries rest:true instead, which the editor turns into an
+   * insertion point.
+   */
   _address(g) {
     const src = g.sourceNote;
-    if (!src.Pitch) return null; // rests are not editable targets yet
     const staffEntry = g.parentVoiceEntry && g.parentVoiceEntry.parentStaffEntry;
     const gMeasure = staffEntry && staffEntry.parentMeasure;
     const sourceMeasure = gMeasure && gMeasure.parentSourceMeasure;
@@ -335,6 +338,7 @@ export class NotationView {
       && src.ParentVoiceEntry.ParentVoice && src.ParentVoiceEntry.ParentVoice.Parent;
     const partId = instrument && (instrument.IdString != null ? instrument.IdString : instrument.idString);
     if (!partId) return null;
+    if (!src.Pitch) return { partId, measureIndex, within, rest: true, graphical: g };
     // OSMD's halfTone is MIDI minus 12 (its 57 is A4 = MIDI 69).
     const midi = src.Pitch.getHalfTone() + 12;
     return { partId, measureIndex, within, midi, graphical: g };
@@ -378,7 +382,7 @@ export class NotationView {
         for (const ve of se.graphicalVoiceEntries || []) {
           for (const note of ve.notes || []) {
             const a = this._address(note);
-            if (!a || a.partId !== addr.partId) continue;
+            if (!a || a.rest || a.partId !== addr.partId) continue;
             const d = Math.abs(a.within - addr.within) + (a.midi === addr.midi ? 0 : 1000);
             if (d < bestScore) { bestScore = d; best = note; }
           }

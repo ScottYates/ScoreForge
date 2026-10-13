@@ -261,6 +261,15 @@ if (editUi.code !== 0) {
   failures.push('edit ui: ' + (editUi.out.trim().split('\n').pop() || editUi.err.trim()));
 }
 
+// The in-app help: it opens both ways, closes, and its load-bearing claims
+// still describe behaviours the app has.
+const help = await run(process.execPath, [path.join(root, 'tools/check-help.mjs')],
+  { allowFail: true });
+console.log(help.out.trim());
+if (help.code !== 0) {
+  failures.push('help: ' + (help.out.trim().split('\n').pop() || help.err.trim()));
+}
+
 // The repair report: the post-processing above quietly rewrites what the
 // recogniser read, and the Transcription panel must say so -- above all which
 // bars were clipped or padded by POLICY, since those are where a person

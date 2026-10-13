@@ -16,6 +16,7 @@ runs from `file://`.
 | `src/js/io/omr.js` | Recognition backend client (health, upload, MusicXML → scores) |
 | `src/js/io/xmledit.js` | Note edits applied to the MusicXML text |
 | `src/js/ui/edit.js` | Selection, edit keys, undo — the note editor |
+| `src/js/ui/help.js` | The in-app help dialog |
 | `src/js/audio/instruments.js` | Recorded-instrument roster, silent fallback |
 | `src/js/audio/fx.js` | Reverb / EQ / compressor bus |
 | `src/js/audio/engine.js` | Realtime player + offline renderer |
@@ -156,10 +157,12 @@ edits every note of a fixture through its recorded ordinals).
 `EditError` with a user-facing message. Invariant: no edit changes the length
 of a measure. Deleting leaves a rest (or promotes/removes a chord tone),
 shortening writes rests after the note, lengthening consumes only following
-rests in the same voice inside the bar and is otherwise refused. After an
-edit, the app re-parses the string and reloads both views
-(`App.replaceScoreXml`); nothing edits the model or the rendered page
-directly.
+rests in the same voice inside the bar and is otherwise refused. An `insert`
+op names a spot (measure index plus quarters into the bar) instead of a note;
+it must land on a rest, and the new note takes at most the rest, with the
+remainder staying rests on both sides. After an edit, the app re-parses the
+string and reloads both views (`App.replaceScoreXml`); nothing edits the
+model or the rendered page directly.
 
 ---
 

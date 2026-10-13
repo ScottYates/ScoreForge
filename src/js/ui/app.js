@@ -20,6 +20,7 @@ import { renderToBuffer, encodeMp3, encodeWav, inspectMp3, BITRATES } from '../a
 import { NotationView } from '../render/notation.js';
 import { PianoRoll, PALETTE } from '../render/roll.js';
 import { EditController } from './edit.js';
+import { openHelp } from './help.js';
 import { parseMusicXml } from '../io/musicxml.js';
 import { $, el, clear, icon, fmtTime, fmtBytes, fmtDb, toast, modal, bindRange, escapeHtml } from './dom.js';
 
@@ -111,7 +112,7 @@ export class App {
       chkMetronome: $('#chkMetronome'), chkHuman: $('#chkHuman'), chkNormalize: $('#chkNormalize'),
       countInVal: $('#countInVal'),
       btnZoomIn: $('#btnZoomIn'), btnZoomOut: $('#btnZoomOut'),
-      editBar: $('#editBar'), btnSaveXml: $('#btnSaveXml'),
+      editBar: $('#editBar'), btnSaveXml: $('#btnSaveXml'), btnHelp: $('#btnHelp'),
     };
 
     this.notation = new NotationView(d.paper);
@@ -121,6 +122,7 @@ export class App {
       onSeek: (t) => this.seek(t),
       onNotePick: (n) => this.editor.pickFromRoll(n),
       onNoteDrag: (n, d2) => this.editor.dragFromRoll(n, d2),
+      onInsert: (t, midi) => this.editor.insertFromRoll(t, midi),
     });
 
     this._buildSelects();
@@ -303,9 +305,11 @@ export class App {
     });
 
     d.btnSaveXml.addEventListener('click', () => this._saveMusicXml());
+    d.btnHelp.addEventListener('click', () => openHelp());
 
     window.addEventListener('keydown', (e) => {
       if (e.target.matches('input,select,textarea')) return;
+      if (e.key === '?') { e.preventDefault(); openHelp(); return; }
       // The note editor owns the keys while a note is selected (and undo
       // either way); everything it declines falls through to the transport.
       if (this.editor.handleKey(e)) { e.preventDefault(); return; }

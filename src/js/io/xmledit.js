@@ -96,7 +96,7 @@ function serialize(doc) {
  * flavour — the same order the parser counts, so ordinals line up.
  * Also records, per note, the <divisions> and <key><fifths> in force there.
  */
-function collectNotes(doc, partId) {
+function measureContainers(doc, partId) {
   const root = doc.documentElement;
   const rootTag = tagOf(root);
   const measureLists = [];
@@ -116,6 +116,11 @@ function collectNotes(doc, partId) {
     }
   }
   if (!measureLists.length) refuse(`This score has no part "${partId}" to edit.`);
+  return measureLists;
+}
+
+function collectNotes(doc, partId) {
+  const measureLists = measureContainers(doc, partId);
 
   const notes = [];
   let divisions = 1;
@@ -410,24 +415,127 @@ function opDuration(doc, notes, op) {
   for (const m of members) setWrittenDuration(doc, m, newDur, newDur / divisions);
 }
 
+/* --------------------------------------------------------------- insert */
+
+/**
+ * The rest sounding at `within` quarters into measure `measureIndex`, found
+ * by walking that part with the same clock the parser uses: notes advance it,
+ * <backup>/<forward> move it, chord and grace notes do not. Returns the rest
+ * element with its onset, length, divisions and ordinal state.
+ */
+function locateRestAt(doc, partId, measureIndex, within) {
+  const containers = measureContainers(doc, partId);
+  if (!(measureIndex >= 0) || measureIndex >= containers.length) {
+    refuse('That spot is outside the score.');
+  }
+  let divisions = 1;
+  const readAttrs = (el) => {
+    const d = Number(childText(el, 'divisions'));
+    if (Number.isFinite(d) && d > 0) divisions = d;
+  };
+  // Divisions in force when the target measure starts.
+  for (let i = 0; i < measureIndex; i++) {
+    for (let el = containers[i].firstElementChild; el; el = el.nextElementSibling) {
+      if (tagOf(el) === 'attributes') readAttrs(el);
+    }
+  }
+  let cursor = 0;
+  let lastOnset = 0;
+  let sawNote = false;
+  for (let el = containers[measureIndex].firstElementChild; el; el = el.nextElementSibling) {
+    const tag = tagOf(el);
+    if (tag === 'attributes') { readAttrs(el); continue; }
+    if (tag === 'backup' || tag === 'forward') {
+      const d = Number(childText(el, 'duration'));
+      if (Number.isFinite(d)) cursor += (tag === 'backup' ? -d : d) / divisions;
+      if (cursor < 0) cursor = 0;
+      continue;
+    }
+    if (tag !== 'note') continue;
+    sawNote = true;
+    const isChord = !!child(el, 'chord');
+    const isGrace = !!child(el, 'grace');
+    const durUnits = Number(childText(el, 'duration'));
+    const dur = Number.isFinite(durUnits) && durUnits > 0 ? durUnits / divisions : 0;
+    const onset = isChord ? lastOnset : cursor;
+    if (child(el, 'rest') && !isGrace
+      && within >= onset - 1e-6 && within < onset + dur - 1e-6) {
+      return { el, onset, durUnits, divisions };
+    }
+    if (!isChord && !isGrace) { lastOnset = cursor; cursor += dur; }
+  }
+  refuse(sawNote
+    ? 'A note can only go where there is a rest. Delete or shorten what is there first.'
+    : 'That bar has nothing written in it to replace.');
+  return null; // refuse throws; this is for the reader
+}
+
+/**
+ * Turn part of a rest into a new note. The note lands at `within` (snapped to
+ * the score's rhythm grid), takes at most `quarters` (default one quarter)
+ * and never more than the rest holds; what is left of the rest stays, before
+ * and after. The bar's length does not change.
+ */
+function opInsert(doc, op) {
+  const found = locateRestAt(doc, op.partId, op.measureIndex, op.within);
+  const { el, divisions } = found;
+  if (child(el, 'time-modification')) refuse('That rest is inside a tuplet; tuplet rhythms are not editable yet.');
+
+  const atUnits = Math.max(0, Math.min(found.durUnits - 1,
+    Math.round((op.within - found.onset) * divisions)));
+  const wantUnits = Math.max(1, Math.round((op.quarters || 1) * divisions));
+  const noteUnits = Math.min(wantUnits, found.durUnits - atUnits);
+
+  const voice = childText(el, 'voice');
+  const staff = childText(el, 'staff');
+  const fifths = op.fifths != null ? op.fifths : collectNotes(doc, op.partId)
+    .find((n) => n.el === el)?.fifths || 0;
+
+  const tone = doc.createElement('note');
+  writePitch(doc, tone, op.midi, fifths);
+  if (voice) { const v = doc.createElement('voice'); v.textContent = voice; insertOrdered(tone, v); }
+  if (staff) { const s = doc.createElement('staff'); s.textContent = staff; insertOrdered(tone, s); }
+  setWrittenDuration(doc, tone, noteUnits, noteUnits / divisions);
+
+  const pieces = [];
+  for (const q of restSplit(atUnits / divisions)) {
+    pieces.push(makeRest(doc, { divisions, quarters: q, voice, staff }));
+  }
+  pieces.push(tone);
+  for (const q of restSplit((found.durUnits - atUnits - noteUnits) / divisions)) {
+    pieces.push(makeRest(doc, { divisions, quarters: q, voice, staff }));
+  }
+  for (const p of pieces) el.parentNode.insertBefore(p, el);
+  el.parentNode.removeChild(el);
+}
+
 /* ------------------------------------------------------------ public API */
 
 /**
  * Apply one edit to a MusicXML string and return the edited string.
  *
  * @param {string} xml
- * @param {{type: 'pitch'|'delete'|'duration'|'addChord',
+ * @param {{type: 'pitch'|'delete'|'duration'|'addChord'|'insert',
  *          partId: string,
- *          ordinals: number[],
+ *          ordinals?: number[],
  *          midi?: number,
  *          quarters?: number,
+ *          measureIndex?: number,
+ *          within?: number,
  *          fifths?: number}} op
+ * 'insert' names a spot instead of a note: measureIndex and within (quarters
+ * into the bar) must land on a rest, and ordinals is not used.
  * @returns {string}
  * @throws {EditError} with a user-facing message when the edit cannot be made
  */
 export function editMusicXml(xml, op) {
-  if (!op || !op.partId || !Array.isArray(op.ordinals)) refuse('No note is selected.');
+  if (!op || !op.partId) refuse('No note is selected.');
   const doc = parseDoc(xml);
+  if (op.type === 'insert') {
+    opInsert(doc, op);
+    return serialize(doc);
+  }
+  if (!Array.isArray(op.ordinals)) refuse('No note is selected.');
   const notes = collectNotes(doc, op.partId);
   if (op.type === 'pitch') opPitch(doc, notes, op);
   else if (op.type === 'delete') opDelete(doc, notes, op);

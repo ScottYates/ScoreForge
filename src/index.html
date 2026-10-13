@@ -28,6 +28,7 @@
   <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 1.8 20.5h20.4Z"/><path d="M12 10v4.5M12 17.5h.01"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.2a2.8 2.8 0 1 1 3.9 2.9c-.8.35-1.2.9-1.2 1.9M12 17h.01"/></symbol>
   <symbol id="i-zoomin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.5-4.5M11 8.5v5M8.5 11h5"/></symbol>
   <symbol id="i-zoomout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.5-4.5M8.5 11h5"/></symbol>
   <symbol id="i-wave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12h2l2-7 3 14 3-10 2.5 6H21"/></symbol>
@@ -107,8 +108,9 @@
         </p>
         <p style="color:var(--ink-3);font-size:11.5px;line-height:1.55;margin:8px 0 0">
           Wrong note in a transcription? Click it, on the score or the piano roll:
-          arrows move the pitch, [ and ] change the length, delete removes it, and
-          Save MusicXML downloads the corrected score.
+          arrows move the pitch, [ and ] change the length, delete removes it.
+          A click on a rest adds a note, and Save MusicXML downloads the corrected
+          score. Press ? for the full help.
         </p>
       </section>
     </div>
@@ -122,6 +124,7 @@
         <button class="tab" data-view="roll"><svg style="width:13px;height:13px;vertical-align:-2px"><use href="#i-wave"/></svg> Piano roll</button>
       </div>
       <div style="flex:1"></div>
+      <button class="btn ghost icon sm" id="btnHelp" title="Help  (?)"><svg><use href="#i-help"/></svg></button>
       <button class="btn ghost icon sm" id="btnZoomOut" title="Zoom out"><svg><use href="#i-zoomout"/></svg></button>
       <button class="btn ghost icon sm" id="btnZoomIn" title="Zoom in"><svg><use href="#i-zoomin"/></svg></button>
       <span style="font-family:var(--mono);font-size:11px;color:var(--ink-3);min-width:38px;text-align:right" id="zoomLabel">100%</span>

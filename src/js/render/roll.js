@@ -33,6 +33,8 @@ export class PianoRoll {
     this.onNotePick = opts.onNotePick || null;
     /** Vertical drag on a note, committed on release: (note, deltaSemitones). */
     this.onNoteDrag = opts.onNoteDrag || null;
+    /** Double-click on empty note space: (timeSec, midi) — an insertion point. */
+    this.onInsert = opts.onInsert || null;
     this.selectedId = null;
     this.theme = opts.theme || {};
     this._dpr = 1;
@@ -49,6 +51,17 @@ export class PianoRoll {
     canvas.addEventListener('pointerup', (e) => this._pointerUp(e));
     canvas.addEventListener('pointercancel', (e) => this._pointerCancel(e));
     canvas.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
+    canvas.addEventListener('dblclick', (e) => {
+      if (!this.onInsert) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      if (cx < 78 || cy < 18) return;          // the key gutter and the ruler
+      if (this.noteAt(cx, cy)) return;          // notes are edited, not covered
+      const midi = this.midiForY(cy);
+      if (midi < 0 || midi > 127) return;
+      this.onInsert(this.timeForX(cx), midi);
+    });
 
     this._ro = new ResizeObserver(() => this.resize());
     this._ro.observe(this.canvas.parentElement || this.canvas);
