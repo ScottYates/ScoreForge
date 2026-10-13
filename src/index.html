@@ -54,6 +54,7 @@
       <button class="btn ghost icon mobile-only" id="btnRailToggle" title="Library" aria-label="Library"><svg><use href="#i-note"/></svg></button>
       <button class="btn ghost icon mobile-only" id="btnInspToggle" title="Score controls" aria-label="Score controls"><svg><use href="#i-sliders"/></svg></button>
       <button class="btn" id="btnOpen"><svg><use href="#i-open"/></svg><span class="btn-label">Open score</span></button>
+      <button class="btn" id="btnSaveXml" disabled title="Download this score as MusicXML, with your edits"><svg><use href="#i-export"/></svg><span class="btn-label">Save MusicXML</span></button>
       <button class="btn primary" id="btnExport" disabled><svg><use href="#i-export"/></svg><span class="btn-label">Export MP3</span></button>
     </div>
   </header>
@@ -104,6 +105,11 @@
           There is no synthesiser. A page that cannot fetch the pack (opened straight from disk,
           or with the server down) is silent and says so here and in the export dialog.
         </p>
+        <p style="color:var(--ink-3);font-size:11.5px;line-height:1.55;margin:8px 0 0">
+          Wrong note in a transcription? Click it, on the score or the piano roll:
+          arrows move the pitch, [ and ] change the length, delete removes it, and
+          Save MusicXML downloads the corrected score.
+        </p>
       </section>
     </div>
   </aside>
@@ -121,6 +127,10 @@
       <span style="font-family:var(--mono);font-size:11px;color:var(--ink-3);min-width:38px;text-align:right" id="zoomLabel">100%</span>
       <span class="busy-bar" id="busyBar" hidden></span>
     </div>
+
+    <!-- Shown while a note is selected: what it is, and the edits it takes.
+         Click a note on the score or the roll to select it. -->
+    <div class="edit-bar" id="editBar" hidden></div>
 
     <div class="stage-body" id="stageBody">
       <div class="paper-wrap" id="paperWrap">

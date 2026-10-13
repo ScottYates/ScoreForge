@@ -537,6 +537,24 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tab.active { background: var(--panel-hi); color: var(--ink); box-shadow: var(--shadow-1); }
 .tab:disabled { opacity: .38; cursor: not-allowed; }
 
+/* The note editor's bar: appears under the stage bar while a note is
+   selected (click one on the score or the roll). */
+.edit-bar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(31,79,201,.10);
+  flex-shrink: 0;
+}
+.edit-note { font-size: 12px; color: var(--ink-2); margin-right: 6px; white-space: nowrap; }
+.edit-note b { color: var(--ink); font-family: var(--mono); }
+.edit-gap { flex: 1; }
+
+/* The selected notehead on the engraved score. A class rule outranks the
+   fill/stroke presentation attributes VexFlow writes on these paths. */
+#paper g.sf-selected path,
+#paper g.sf-selected rect { fill: var(--cursor); stroke: var(--cursor); }
+
 .stage-body { flex: 1; min-height: 0; position: relative; overflow: auto; }
 .stage-body::-webkit-scrollbar { width: 12px; height: 12px; }
 
@@ -1156,7 +1174,8 @@ input[type="range"]::-moz-range-thumb {
    tightens the chrome. Display elements may go; controls never do. */
 @media (max-width: 360px) {
   .topbar { gap: 6px; padding: 0 8px; }
-  .top-actions { gap: 6px; }
+  .top-actions { gap: 4px; }
+  .top-actions .btn { padding: 7px 6px; }
   .brand .mark { box-shadow: none; }
   .transport { padding: 8px; gap: 8px 10px; }
   .stage-bar { padding: 8px; }

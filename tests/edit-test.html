@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Score edit tests</title>
+<style>
+  body { background:#0d1117; color:#c9d1d9; font:13px ui-monospace,Consolas,monospace; margin:0; padding:12px; }
+  #out { white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<pre id="out">booting…</pre>
+
+<script type="module">
+/* What an edit owes the score.
+ *
+ * Every edit here is a transformation of the MusicXML text, so the assertions
+ * re-parse the edited text with the real parser and check the score that comes
+ * back: exactly the targeted note changed, every other onset stayed where it
+ * was, and the bars still add up. The last section proves the addressing: for
+ * every note the parser produced, the ordinals it recorded reach exactly that
+ * note in the XML, across rests, grace notes, chords and backup-interleaved
+ * voices.
+ */
+import { parseMusicXml } from '../src/js/io/musicxml.js';
+import {
+  editMusicXml, EditError, midiToPitchSpelling, quartersToTypeDots,
+  nextDuration, DURATION_LADDER,
+} from '../src/js/io/xmledit.js';
+
+const lines = [];
+let pass = 0, fail = 0;
+
+function section(name) { lines.push('', '== ' + name + ' =='); }
+function assert(name, cond, detail) {
+  if (cond) { pass++; lines.push('PASS  ' + name); }
+  else { fail++; lines.push('FAIL  ' + name + (detail ? '   [' + detail + ']' : '')); }
+}
+function eq(name, actual, expected) {
+  assert(name, Object.is(actual, expected), 'got ' + JSON.stringify(actual) + ', want ' + JSON.stringify(expected));
+}
+function near(name, actual, expected, eps = 1e-9) {
+  assert(name, Number.isFinite(actual) && Math.abs(actual - expected) <= eps, 'got ' + actual + ', want ' + expected);
+}
+function refuses(name, fn, re) {
+  let threw = null;
+  try { fn(); } catch (e) { threw = e; }
+  assert(name, threw instanceof EditError && (re ? re.test(threw.message) : true),
+    threw ? 'threw: ' + threw.message : 'did not throw');
+}
+
+/* ----------------------------------------------------------------- fixtures */
+
+const HEAD = '<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="3.1">';
+const wrap = (inner) =>
+  HEAD + '<part-list><score-part id="P1"><part-name>Voice</part-name></score-part></part-list>'
+  + inner + '</score-partwise>';
+
+const note = (o) => {
+  let s = '<note>';
+  if (o.grace) s += '<grace/>';
+  if (o.chord) s += '<chord/>';
+  if (o.rest) s += '<rest/>';
+  else s += `<pitch><step>${o.step}</step>${o.alter != null ? `<alter>${o.alter}</alter>` : ''}<octave>${o.octave}</octave></pitch>`;
+  if (o.dur != null) s += `<duration>${o.dur}</duration>`;
+  for (const t of [].concat(o.tie || [])) s += `<tie type="${t}"/>`;
+  if (o.voice) s += `<voice>${o.voice}</voice>`;
+  if (o.type) s += `<type>${o.type}</type>`;
+  for (let i = 0; i < (o.dots || 0); i++) s += '<dot/>';
+  if (o.accidental) s += `<accidental>${o.accidental}</accidental>`;
+  if (o.tm) s += `<time-modification><actual-notes>${o.tm[0]}</actual-notes><normal-notes>${o.tm[1]}</normal-notes></time-modification>`;
+  if (o.lyric) s += `<lyric><text>${o.lyric}</text></lyric>`;
+  return s + '</note>';
+};
+
+const attrs = (fifths = 0) =>
+  `<attributes><divisions>2</divisions><key><fifths>${fifths}</fifths></key>` +
+  '<time><beats>4</beats><beat-type>4</beat-type></time></attributes>';
+
+/** One 4/4 bar: C4 E4 G4 quarter notes + quarter rest. divisions = 2. */
+const simpleBar = (fifths = 0) => wrap(`<part id="P1"><measure number="1">${attrs(fifths)}
+  ${note({ step: 'C', octave: 4, dur: 2, type: 'quarter' })}
+  ${note({ step: 'E', octave: 4, dur: 2, type: 'quarter' })}
+  ${note({ step: 'G', octave: 4, dur: 2, type: 'quarter' })}
+  ${note({ rest: true, dur: 2, type: 'quarter' })}
+</measure></part>`);
+
+const onsets = (score, partId = 'P1') => {
+  const part = score.parts.find((p) => p.id === partId);
+  return part.notes.map((n) => [n.quarter, n.midi, n.durationQuarters]);
+};
+
+let fatal = null;
+try {
+
+/* ================================================================= 1. pitch */
+section('1. a pitch edit changes exactly the note it names');
+{
+  const xml = simpleBar();
+  const before = parseMusicXml(xml);
+  const target = before.parts[0].notes[1]; // E4 = 64
+  eq('the parser records xml ordinals', JSON.stringify(target.xmlIndexes), '[1]');
+  const out = editMusicXml(xml, { type: 'pitch', partId: 'P1', ordinals: target.xmlIndexes, midi: 66 });
+  assert('the edited text keeps its XML declaration', /^\s*<\?xml/.test(out), out.slice(0, 30));
+  const after = parseMusicXml(out);
+  eq('the named note changed', after.parts[0].notes[1].midi, 66);
+  eq('its neighbours did not', JSON.stringify([after.parts[0].notes[0].midi, after.parts[0].notes[2].midi]), '[60,67]');
+  near('the bar still adds up', after.totalQuarters, before.totalQuarters);
+  near('onsets are untouched', after.parts[0].notes[2].quarter, 2);
+}
+
+section('2. spelling follows the key signature');
+{
+  // F# major-side spelling in C: midi 66 -> F#; flat key: -> Gb.
+  const sharp = midiToPitchSpelling(66, 0);
+  eq('66 in a sharp key is F#4', `${sharp.step}${sharp.alter}/${sharp.octave}`, 'F1/4');
+  const flat = midiToPitchSpelling(66, -2);
+  eq('66 in a flat key is Gb4', `${flat.step}${flat.alter}/${flat.octave}`, 'G-1/4');
+  const out = editMusicXml(simpleBar(-2), { type: 'pitch', partId: 'P1', ordinals: [0], midi: 61 });
+  assert('the XML is spelled flat in a flat key', /<step>D<\/step><alter>-1<\/alter><octave>4<\/octave>/.test(out.replace(/\s+/g, '')), out.match(/<pitch>[\s\S]*?<\/pitch>/)?.[0]);
+  const edited = parseMusicXml(out);
+  eq('and still parses to the midi asked for', edited.parts[0].notes[0].midi, 61);
+}
+
+section('3. a stale written accidental does not survive a pitch edit');
+{
+  const xml = wrap(`<part id="P1"><measure number="1">${attrs()}
+    ${note({ step: 'F', alter: 1, octave: 4, dur: 8, type: 'whole', accidental: 'sharp' })}
+  </measure></part>`);
+  const out = editMusicXml(xml, { type: 'pitch', partId: 'P1', ordinals: [0], midi: 65 });
+  assert('the <accidental> is gone', !/<accidental>/.test(out));
+  eq('and the note is the natural asked for', parseMusicXml(out).parts[0].notes[0].midi, 65);
+}
+
+/* ================================================================ 4. delete */
+section('4. deleting a lone note leaves a rest of the same length');
+{
+  const xml = simpleBar();
+  const before = parseMusicXml(xml);
+  const out = editMusicXml(xml, { type: 'delete', partId: 'P1', ordinals: [1] });
+  const after = parseMusicXml(out);
+  eq('one note fewer', after.parts[0].notes.length, before.parts[0].notes.length - 1);
+  near('the bar still adds up', after.totalQuarters, before.totalQuarters);
+  eq('the note after the deletion did not move', JSON.stringify(onsets(after)),
+    JSON.stringify([[0, 60, 1], [2, 67, 1]]));
+  assert('the deleted position is written as a rest', (out.match(/<rest\/>/g) || []).length === 2, out);
+}
+
+section('5. deleting inside a chord removes only that tone');
+{
+  const xml = wrap(`<part id="P1"><measure number="1">${attrs()}
+    ${note({ step: 'C', octave: 4, dur: 8, type: 'whole', lyric: 'la' })}
+    ${note({ chord: true, step: 'E', octave: 4, dur: 8, type: 'whole' })}
+    ${note({ chord: true, step: 'G', octave: 4, dur: 8, type: 'whole' })}
+  </measure></part>`);
+  // Deleting the member: E goes, C and G stay.
+  const outMember = parseMusicXml(editMusicXml(xml, { type: 'delete', partId: 'P1', ordinals: [1] }));
+  eq('a deleted member leaves the other tones', JSON.stringify(outMember.parts[0].notes.map((n) => n.midi)), '[60,67]');
+  near('at full length', outMember.parts[0].notes[0].durationQuarters, 4);
+  // Deleting the lead: the next tone is promoted and the bar still adds up.
+  const outLeadXml = editMusicXml(xml, { type: 'delete', partId: 'P1', ordinals: [0] });
+  const outLead = parseMusicXml(outLeadXml);
+  eq('a deleted lead promotes the next tone', JSON.stringify(outLead.parts[0].notes.map((n) => n.midi)), '[64,67]');
+  near('the bar still adds up', outLead.totalQuarters, 4);
+  eq('nothing became a second voice', outLead.warnings.length, 0);
+}
+
+section('6. deleting a tied note clears the whole chain');
+{
+  const xml = wrap(`<part id="P1">
+    <measure number="1">${attrs()}
+      ${note({ step: 'C', octave: 4, dur: 4, type: 'half' })}
+      ${note({ step: 'D', octave: 4, dur: 4, type: 'half', tie: ['start'] })}
+    </measure>
+    <measure number="2">
+      ${note({ step: 'D', octave: 4, dur: 4, type: 'half', tie: ['stop'] })}
+      ${note({ step: 'E', octave: 4, dur: 4, type: 'half' })}
+    </measure>
+  </part>`);
+  const before = parseMusicXml(xml);
+  const tied = before.parts[0].notes[1];
+  eq('the tie chain lists both elements', JSON.stringify(tied.xmlIndexes), '[1,2]');
+  near('and plays as one long note', tied.durationQuarters, 4);
+  const after = parseMusicXml(editMusicXml(xml, { type: 'delete', partId: 'P1', ordinals: tied.xmlIndexes }));
+  eq('both halves are gone', JSON.stringify(after.parts[0].notes.map((n) => n.midi)), '[60,64]');
+  near('the last note did not move', after.parts[0].notes[1].quarter, 6);
+  near('the bars still add up', after.totalQuarters, 8);
+}
+
+section('7. a pitch edit on a tied note moves the whole chain');
+{
+  const xml = wrap(`<part id="P1">
+    <measure number="1">${attrs()}
+      ${note({ step: 'D', octave: 4, dur: 8, type: 'whole', tie: ['start'] })}
+    </measure>
+    <measure number="2">
+      ${note({ step: 'D', octave: 4, dur: 8, type: 'whole', tie: ['stop'] })}
+    </measure>
+  </part>`);
+  const before = parseMusicXml(xml);
+  const after = parseMusicXml(editMusicXml(xml, {
+    type: 'pitch', partId: 'P1', ordinals: before.parts[0].notes[0].xmlIndexes, midi: 65,
+  }));
+  eq('one note comes back', after.parts[0].notes.length, 1);
+  eq('at the new pitch', after.parts[0].notes[0].midi, 65);
+  near('still eight quarters long', after.parts[0].notes[0].durationQuarters, 8);
+}
+
+/* ============================================================== 8. duration */
+section('8. shortening a note leaves a rest where it ended');
+{
+  const xml = simpleBar();
+  const out = editMusicXml(xml, { type: 'duration', partId: 'P1', ordinals: [0], quarters: 0.5 });
+  const after = parseMusicXml(out);
+  eq('the note is an eighth now', JSON.stringify(onsets(after)),
+    JSON.stringify([[0, 60, 0.5], [1, 64, 1], [2, 67, 1]]));
+  near('the bar still adds up', after.totalQuarters, 4);
+  assert('an eighth rest was written in', /<rest\/>[\s\S]{0,40}?<type>eighth<\/type>/.test(out) || /<type>eighth<\/type>/.test(out), out);
+}
+
+section('9. lengthening consumes the rest that follows');
+{
+  const xml = simpleBar(); // G4 quarter + quarter rest at the end
+  const out = editMusicXml(xml, { type: 'duration', partId: 'P1', ordinals: [2], quarters: 2 });
+  const after = parseMusicXml(out);
+  eq('the note is a half now', JSON.stringify(onsets(after)),
+    JSON.stringify([[0, 60, 1], [1, 64, 1], [2, 67, 2]]));
+  near('the bar still adds up', after.totalQuarters, 4);
+  assert('the rest it grew into is gone', !/<rest\/>/.test(out), out);
+}
+
+section('10. lengthening eats only part of a longer rest');
+{
+  const xml = wrap(`<part id="P1"><measure number="1">${attrs()}
+    ${note({ step: 'C', octave: 4, dur: 1, type: 'eighth' })}
+    ${note({ rest: true, dur: 7 })}
+  </measure></part>`);
+  const out = editMusicXml(xml, { type: 'duration', partId: 'P1', ordinals: [0], quarters: 1 });
+  const after = parseMusicXml(out);
+  eq('the note grew to a quarter', JSON.stringify(onsets(after)), JSON.stringify([[0, 60, 1]]));
+  near('and the bar still adds up', after.totalQuarters, 4);
+  assert('a three-quarter rest remains', /<rest\/><duration>6<\/duration>/.test(out.replace(/\s+/g, '')), out);
+}
+
+section('11. lengthening is refused when something is in the way');
+{
+  const xml = simpleBar();
+  refuses('a following note blocks it', () =>
+    editMusicXml(xml, { type: 'duration', partId: 'P1', ordinals: [0], quarters: 2 }), /no room/i);
+  refuses('the barline blocks it', () =>
+    editMusicXml(xml, { type: 'duration', partId: 'P1', ordinals: [2], quarters: 4 }), /no room/i);
+  const twoVoice = wrap(`<part id="P1"><measure number="1">${attrs()}
+    ${note({ step: 'C', octave: 5, dur: 2, type: 'quarter', voice: 1 })}
+    ${note({ rest: true, dur: 6, voice: 1 })}
+    <backup><duration>8</duration></backup>
+    ${note({ step: 'C', octave: 3, dur: 8, type: 'whole', voice: 2 })}
+  </measure></part>`);
+  const grown = parseMusicXml(editMusicXml(twoVoice, { type: 'duration', partId: 'P1', ordinals: [0], quarters: 2 }));
+  eq('but a rest in the same voice is fair game', JSON.stringify(onsets(grown)),
+    JSON.stringify([[0, 48, 4], [0, 72, 2]]));
+  refuses('a tuplet is refused in plain words', () => {
+    const t = wrap(`<part id="P1"><measure number="1">${attrs()}
+      ${note({ step: 'C', octave: 4, dur: 2, type: 'quarter', tm: [3, 2] })}
+      ${note({ rest: true, dur: 6 })}
+    </measure></part>`);
+    editMusicXml(t, { type: 'duration', partId: 'P1', ordinals: [0], quarters: 2 });
+  }, /tuplet/i);
+  refuses('a length the rhythm grid cannot write is refused', () =>
+    editMusicXml(xml, { type: 'duration', partId: 'P1', ordinals: [0], quarters: 1 / 3 }), /grid|write/i);
+}
+
+section('12. changing a chord lead’s length moves the whole chord');
+{
+  const xml = wrap(`<part id="P1"><measure number="1">${attrs()}
+    ${note({ step: 'C', octave: 4, dur: 4, type: 'half' })}
+    ${note({ chord: true, step: 'E', octave: 4, dur: 4, type: 'half' })}
+    ${note({ rest: true, dur: 4, type: 'half' })}
+  </measure></part>`);
+  const after = parseMusicXml(editMusicXml(xml, { type: 'duration', partId: 'P1', ordinals: [0], quarters: 3 }));
+  eq('both tones grew together', JSON.stringify(onsets(after)),
+    JSON.stringify([[0, 60, 3], [0, 64, 3]]));
+  near('the bar still adds up', after.totalQuarters, 4);
+  refuses('a chord member redirects to the lead', () =>
+    editMusicXml(xml, { type: 'duration', partId: 'P1', ordinals: [1], quarters: 3 }), /first note/i);
+}
+
+/* ============================================================ 13. add chord */
+section('13. adding a chord tone');
+{
+  const xml = simpleBar();
+  const after = parseMusicXml(editMusicXml(xml, { type: 'addChord', partId: 'P1', ordinals: [0], midi: 67 }));
+  eq('the tone sounds with its note', JSON.stringify(onsets(after)),
+    JSON.stringify([[0, 60, 1], [0, 67, 1], [1, 64, 1], [2, 67, 1]]));
+  near('the bar still adds up', after.totalQuarters, 4);
+  refuses('a duplicate tone is refused', () => {
+    const withChord = editMusicXml(xml, { type: 'addChord', partId: 'P1', ordinals: [0], midi: 67 });
+    editMusicXml(withChord, { type: 'addChord', partId: 'P1', ordinals: [0], midi: 67 });
+  }, /already/i);
+  refuses('a rest cannot take a chord tone', () =>
+    editMusicXml(xml, { type: 'addChord', partId: 'P1', ordinals: [3], midi: 67 }), /rest/i);
+}
+
+/* ====================================================== 14. ordinal mapping */
+section('14. every parsed note’s ordinals reach exactly that note');
+{
+  // Rests, a grace note, a chord, two backup-interleaved voices, a tie: if the
+  // parser and the editor count <note> elements differently anywhere, some
+  // note in here edits the wrong element.
+  const xml = wrap(`<part id="P1">
+    <measure number="1">${attrs()}
+      ${note({ step: 'C', octave: 5, dur: 2, type: 'quarter', voice: 1 })}
+      ${note({ rest: true, dur: 2, voice: 1 })}
+      ${note({ grace: true, step: 'B', octave: 4, type: 'eighth', voice: 1 })}
+      ${note({ step: 'A', octave: 4, dur: 2, type: 'quarter', voice: 1 })}
+      ${note({ chord: true, step: 'C', octave: 5, dur: 2, type: 'quarter', voice: 1 })}
+      ${note({ step: 'G', octave: 4, dur: 2, type: 'quarter', voice: 1, tie: ['start'] })}
+      <backup><duration>8</duration></backup>
+      ${note({ rest: true, dur: 4, voice: 2 })}
+      ${note({ step: 'E', octave: 3, dur: 4, type: 'half', voice: 2 })}
+    </measure>
+    <measure number="2">
+      ${note({ step: 'G', octave: 4, dur: 2, type: 'quarter', voice: 1, tie: ['stop'] })}
+      ${note({ rest: true, dur: 6, voice: 1 })}
+      <backup><duration>8</duration></backup>
+      ${note({ rest: true, dur: 8, voice: 2 })}
+    </measure>
+  </part>`);
+  const score = parseMusicXml(xml);
+  const all = score.parts[0].notes;
+  assert('the fixture parsed with notes to test', all.length >= 5, String(all.length));
+  let aligned = 0;
+  for (let i = 0; i < all.length; i++) {
+    const n = all[i];
+    if (!Array.isArray(n.xmlIndexes) || !n.xmlIndexes.length) continue;
+    const target = n.midi === 127 ? 126 : n.midi + 1;
+    const edited = parseMusicXml(editMusicXml(xml, {
+      type: 'pitch', partId: 'P1', ordinals: n.xmlIndexes, midi: target,
+    }));
+    const got = edited.parts[0].notes;
+    const ok = got.length === all.length
+      && got.every((g, j) => (j === i ? g.midi === target : g.midi === all[j].midi)
+        && Math.abs(g.quarter - all[j].quarter) < 1e-9
+        && Math.abs(g.durationQuarters - all[j].durationQuarters) < 1e-9);
+    if (ok) aligned++;
+    else lines.push(`      ordinal mismatch at note ${i} (midi ${n.midi}, ordinals ${JSON.stringify(n.xmlIndexes)})`);
+  }
+  eq('every note edits exactly itself', aligned, all.length);
+  assert('every parsed note carries ordinals', all.every((n) => Array.isArray(n.xmlIndexes) && n.xmlIndexes.length > 0));
+}
+
+/* ============================================================== 15. ladders */
+section('15. the duration ladder and written types');
+{
+  eq('a quarter’s next step up is a dotted quarter', nextDuration(1, +1), 1.5);
+  eq('a quarter’s next step down is a dotted eighth', nextDuration(1, -1), 0.75);
+  eq('the top of the ladder has no next', nextDuration(DURATION_LADDER[DURATION_LADDER.length - 1], +1), null);
+  eq('the bottom has no previous', nextDuration(0.25, -1), null);
+  eq('1.5 quarters is a dotted quarter', JSON.stringify(quartersToTypeDots(1.5)), '{"type":"quarter","dots":1}');
+  eq('an unclean length has no written type', quartersToTypeDots(7 / 8 * 4), null);
+}
+
+} catch (err) {
+  fatal = (err && err.stack) || String(err);
+}
+
+lines.unshift('RESULT: ' + pass + ' passed, ' + fail + ' failed');
+if (fatal) lines.push('\nFATAL: ' + fatal);
+document.getElementById('out').textContent = lines.join('\n');
+window.__RESULT__ = { passed: pass, failed: fail, fatal: fatal || null };
+window.__DONE__ = true;
+</script>
+</body>
+</html>

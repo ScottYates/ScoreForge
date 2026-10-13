@@ -14,6 +14,8 @@ runs from `file://`.
 | `src/js/io/mscx.js` | MuseScore `.mscx` / `.mscz` → internal score |
 | `src/js/io/files.js` | File intake, zip, type sniffing |
 | `src/js/io/omr.js` | Recognition backend client (health, upload, MusicXML → scores) |
+| `src/js/io/xmledit.js` | Note edits applied to the MusicXML text |
+| `src/js/ui/edit.js` | Selection, edit keys, undo — the note editor |
 | `src/js/audio/instruments.js` | Recorded-instrument roster, silent fallback |
 | `src/js/audio/fx.js` | Reverb / EQ / compressor bus |
 | `src/js/audio/engine.js` | Realtime player + offline renderer |
@@ -139,6 +141,25 @@ Both must:
   directions must not crash the parse,
 - never depend on the DOM being in a particular state beyond `DOMParser`
   (MusicXML only) and `DataView` (MIDI only).
+
+### Edit addressing
+
+`parseMusicXml` records on every model note its XML address:
+`note.xmlIndexes` is the list of ordinals of the `<note>` elements it came
+from — the index among ALL of the part's `<note>` elements in document order,
+rests, cues and grace notes included. A tie chain lists every element it
+merged, first element first. `src/js/io/xmledit.js` counts the same way, and
+the two countings must agree exactly (held by `tests/edit-test.html`, which
+edits every note of a fixture through its recorded ordinals).
+
+`editMusicXml(xml, op)` returns the edited MusicXML string or throws
+`EditError` with a user-facing message. Invariant: no edit changes the length
+of a measure. Deleting leaves a rest (or promotes/removes a chord tone),
+shortening writes rests after the note, lengthening consumes only following
+rests in the same voice inside the bar and is otherwise refused. After an
+edit, the app re-parses the string and reloads both views
+(`App.replaceScoreXml`); nothing edits the model or the rendered page
+directly.
 
 ---
 

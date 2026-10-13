@@ -19,6 +19,8 @@ import { AudioBus, Meter, ROOMS, linToDb } from '../audio/fx.js';
 import { renderToBuffer, encodeMp3, encodeWav, inspectMp3, BITRATES } from '../audio/mp3.js';
 import { NotationView } from '../render/notation.js';
 import { PianoRoll, PALETTE } from '../render/roll.js';
+import { EditController } from './edit.js';
+import { parseMusicXml } from '../io/musicxml.js';
 import { $, el, clear, icon, fmtTime, fmtBytes, fmtDb, toast, modal, bindRange, escapeHtml } from './dom.js';
 
 const ROLL_THEME = {
@@ -109,12 +111,16 @@ export class App {
       chkMetronome: $('#chkMetronome'), chkHuman: $('#chkHuman'), chkNormalize: $('#chkNormalize'),
       countInVal: $('#countInVal'),
       btnZoomIn: $('#btnZoomIn'), btnZoomOut: $('#btnZoomOut'),
+      editBar: $('#editBar'), btnSaveXml: $('#btnSaveXml'),
     };
 
     this.notation = new NotationView(d.paper);
+    this.editor = new EditController(this);
     this.roll = new PianoRoll(d.rollCanvas, {
       theme: ROLL_THEME,
       onSeek: (t) => this.seek(t),
+      onNotePick: (n) => this.editor.pickFromRoll(n),
+      onNoteDrag: (n, d2) => this.editor.dragFromRoll(n, d2),
     });
 
     this._buildSelects();
@@ -288,8 +294,21 @@ export class App {
       t.addEventListener('click', () => this.setView(t.dataset.view));
     }
 
+    // Clicking a note on the engraved score selects it for editing. The paper
+    // scrolls and OSMD owns the SVG, so this is a plain click (no drag) test.
+    d.paper.addEventListener('click', (e) => {
+      if (this.view !== 'score') return;
+      if (this.editor.pickFromNotation(e.clientX, e.clientY)) return;
+      this.editor.clearSelection();
+    });
+
+    d.btnSaveXml.addEventListener('click', () => this._saveMusicXml());
+
     window.addEventListener('keydown', (e) => {
       if (e.target.matches('input,select,textarea')) return;
+      // The note editor owns the keys while a note is selected (and undo
+      // either way); everything it declines falls through to the transport.
+      if (this.editor.handleKey(e)) { e.preventDefault(); return; }
       if (e.key === ' ') { e.preventDefault(); this.togglePlay(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); this.seek(Math.max(0, this.position - (e.shiftKey ? 10 : 3))); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); this.seek(Math.min(this.duration(), this.position + (e.shiftKey ? 10 : 3))); }
@@ -941,9 +960,11 @@ export class App {
     const score = this.library.find((s) => s.id === id) || null;
     this.score = score;
     this.transpose = 0;
+    if (this.editor) { this.editor.sel = null; this.editor.refresh(); }
 
     this._renderLibrary();
     this.dom.btnExport.disabled = !score;
+    if (this.dom.btnSaveXml) this.dom.btnSaveXml.disabled = !score || !score.rawMusicXml;
     this._renderOmrSection();
 
     if (!score) {
@@ -991,7 +1012,7 @@ export class App {
     }
   }
 
-  recompute({ keepPlaying = false } = {}) {
+  recompute({ keepPlaying = false, keepPosition = false } = {}) {
     if (!this.score) return;
     if (keepPlaying) this._engine?.pause();
     this.resolved = resolveScore(this.score, {
@@ -1002,9 +1023,59 @@ export class App {
       this._engine.load(this.resolved, { score: this.score, partInstruments: this.partInstruments });
     }
     this.roll.setScore(this.resolved.notes, this.resolved.timing, this.resolved.durationSec);
-    this.position = 0;
+    this.position = keepPosition ? Math.min(this.position, this.resolved.durationSec) : 0;
     this._syncAll();
     if (keepPlaying && this.playing) this._engine?.play(0);
+  }
+
+  /**
+   * Swap the active score for an edited reading of its own MusicXML.
+   *
+   * Called by the note editor after every edit and undo: the XML is the
+   * source of truth, so the score is re-parsed from it and both views reload.
+   * Identity (library slot, file name, part mixer settings, chosen
+   * instruments, the undo history itself) carries over; the playhead stays
+   * where it was.
+   */
+  async replaceScoreXml(xml) {
+    const old = this.score;
+    if (!old) return;
+    const next = parseMusicXml(xml, { fileName: old.fileName });
+    next.id = old.id;
+    next.fileName = old.fileName;
+    if (!next.title || next.title === 'Untitled') next.title = old.title;
+    next._editUndo = old._editUndo;
+    next._editRedo = old._editRedo;
+    for (const p of next.parts) {
+      const prev = old.parts.find((q) => q.id === p.id);
+      if (!prev) continue;
+      p.gain = prev.gain;
+      p.pan = prev.pan;
+      p.muted = prev.muted;
+      p.solo = prev.solo;
+      p.octaveDouble = prev.octaveDouble;
+    }
+    const idx = this.library.indexOf(old);
+    if (idx >= 0) this.library[idx] = next;
+    this.score = next;
+    if (this.playing) this.stop();
+    this.roll.setTimeSigs(next.timeSigs);
+    this.recompute({ keepPosition: true });
+    this._renderLibrary();
+    this.dom.docMeta.textContent = `${next.composer ? next.composer + ' · ' : ''}${describeScore(next)}`;
+    await this.notation.load(next);
+    this.notation.resetCursor();
+  }
+
+  /** Download the active score's MusicXML, edits included. */
+  _saveMusicXml() {
+    if (!this.score || !this.score.rawMusicXml) return;
+    const base = (this.score.title || this.score.fileName || 'score')
+      .replace(/\.(musicxml|xml|mxl)$/i, '').replace(/[^\w\- ]+/g, '').trim() || 'score';
+    saveBlob(
+      new Blob([this.score.rawMusicXml], { type: 'application/vnd.recordare.musicxml+xml' }),
+      `${base}.musicxml`
+    );
   }
 
   duration() { return this.resolved ? this.resolved.durationSec : 0; }

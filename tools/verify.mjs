@@ -250,6 +250,17 @@ if (notationLoad.code !== 0) {
   failures.push('notation load: ' + (notationLoad.out.trim().split('\n').pop() || notationLoad.err.trim()));
 }
 
+// The note editor, end to end in the built page: click a notehead, edit with
+// the keys, grow into a rest, delete, undo — each assertion reads the
+// re-parsed score, so a break anywhere in click -> XML -> re-parse -> render
+// fails here rather than in someone's correction session.
+const editUi = await run(process.execPath, [path.join(root, 'tools/check-edit-ui.mjs')],
+  { allowFail: true });
+console.log(editUi.out.trim());
+if (editUi.code !== 0) {
+  failures.push('edit ui: ' + (editUi.out.trim().split('\n').pop() || editUi.err.trim()));
+}
+
 // The repair report: the post-processing above quietly rewrites what the
 // recogniser read, and the Transcription panel must say so -- above all which
 // bars were clipped or padded by POLICY, since those are where a person

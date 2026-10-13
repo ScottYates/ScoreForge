@@ -165,6 +165,45 @@ text plays as before, and a document that already declares a tempo is never
 overwritten. `backend/tempo_text.py`; `node tools/check-omr-tempo.mjs` covers
 detection and injection without the OCR.
 
+## Editing notes
+
+Scanned scores come back with wrong pitches, and this is where they get
+fixed. Click a note — on the engraved score or on the piano roll — to select
+it; a bar appears with the actions, and the keyboard does the same things:
+
+| keys | edit |
+|---|---|
+| ↑ / ↓ | semitone up / down |
+| shift+↑ / shift+↓ | octave up / down |
+| ← / → | previous / next note in the part |
+| [ / ] | shorter / longer |
+| delete | remove the note (its time stays, as a rest) |
+| ctrl+Z / ctrl+shift+Z | undo / redo |
+| esc | deselect |
+
+On the piano roll a note can also be dragged up or down; the dashed ghost
+shows where it will land and releasing commits it. The bar's *+tone* button
+adds a chord tone onto the selected note (a free interval near a third), which
+then stays selected so the arrows can tune it.
+
+Every edit is a transformation of the score's own MusicXML
+(`src/js/io/xmledit.js`), after which the page re-parses and re-renders, so
+notation, roll, playback and *Save MusicXML* always agree. Edits never change
+a bar's length: a deleted note leaves a rest, a shortened note leaves a rest
+behind it, and a note only grows into the rest that follows it in its own
+voice — when a note or the barline is in the way the edit is refused and the
+reason appears as a toast. Tuplet rhythms and lengths of tied notes are not
+editable yet; a tied note's pitch is, and the edit moves the whole chain.
+*Save MusicXML* in the top bar downloads the score with the edits in it.
+Editing needs MusicXML, so MIDI files (which have no notation view) are not
+editable; save a scan's transcription and every page of it is.
+
+`tests/edit-test.html` holds the engine to the bar arithmetic and proves the
+parser and the editor address the same `<note>` elements across rests, grace
+notes, chords and backup-interleaved voices; `node tools/check-edit-ui.mjs`
+drives the BUILT page end to end — a real click position taken from the drawn
+SVG, through the XML, the re-parse and the re-render.
+
 ## Instruments
 
 Twenty-nine recorded instruments, and nothing else: the synthesiser that used

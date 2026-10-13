@@ -262,7 +262,7 @@ const tiny = run(320, 568, NARROW);
 ok('320px: nothing scrolls sideways', tiny.noOverflow === true, `scrollWidth ${tiny.scrollWidth}`);
 ok('320px: the play button is reachable and touch-sized', tiny.playOk === true);
 ok('320px: every top bar control is on screen',
-  Array.isArray(tiny.topActions) && tiny.topActions.length === 4 && tiny.topActions.every((b) => b.ok),
+  Array.isArray(tiny.topActions) && tiny.topActions.length === 5 && tiny.topActions.every((b) => b.ok),
   JSON.stringify(tiny.topActions));
 ok('320px: the score\'s name shows whole, not an ellipsis', tiny.titleShown === true,
   JSON.stringify(tiny.titlePx));

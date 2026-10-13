@@ -299,6 +299,95 @@ export class NotationView {
     this.stepIndex = -1;
   }
 
+  /**
+   * The written note nearest a client-coordinate click, as the address the
+   * editor understands: part id, measure index, offset within the measure (in
+   * quarters) and written MIDI. Null when the click lands on nothing, on a
+   * rest, or before OSMD has drawn that part of the page.
+   */
+  noteAtClientPoint(clientX, clientY) {
+    if (!this.osmd) return null;
+    try {
+      const gs = this.osmd.GraphicSheet;
+      const svgPt = gs.domToSvg({ x: clientX, y: clientY });
+      const pt = gs.svgToOsmd({ x: svgPt.x, y: svgPt.y });
+      const g = gs.GetNearestNote(pt, undefined);
+      if (!g || !g.sourceNote) return null;
+      return this._address(g);
+    } catch (e) {
+      console.error('note pick failed', e);
+      return null;
+    }
+  }
+
+  /** Graphical note -> editor address, or null for a rest. */
+  _address(g) {
+    const src = g.sourceNote;
+    if (!src.Pitch) return null; // rests are not editable targets yet
+    const staffEntry = g.parentVoiceEntry && g.parentVoiceEntry.parentStaffEntry;
+    const gMeasure = staffEntry && staffEntry.parentMeasure;
+    const sourceMeasure = gMeasure && gMeasure.parentSourceMeasure;
+    const measureIndex = sourceMeasure && typeof sourceMeasure.measureListIndex === 'number'
+      ? sourceMeasure.measureListIndex : -1;
+    if (measureIndex < 0) return null;
+    const within = fractionToQuarters(staffEntry.relInMeasureTimestamp);
+    const instrument = src.ParentVoiceEntry
+      && src.ParentVoiceEntry.ParentVoice && src.ParentVoiceEntry.ParentVoice.Parent;
+    const partId = instrument && (instrument.IdString != null ? instrument.IdString : instrument.idString);
+    if (!partId) return null;
+    // OSMD's halfTone is MIDI minus 12 (its 57 is A4 = MIDI 69).
+    const midi = src.Pitch.getHalfTone() + 12;
+    return { partId, measureIndex, within, midi, graphical: g };
+  }
+
+  /**
+   * Paint one note as selected. Address as from noteAtClientPoint; when the
+   * graphical note is not supplied (after a re-render), it is looked up again.
+   * Returns true when a notehead was actually painted.
+   */
+  highlightNote(addr) {
+    this.clearHighlight();
+    if (!this.osmd || !addr) return false;
+    try {
+      const g = addr.graphical || this._findGraphicalNote(addr);
+      const svg = g && g.getSVGGElement && g.getSVGGElement();
+      if (!svg) return false;
+      svg.classList.add('sf-selected');
+      this._selectedSvg = svg;
+      return true;
+    } catch { return false; }
+  }
+
+  clearHighlight() {
+    if (this._selectedSvg) {
+      try { this._selectedSvg.classList.remove('sf-selected'); } catch { /* detached */ }
+      this._selectedSvg = null;
+    }
+  }
+
+  /** Walk the drawn measure the address names and match its note again. */
+  _findGraphicalNote(addr) {
+    const list = this.osmd.GraphicSheet && this.osmd.GraphicSheet.MeasureList;
+    const row = list && list[addr.measureIndex];
+    if (!row) return null;
+    let best = null;
+    let bestScore = Infinity;
+    for (const measure of row) {
+      if (!measure || !measure.staffEntries) continue;
+      for (const se of measure.staffEntries) {
+        for (const ve of se.graphicalVoiceEntries || []) {
+          for (const note of ve.notes || []) {
+            const a = this._address(note);
+            if (!a || a.partId !== addr.partId) continue;
+            const d = Math.abs(a.within - addr.within) + (a.midi === addr.midi ? 0 : 1000);
+            if (d < bestScore) { bestScore = d; best = note; }
+          }
+        }
+      }
+    }
+    return bestScore < 0.05 ? best : null;
+  }
+
   setZoom(z) {
     this.zoom = Math.max(0.4, Math.min(2.5, z));
     if (this.osmd) {
@@ -327,6 +416,7 @@ export class NotationView {
     this.osmd = null;
     this.steps = null;
     this.stepIndex = -1;
+    this._selectedSvg = null;
     this.container.innerHTML = '';
   }
 }

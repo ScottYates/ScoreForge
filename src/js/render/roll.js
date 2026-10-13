@@ -29,6 +29,11 @@ export class PianoRoll {
     this.scrollY = 0;     // in semitones from the bottom
     this.lit = new Map(); // note.id -> expiry time, for the "sounding" tint
     this.onSeek = opts.onSeek || null;
+    /** Tap on a note (instead of a seek). */
+    this.onNotePick = opts.onNotePick || null;
+    /** Vertical drag on a note, committed on release: (note, deltaSemitones). */
+    this.onNoteDrag = opts.onNoteDrag || null;
+    this.selectedId = null;
     this.theme = opts.theme || {};
     this._dpr = 1;
     this._raf = null;
@@ -51,6 +56,33 @@ export class PianoRoll {
   }
 
   setColorForPart(map) { this.partColors = map; }
+
+  /** Mark one note (by its resolved id) as selected; null clears. */
+  setSelected(id) {
+    this.selectedId = id || null;
+    this._scheduleDraw();
+  }
+
+  /**
+   * The note under a canvas-local point, or null. Same geometry as draw(),
+   * with the hit box padded a couple of pixels so thin notes are clickable.
+   */
+  noteAt(cx, cy) {
+    if (cx < 78 || cy < 18) return null;
+    const pad = 2;
+    let best = null;
+    for (const n of this.notes) {
+      const y = this.yForMidi(n.midi);
+      const nh = Math.max(3, Math.min(9, this.rowH - 2));
+      if (cy < y + 1 - pad || cy > y + 1 + nh + pad) continue;
+      const x = this.xForTime(n.time);
+      const nx = this.xForTime(n.time + Math.max(0.05, n.duration));
+      if (cx < x - pad || cx > Math.max(nx, x + 2) + pad) continue;
+      // Later notes draw on top; prefer the one whose start is nearest.
+      if (!best || Math.abs(cx - x) < Math.abs(cx - this.xForTime(best.time))) best = n;
+    }
+    return best;
+  }
 
   setScore(notes, timing, durationSec) {
     this.notes = notes || [];
@@ -249,6 +281,30 @@ export class PianoRoll {
         c.fill();
         c.globalAlpha = 1;
       }
+
+      if (this.selectedId && n.id === this.selectedId) {
+        c.strokeStyle = t.selected || '#ffffff';
+        c.lineWidth = 1.6;
+        c.strokeRect(x - 1, y, wdt + 2, nh + 2);
+      }
+    }
+
+    // Pitch-drag ghost: where the dragged note will land on release.
+    if (this._dragGhost && this._dragGhost.dSemis !== 0) {
+      const gn = this._dragGhost.note;
+      const target = Math.max(0, Math.min(127, gn.midi + this._dragGhost.dSemis));
+      const gy = this.yForMidi(target);
+      const gx = Math.max(x0 - 1, this.xForTime(gn.time));
+      const gw = Math.max(2, this.xForTime(gn.time + Math.max(0.05, gn.duration)) - gx - 1);
+      const gh = Math.max(3, Math.min(9, this.rowH - 2));
+      c.setLineDash([4, 3]);
+      c.strokeStyle = t.selected || '#ffffff';
+      c.lineWidth = 1.4;
+      c.strokeRect(gx, gy + 1, gw, gh);
+      c.setLineDash([]);
+      c.fillStyle = t.text || '#e8eaf0';
+      c.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+      c.fillText(midiToName(target), Math.max(x0 + 2, gx), gy - 4);
     }
 
     // Playhead
@@ -334,8 +390,13 @@ export class PianoRoll {
     try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
     this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this._pointers.size === 1) {
+      // A press that lands on a note can become a pick (tap) or a pitch drag;
+      // one that lands on empty space keeps the old tap-to-seek and pan.
+      const rect = this.canvas.getBoundingClientRect();
+      const hit = (this.onNotePick || this.onNoteDrag)
+        ? this.noteAt(e.clientX - rect.left, e.clientY - rect.top) : null;
       this._gesture = {
-        mode: 'tap',
+        mode: 'tap', note: hit, dSemis: 0,
         startX: e.clientX, startY: e.clientY, startAt: performance.now(),
         viewStart0: this.viewStart, scrollY0: this.scrollY,
       };
@@ -375,7 +436,15 @@ export class PianoRoll {
     const dx = e.clientX - g.startX;
     const dy = e.clientY - g.startY;
     if (g.mode === 'tap' && Math.hypot(dx, dy) <= PianoRoll.TAP_SLOP_PX) return;
-    g.mode = 'drag';
+    if (g.mode === 'tap') g.mode = g.note && this.onNoteDrag ? 'notedrag' : 'drag';
+    if (g.mode === 'notedrag') {
+      // Dragging a note moves its pitch, not the view; the ghost shows where
+      // it will land and the release commits it.
+      g.dSemis = Math.max(-48, Math.min(48, Math.round(-dy / this.rowH)));
+      this._dragGhost = { note: g.note, dSemis: g.dSemis };
+      this.draw();
+      return;
+    }
     this.viewStart = this._clampViewStart(g.viewStart0 - dx / this.pixelsPerSecond);
     // The notes follow the finger: y grows with (midi - scrollY), so moving
     // the finger down means less scrollY, not more.
@@ -387,13 +456,22 @@ export class PianoRoll {
   _pointerUp(e) {
     if (!this._pointers.delete(e.pointerId)) return;
     const g = this._gesture;
+    if (g && g.mode === 'notedrag' && this._pointers.size === 0) {
+      this._dragGhost = null;
+      if (g.dSemis !== 0 && this.onNoteDrag) this.onNoteDrag(g.note, g.dSemis);
+      else this.draw();
+    }
     if (g && g.mode === 'tap' && this._pointers.size === 0) {
       const travelled = Math.hypot(e.clientX - g.startX, e.clientY - g.startY);
       const held = performance.now() - g.startAt;
       if (travelled <= PianoRoll.TAP_SLOP_PX && held <= PianoRoll.TAP_MS) {
-        const rect = this.canvas.getBoundingClientRect();
-        const t = this.timeForX(e.clientX - rect.left);
-        if (this.onSeek) this.onSeek(Math.min(this.duration, t));
+        if (g.note && this.onNotePick) {
+          this.onNotePick(g.note);
+        } else {
+          const rect = this.canvas.getBoundingClientRect();
+          const t = this.timeForX(e.clientX - rect.left);
+          if (this.onSeek) this.onSeek(Math.min(this.duration, t));
+        }
       }
     }
     if (this._pointers.size === 0) {
@@ -412,7 +490,10 @@ export class PianoRoll {
 
   _pointerCancel(e) {
     this._pointers.delete(e.pointerId);
-    if (this._pointers.size === 0) this._gesture = null;
+    if (this._pointers.size === 0) {
+      this._gesture = null;
+      if (this._dragGhost) { this._dragGhost = null; this.draw(); }
+    }
   }
 
   _onWheel(e) {

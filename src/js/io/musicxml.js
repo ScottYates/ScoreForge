@@ -312,6 +312,11 @@ function parsePart(state, ctx) {
       const el = els[k];
       const tag = tagOf(el);
       if (tag === 'note') {
+        // Ordinal of this <note> among all of the part's <note> elements, in
+        // document order, rests and skipped notes included. The editor
+        // (io/xmledit.js) counts the same way, so a model note can name its
+        // XML elements exactly.
+        state.xmlOrdinal = state.xmlOrdinal == null ? 0 : state.xmlOrdinal + 1;
         readNote(el, state, mi, ctx);
       } else if (tag === 'backup') {
         captureMeasureTime(state);
@@ -644,6 +649,7 @@ function readNote(el, state, mi, ctx) {
     });
     note._m = mi;
     note._o = onset;
+    note.xmlIndexes = [state.xmlOrdinal];
     state.notes.push(note);
     if (!isChord) {
       // Grace notes are printed before the beat they decorate and take no time.
@@ -654,6 +660,7 @@ function readNote(el, state, mi, ctx) {
     if (tie.stop) note.tieFrom = true;   // continuation whose start note is missing
   } else {
     state.merges.push({ note: previous, length: quavers, mi, off: onset });
+    if (previous.xmlIndexes) previous.xmlIndexes.push(state.xmlOrdinal);
     if (!isChord && !isGrace) state.measureCursor += quavers;
     // The surviving note is still the sounding onset of this position, so a
     // <chord/> tone written against the tied note must hang off it.
