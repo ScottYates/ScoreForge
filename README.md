@@ -167,22 +167,23 @@ detection and injection without the OCR.
 
 ## Instruments
 
-Fifty recorded instruments, and nothing else: the synthesiser that used to be
-the offline fallback was removed, so what you hear is always a recording or
-silence that says why.
+Twenty-nine recorded instruments, and nothing else: the synthesiser that used
+to be the offline fallback was removed, and so were the FreePats banks that
+are recordings of synthesisers (FM pianos, synth basses, leads, pads, synth
+strings and brass). What you hear is always a recording of a real instrument,
+or silence that says why.
 
 **Which one a part gets.** A recording, always. A part's MusicXML instrument
 name, its MIDI program, or (when the file says neither) the default all lead
 to a recorded instrument (`src/js/audio/gm.js`; the default, the upright piano,
 is `DEFAULT_INSTRUMENT` in `instruments.js`). All 128 General MIDI programs land
 on one. The pack has no recording of some families (bowed strings, brass,
-flute, choir, the tuned mallets, harpsichord); those go to the nearest
-recording rather than to the model: synth strings for a violin, the recorder
-for a flute. Vocal parts (a part named Voice, Choir or Soprano, or the GM
-choir programs) go to the recorded upright piano, the instrument a sung line
-is usually rehearsed against. They never default to the "Synth Pad, Choir"
-bank, which is a recording of a synthesiser and sounds like one. The
-substitutions are listed once, as `GAPS` in `gm.js`.
+flute, choir, the tuned mallets, harpsichord, electric piano, and everything
+GM files under synth); those go to the nearest real recording: the church
+organ for a violin, the rock organ for a trumpet, the recorder for a flute.
+Vocal parts (a part named Voice, Choir or Soprano, or the GM choir programs)
+go to the recorded upright piano, the instrument a sung line is usually
+rehearsed against. The substitutions are listed once, as `GAPS` in `gm.js`.
 
 **When a pack cannot be had** (a page opened from `file://`, a download that
 failed), the instrument is a silent one that answers the full playback
@@ -190,13 +191,13 @@ interface and names its missing pack. Playback and export complete; the parts
 are silent; the status line, a one-time toast and the export dialog's
 *Instruments* line all say so. Nothing substitutes a different sound.
 
-**Recorded** (50 instruments, a `pack/` directory of ~268 MB). Real sampled
-instruments, in six picker groups: piano, organ, plucked & struck, guitar & bass,
-winds & reed, and synth. Every take is its source WAV re-encoded and nothing
+**Recorded** (29 instruments, a `pack/` directory of ~167 MB). Real sampled
+instruments, in five picker groups: piano, organ, plucked & struck, guitar & bass,
+and winds & reed. Every take is its source WAV re-encoded and nothing
 else: no trim, no normalisation, no truncation.
 
-The pack ships as one `<bank>.pack` file per instrument (50 files plus the
-manifest) rather than one MP3 per take (about 4,200 files). A bundle is the
+The pack ships as one `<bank>.pack` file per instrument (29 files plus the
+manifest) rather than one MP3 per take (about 2,500 files). A bundle is the
 bank's take MP3s concatenated; the manifest records each take's byte offset
 and length. The page fetches a single take out of a bundle with an HTTP Range
 request, and falls back to downloading the whole bank once when a server
@@ -781,10 +782,10 @@ is fetched at runtime.
   fetched from a `file://` page. There the page still opens for notation and
   editing, every part is silent, and the page and the export both say so.
 - The pack has no recorded bowed strings, brass, flute, choir, tuned mallets or
-  harpsichord. Those parts play the nearest recording (`GAPS` in `gm.js`), which
-  for strings and brass is a recording of a synthesiser, not of the instrument.
-  Vocal parts play the recorded upright piano; pick the synth choir pad per
-  part if a pad is what you want.
+  harpsichord, and the recordings of synthesisers were removed. Those parts
+  play the nearest real recording (`GAPS` in `gm.js`): the church organ for
+  strings, the rock organ for brass, the recorder for a flute. Vocal parts
+  play the recorded upright piano.
 - The recorded pack has one dynamic layer per instrument, so dynamics come from
   the sampler's gain curve rather than from velocity-layered samples. The
   upright piano is the exception: its bank ships two hammers per key and
@@ -796,9 +797,6 @@ is fetched at runtime.
   past a few seconds into a drone that jumped back up to full level. Its takes
   are also kept to 10 s rather than the 4 s the other families get, because an
   A2 on that bank is still audible at four.
-- The two FM pianos are grouped under the synth banks. FreePats calls them
-  "FM Synthesized Piano": they are recordings of a synthesiser, so listing
-  them with the acoustic instruments would be misleading.
 - A key with no recording of its own is played by resampling its nearest
   neighbour, up to three semitones. Marimba and xylophone have gaps wide enough
   to need the full three, so those keys are a resample rather than a real take.

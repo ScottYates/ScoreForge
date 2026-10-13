@@ -37,13 +37,6 @@ export const FREEPATS_BANKS = [
     fallback: 'felt-piano', loop: false },
   { slug: 'old-piano-fb', pack: 'fp-honky-tonk', name: 'Honky-Tonk Piano (recorded)',
     fallback: 'felt-piano', target: 0.42, loop: false },
-  // FreePats names these "FM Synthesized Piano". They are synthesis, and saying
-  // "(recorded)" next to them sent people looking for a piano that was not there.
-  { slug: 'fm-synthesized-piano-1', pack: 'fp-fm-piano-1', name: 'FM Piano I (synthesised)',
-    fallback: 'rhodes', group: 'Synth' },
-  { slug: 'fm-synthesized-piano-2', pack: 'fp-fm-piano-2', name: 'FM Piano II (synthesised)',
-    fallback: 'rhodes', group: 'Synth' },
-
   // -- organs ---------------------------------------------------------------
   { slug: 'church-organ-emulation', pack: 'fp-church-organ', name: 'Church Organ (recorded)', fallback: 'pipe-organ', target: 0.42 },
   { slug: 'drawbar-organ-emulation', pack: 'fp-drawbar-organ', name: 'Drawbar Organ (recorded)', fallback: 'rhodes' },
@@ -68,7 +61,6 @@ export const FREEPATS_BANKS = [
   { slug: 'fsbs-electric-guitar-distorted-1', pack: 'fp-eg-dist-1', name: 'Electric Guitar, Distorted I (recorded)', fallback: 'analog-lead', target: 0.42 },
   { slug: 'fsbs-electric-guitar-distorted-2', pack: 'fp-eg-dist-2', name: 'Electric Guitar, Distorted II (recorded)', fallback: 'analog-lead', target: 0.42 },
   { slug: 'bass-guitar-yr', pack: 'fp-bass-guitar', name: 'Bass Guitar (recorded)', fallback: 'electric-bass' },
-  { slug: 'lately-bass', pack: 'fp-lately-bass', name: 'Lately Bass (recorded)', fallback: 'electric-bass' },
 
   // -- orchestral -----------------------------------------------------------
   { slug: 'clarinet', pack: 'fp-clarinet', name: 'Clarinet (recorded)', fallback: 'clarinet' },
@@ -82,29 +74,9 @@ export const FREEPATS_BANKS = [
   { slug: 'tubular-bells', pack: 'fp-tubular-bells', name: 'Tubular Bells (recorded)', fallback: 'glockenspiel', target: 0.38 },
   { slug: 'timpani', pack: 'fp-timpani', name: 'Timpani (recorded)', fallback: 'timpani', target: 0.42 },
 
-  // -- synth: bass ----------------------------------------------------------
-  { slug: 'synth-bass-1', pack: 'fp-synth-bass-1', name: 'Synth Bass I (recorded)', fallback: 'electric-bass' },
-  { slug: 'synth-bass-2', pack: 'fp-synth-bass-2', name: 'Synth Bass II (recorded)', fallback: 'electric-bass' },
-  { slug: 'synth-bass-lead', pack: 'fp-synth-bass-lead', name: 'Synth Bass & Lead (recorded)', fallback: 'electric-bass' },
-
-  // -- synth: leads ---------------------------------------------------------
-  { slug: 'synth-lead-square', pack: 'fp-synth-square', name: 'Synth Lead, Square (recorded)', fallback: 'analog-lead' },
-  { slug: 'synth-lead-calliope', pack: 'fp-synth-calliope', name: 'Synth Lead, Calliope (recorded)', fallback: 'analog-lead' },
-  { slug: 'synth-fifths', pack: 'fp-synth-fifths', name: 'Synth Fifths (recorded)', fallback: 'analog-lead' },
-  { slug: 'synth-goblins', pack: 'fp-synth-goblins', name: 'Synth Goblins (recorded)', fallback: 'analog-lead' },
-  { slug: 'synth-sci-fi', pack: 'fp-synth-sci-fi', name: 'Synth Sci-Fi (recorded)', fallback: 'analog-lead' },
-  { slug: 'synth-soundtrack', pack: 'fp-synth-soundtrack', name: 'Synth Soundtrack (recorded)', fallback: 'warm-pad' },
-
-  // -- synth: pads and ensembles -------------------------------------------
-  { slug: 'synth-strings-1', pack: 'fp-synth-strings-1', name: 'Synth Strings I (recorded)', fallback: 'strings' },
-  { slug: 'synth-strings-2', pack: 'fp-synth-strings-2', name: 'Synth Strings II (recorded)', fallback: 'strings' },
-  { slug: 'synth-brass-1', pack: 'fp-synth-brass-1', name: 'Synth Brass I (recorded)', fallback: 'strings' },
-  { slug: 'synth-brass-2', pack: 'fp-synth-brass-2', name: 'Synth Brass II (recorded)', fallback: 'strings' },
-  { slug: 'synth-pad-choir', pack: 'fp-synth-pad-choir', name: 'Synth Pad, Choir (recorded)', fallback: 'choir' },
-  { slug: 'synth-pad-bowed', pack: 'fp-synth-pad-bowed', name: 'Synth Pad, Bowed (recorded)', fallback: 'warm-pad' },
-  { slug: 'sweep-pad', pack: 'fp-sweep-pad', name: 'Synth Sweep Pad (recorded)', fallback: 'warm-pad' },
-  { slug: 'new-age', pack: 'fp-new-age', name: 'Synth Pad, New Age (recorded)', fallback: 'warm-pad' },
-  { slug: 'synth-crystal', pack: 'fp-synth-crystal', name: 'Synth Crystal (recorded)', fallback: 'music-box', target: 0.40 },
+  // Recordings of synthesisers (FM pianos, synth basses, leads, pads, Lately
+  // Bass) were removed from the roster: a sampled synthesiser still sounds
+  // like a synthesiser, and this app plays recordings of real instruments.
 ];
 
 /** Look up one bank's configuration by its download directory name. */
@@ -115,15 +87,13 @@ export function freepatsBank(slug) {
 /**
  * Picker group per bank.
  *
- * The instrument list renders one <optgroup> per group, and with fifty new
- * instruments a single "Recorded" group is a wall of sixty names with nothing to
- * tell you which is which. These mirror the sections the FreePats site itself
- * uses, so the app and the website agree about where an instrument lives.
+ * The instrument list renders one <optgroup> per group; a single "Recorded"
+ * group would be a wall of names with nothing to tell you which is which.
+ * These mirror the sections the FreePats site itself uses, so the app and the
+ * website agree about where an instrument lives.
  */
 const GROUPS = {
   'fp-upright': 'Piano', 'fp-honky-tonk': 'Piano',
-  // Synthesised, so they belong with the synths even though they play piano keys.
-  'fp-fm-piano-1': 'Synth', 'fp-fm-piano-2': 'Synth',
 
   'fp-church-organ': 'Organ', 'fp-drawbar-organ': 'Organ',
   'fp-percussive-organ': 'Organ', 'fp-rock-organ': 'Organ',
@@ -139,19 +109,11 @@ const GROUPS = {
   'fp-eg-clean': 'Guitar & Bass', 'fp-eg-jazz': 'Guitar & Bass',
   'fp-eg-direct': 'Guitar & Bass', 'fp-eg-dist-1': 'Guitar & Bass',
   'fp-eg-dist-2': 'Guitar & Bass',
-  'fp-bass-guitar': 'Guitar & Bass', 'fp-lately-bass': 'Guitar & Bass',
+  'fp-bass-guitar': 'Guitar & Bass',
 
   'fp-clarinet': 'Winds & Reed', 'fp-tenor-sax': 'Winds & Reed',
   'fp-ocarina': 'Winds & Reed', 'fp-recorder': 'Winds & Reed',
   'fp-bagpipe': 'Winds & Reed',
-
-  'fp-synth-bass-1': 'Synth', 'fp-synth-bass-2': 'Synth', 'fp-synth-bass-lead': 'Synth',
-  'fp-synth-square': 'Synth', 'fp-synth-calliope': 'Synth', 'fp-synth-fifths': 'Synth',
-  'fp-synth-goblins': 'Synth', 'fp-synth-sci-fi': 'Synth', 'fp-synth-soundtrack': 'Synth',
-  'fp-synth-strings-1': 'Synth', 'fp-synth-strings-2': 'Synth',
-  'fp-synth-brass-1': 'Synth', 'fp-synth-brass-2': 'Synth',
-  'fp-synth-pad-choir': 'Synth', 'fp-synth-pad-bowed': 'Synth',
-  'fp-sweep-pad': 'Synth', 'fp-new-age': 'Synth', 'fp-synth-crystal': 'Synth',
 };
 
 /**

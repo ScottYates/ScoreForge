@@ -50,7 +50,7 @@ const SEVENZ = flag('7z', 'C:\\Users\\scott\\files\\tools\\7zip\\7z.exe');
 const SKIP = {
   'Salamander Grand Piano': 'a duplicate of a library already used here; this copy is 48 kHz/24-bit and 1.2 GiB',
   'MuldjordKit': 'drum kit, unpitched; also the one bank under CC BY 4.0',
-  'FreePats General MIDI set': 'whole General MIDI set, GPL, and mostly redundant with the synth banks',
+  'FreePats General MIDI set': 'whole General MIDI set, GPL, and largely synthesised rather than recorded',
   'FreePats General MIDI percussion set': 'unpitched percussion, GPL',
   'FreePats synthesizer percussion': 'unpitched',
   'World percussion': 'unpitched hand percussion',

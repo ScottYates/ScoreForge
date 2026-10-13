@@ -684,7 +684,7 @@ function main() {
       continue;
     }
 
-    // Per-family progress. With fifty-odd banks this runs for minutes, and a
+    // Per-family progress. With dozens of banks this runs for minutes, and a
     // build that prints nothing until the end is indistinguishable from a build
     // that has hung.
     const label = `${String(++done).padStart(2)}/${FAMILIES.length} ${cfg.pack.padEnd(22)}`;
@@ -837,7 +837,7 @@ function main() {
       //
       // `changes` describes one family's edit -- its channel count, its
       // truncation, whether it loops -- but it is recorded once per SOURCE, and
-      // the FreePats source covers fifty families that differ in all three. The
+      // the FreePats source covers dozens of families that differ in all three. The
       // first one built would otherwise supply its description to the other
       // forty-nine. None of them need it, because CC0 asks for no statement at
       // all, so the honest thing is to record none rather than record one that

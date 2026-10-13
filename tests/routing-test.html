@@ -71,9 +71,16 @@ try {
     0: 'rec-fp-upright', 3: 'rec-fp-honky-tonk', 19: 'rec-fp-church-organ', 21: 'rec-fp-accordion',
     24: 'rec-fp-nylon-guitar', 25: 'rec-fp-steel-guitar', 33: 'rec-fp-bass-guitar', 46: 'rec-fp-harp',
     47: 'rec-fp-timpani', 66: 'rec-fp-tenor-sax', 71: 'rec-fp-clarinet', 74: 'rec-fp-recorder',
-    // The three GM voice programs: a vocal score must not default to a synth
-    // pad, however the file spells "voice".
+    // The three GM voice programs: a vocal score defaults to the rehearsal
+    // piano, however the file spells "voice".
     52: 'rec-fp-upright', 53: 'rec-fp-upright', 54: 'rec-fp-upright',
+    // The families with no recording, now that the synthesiser recordings are
+    // gone: electric pianos to the upright, bowed strings to the church organ,
+    // brass to the rock organ, synth basses to the bass guitar.
+    4: 'rec-fp-upright', 5: 'rec-fp-upright',
+    38: 'rec-fp-bass-guitar', 39: 'rec-fp-bass-guitar',
+    40: 'rec-fp-church-organ', 42: 'rec-fp-church-organ', 48: 'rec-fp-church-organ',
+    56: 'rec-fp-rock-organ', 57: 'rec-fp-rock-organ', 61: 'rec-fp-rock-organ',
     79: 'rec-fp-ocarina', 109: 'rec-fp-bagpipe', 14: 'rec-fp-tubular-bells', 13: 'rec-fp-xylophone',
   };
   for (const [p, want] of Object.entries(spot)) {
@@ -94,30 +101,37 @@ try {
     // "e piano" inside ordinary words must not become an electric piano.
     'The Piano': 'rec-fp-upright',
     'Grande piano': 'rec-fp-upright',
-    'Electric Piano': 'rec-fp-fm-piano-1',
-    'E-Piano': 'rec-fp-fm-piano-1',
-    'E. Piano': 'rec-fp-fm-piano-1',
+    // No electric piano is recorded; the upright stands in. "Rhodes" matters:
+    // "Electric Piano" would reach the upright through the general piano rule
+    // anyway, but "Rhodes" only routes if the electric-piano row itself points
+    // at a roster id.
+    'Rhodes': 'rec-fp-upright',
+    'Electric Piano': 'rec-fp-upright',
+    'E-Piano': 'rec-fp-upright',
+    'E. Piano': 'rec-fp-upright',
     'Honky-tonk Piano': 'rec-fp-honky-tonk',
     // harpsichord contains "harp"; it is a keyboard, not a harp.
     'Harpsichord': 'rec-fp-honky-tonk',
     'Harp': 'rec-fp-harp',
     'Jaw Harp': 'rec-fp-jaw-harp',
-    'Violin I': 'rec-fp-synth-strings-1',
-    'Violoncello': 'rec-fp-synth-strings-1',
-    'Contrabass': 'rec-fp-synth-strings-1',
+    // No bowed string or brass is recorded: strings go to the church organ,
+    // brass to the rock organ, basses of any kind to the bass guitar.
+    'Violin I': 'rec-fp-church-organ',
+    'Violoncello': 'rec-fp-church-organ',
+    'Contrabass': 'rec-fp-bass-guitar',
     'Double Bass': 'rec-fp-bass-guitar',
     'Bass Guitar': 'rec-fp-bass-guitar',
-    'Synth Bass': 'rec-fp-synth-bass-1',
-    'Trumpet in Bb': 'rec-fp-synth-brass-1',
-    'French Horn': 'rec-fp-synth-brass-1',
+    'Synth Bass': 'rec-fp-bass-guitar',
+    'Trumpet in Bb': 'rec-fp-rock-organ',
+    'French Horn': 'rec-fp-rock-organ',
     // "horn" is brass, but an English horn is an oboe.
     'English Horn': 'rec-fp-clarinet',
     'Clarinet in A': 'rec-fp-clarinet',
     'Alto Saxophone': 'rec-fp-tenor-sax',
     'Flute': 'rec-fp-recorder',
     'Ocarina': 'rec-fp-ocarina',
-    // Vocal parts land on the recorded piano -- what a sung line is rehearsed
-    // against -- never on the recorded synth pad.
+    // Vocal parts land on the recorded piano, what a sung line is rehearsed
+    // against.
     'Choir Aahs': 'rec-fp-upright',
     'Voice': 'rec-fp-upright',
     'Vocal': 'rec-fp-upright',

@@ -23,7 +23,7 @@ export const PUBLIC_DOMAIN = 'CC0 1.0 Universal (public domain)';
  * What a licence actually demands, which is not the same question as whether
  * it is CC0.
  *
- * Forty-nine of the fifty packs are CC0 and owe nothing. The FSS steel-string
+ * All but one of the packs are CC0 and owe nothing. The FSS steel-string
  * guitar is GPL-3+ with the sample exception, which asks for the terms to be
  * conveyed and leaves the sample files under that licence -- a different
  * obligation, and describing it as "attribution required" would understate it.

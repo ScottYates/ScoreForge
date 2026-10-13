@@ -17,11 +17,11 @@
  * decode succeeded, but no source node was ever started.
  *
  * So decoding has to happen at an async boundary *before* the first note. How
- * much of it happens there is the question. Decoding the whole pack up front was
- * fine for nine families (about 40 MiB) and impossible for sixty: the fifty
- * FreePats banks are 2.2 GB of MP3, which decode to 4.3 GB of floating-point
- * PCM, and a browser tab cannot be asked to sit on all of that before playing
- * the first note.
+ * much of it happens there is the question. Decoding the whole pack up front
+ * was fine for nine families (about 40 MiB) but not for the full roster: the
+ * FreePats banks are ~170 MB of MP3, which decode to several GB of
+ * floating-point PCM, and a browser tab cannot be asked to sit on all of that
+ * before playing the first note.
  *
  * Hence the split:
  *
@@ -1144,9 +1144,8 @@ export function loadedPackIds() {
  * tools/make-pack.mjs from the SOURCES table and travel inside the pack, so
  * they cannot fall out of step with the files that were actually shipped.
  *
- * Deduplicated by source, because one library covers forty-nine of the fifty
- * packs and listing it forty-nine times would read as an error rather than as a
- * credit.
+ * Deduplicated by source, because one library covers all but one of the packs
+ * and listing it once per pack would read as an error rather than as a credit.
  */
 export function packCredits() {
   const bySource = new Map();

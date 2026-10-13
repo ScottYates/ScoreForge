@@ -9,10 +9,11 @@
  * whose pack cannot be had is silent and says so (see instruments.js). So
  * "which recording is closest" is decided here, once.
  *
- * The FreePats banks do not cover every GM family with a real instrument. There
- * is no recorded bowed string, brass, flute, choir, celesta or harpsichord in
- * the pack, and the nearest *recording* is used rather than the model: synth
- * strings for a violin, synth brass for a trumpet, the recorder for a flute.
+ * The FreePats banks do not cover every GM family with a real instrument.
+ * There is no recorded bowed string, brass, flute, choir, celesta or
+ * harpsichord in the pack, and the recordings of synthesisers were removed
+ * from the roster, so the nearest real recording stands in: the church organ
+ * for a violin, the rock organ for a trumpet, the recorder for a flute.
  * Those substitutions are listed in GAPS below so they are visible rather than
  * buried in a table of 128 strings, and so a test can hold the list honest.
  *
@@ -32,7 +33,7 @@ const GM = [
   // 0-7   Piano: acoustic grand, bright, electric grand, honky-tonk,
   //       EP 1, EP 2, harpsichord, clavinet
   R('upright'), R('upright'), R('upright'), R('honky-tonk'),
-  R('fm-piano-1'), R('fm-piano-2'), R('honky-tonk'), R('honky-tonk'),
+  R('upright'), R('upright'), R('honky-tonk'), R('honky-tonk'),
   // 8-15  Chromatic percussion: celesta, glockenspiel, music box, vibraphone,
   //       marimba, xylophone, tubular bells, dulcimer
   R('kalimba'), R('xylophone'), R('kalimba'), R('xylophone'),
@@ -48,24 +49,25 @@ const GM = [
   // 32-39 Bass: acoustic, finger, pick, fretless, slap 1, slap 2,
   //       synth 1, synth 2
   R('bass-guitar'), R('bass-guitar'), R('bass-guitar'), R('bass-guitar'),
-  R('bass-guitar'), R('bass-guitar'), R('synth-bass-1'), R('synth-bass-2'),
+  R('bass-guitar'), R('bass-guitar'), R('bass-guitar'), R('bass-guitar'),
   // 40-47 Strings: violin, viola, cello, contrabass, tremolo, pizzicato,
-  //       harp, timpani
-  R('synth-strings-1'), R('synth-strings-1'), R('synth-strings-1'), R('synth-strings-1'),
-  R('synth-strings-2'), R('harp'), R('harp'), R('timpani'),
+  //       harp, timpani. No bowed string is recorded in the pack; the church
+  //       organ is the sustained recording that covers their registers
+  //       (33-100). The contrabass sits below it and takes the bass guitar.
+  R('church-organ'), R('church-organ'), R('church-organ'), R('bass-guitar'),
+  R('church-organ'), R('harp'), R('harp'), R('timpani'),
   // 48-55 Ensemble: strings 1, strings 2, synth strings 1, synth strings 2,
   //       choir aahs, voice oohs, synth voice, orchestra hit.
-  // The choir and voice programs go to the recorded upright, not to the
-  // "Synth Pad, Choir" bank: that bank is a recording OF a synthesiser, and a
-  // vocal score played on it sounds like a synthesiser, which is the one thing
-  // a roster of recordings must not do by default. A sung line is rehearsed
-  // against a piano; the pad stays in the picker for anyone who wants it.
-  R('synth-strings-1'), R('synth-strings-2'), R('synth-strings-1'), R('synth-strings-2'),
-  R('upright'), R('upright'), R('upright'), R('synth-soundtrack'),
+  // The choir and voice programs go to the recorded upright: a sung line is
+  // rehearsed against a piano.
+  R('church-organ'), R('church-organ'), R('church-organ'), R('church-organ'),
+  R('upright'), R('upright'), R('upright'), R('timpani'),
   // 56-63 Brass: trumpet, trombone, tuba, muted trumpet, french horn,
-  //       brass section, synth brass 1, synth brass 2
-  R('synth-brass-1'), R('synth-brass-1'), R('synth-brass-1'), R('synth-brass-1'),
-  R('synth-brass-1'), R('synth-brass-1'), R('synth-brass-1'), R('synth-brass-2'),
+  //       brass section, synth brass 1, synth brass 2. No brass is recorded;
+  //       the rock organ is the bright sustained recording with the range
+  //       (31-108) to cover a tuba as well as a trumpet.
+  R('rock-organ'), R('rock-organ'), R('rock-organ'), R('rock-organ'),
+  R('rock-organ'), R('rock-organ'), R('rock-organ'), R('rock-organ'),
   // 64-71 Reed: soprano, alto, tenor, baritone sax, oboe, english horn,
   //       bassoon, clarinet
   R('tenor-sax'), R('tenor-sax'), R('tenor-sax'), R('tenor-sax'),
@@ -75,28 +77,32 @@ const GM = [
   R('recorder'), R('recorder'), R('recorder'), R('ocarina'),
   R('ocarina'), R('recorder'), R('ocarina'), R('ocarina'),
   // 80-87 Lead: square, sawtooth, calliope, chiff, charang, voice, fifths,
-  //       bass + lead
-  R('synth-square'), R('synth-bass-lead'), R('synth-calliope'), R('synth-calliope'),
-  R('eg-dist-1'), R('synth-pad-choir'), R('synth-fifths'), R('synth-bass-lead'),
-  // 88-95 Pad: new age, warm, polysynth, choir, bowed, metallic, halo, sweep
-  R('new-age'), R('synth-pad-bowed'), R('synth-strings-2'), R('synth-pad-choir'),
-  R('synth-pad-bowed'), R('synth-crystal'), R('synth-pad-choir'), R('sweep-pad'),
+  //       bass + lead. Leads hold notes, so they go to sustaining recordings:
+  //       the rock organ, except the flute-like calliope and chiff (recorder)
+  //       and the charang (distorted guitar).
+  R('rock-organ'), R('rock-organ'), R('recorder'), R('recorder'),
+  R('eg-dist-1'), R('upright'), R('rock-organ'), R('rock-organ'),
+  // 88-95 Pad: new age, warm, polysynth, choir, bowed, metallic, halo, sweep.
+  //       Pads are held chords; the drawbar organ is the mellow sustained
+  //       recording, the church organ the fuller one.
+  R('harp'), R('drawbar-organ'), R('drawbar-organ'), R('church-organ'),
+  R('drawbar-organ'), R('glasses'), R('church-organ'), R('drawbar-organ'),
   // 96-103 Effects: rain, soundtrack, crystal, atmosphere, brightness,
   //        goblins, echoes, sci-fi
-  R('synth-crystal'), R('synth-soundtrack'), R('synth-crystal'), R('new-age'),
-  R('synth-crystal'), R('synth-goblins'), R('sweep-pad'), R('synth-sci-fi'),
+  R('glasses'), R('drawbar-organ'), R('kalimba'), R('harp'),
+  R('glasses'), R('drawbar-organ'), R('glasses'), R('drawbar-organ'),
   // 104-111 Ethnic: sitar, banjo, shamisen, koto, kalimba, bagpipe, fiddle,
   //         shanai
   R('steel-guitar'), R('ukulele'), R('ukulele'), R('harp'),
-  R('kalimba'), R('bagpipe'), R('synth-strings-1'), R('clarinet'),
+  R('kalimba'), R('bagpipe'), R('church-organ'), R('clarinet'),
   // 112-119 Percussive: tinkle bell, agogo, steel drums, woodblock, taiko,
   //         melodic tom, synth drum, reverse cymbal
   R('glasses'), R('xylophone'), R('hang'), R('xylophone'),
-  R('timpani'), R('timpani'), R('timpani'), R('sweep-pad'),
+  R('timpani'), R('timpani'), R('timpani'), R('timpani'),
   // 120-127 Sound effects: fret noise, breath, seashore, bird, telephone,
   //         helicopter, applause, gunshot
-  R('nylon-guitar'), R('recorder'), R('sweep-pad'), R('ocarina'),
-  R('synth-square'), R('synth-sci-fi'), R('sweep-pad'), R('timpani'),
+  R('nylon-guitar'), R('recorder'), R('glasses'), R('ocarina'),
+  R('xylophone'), R('timpani'), R('glasses'), R('timpani'),
 ];
 
 /**
@@ -105,10 +111,14 @@ const GM = [
  * substitutions are stated in one readable place and checked by a test.
  */
 export const GAPS = {
-  'bowed strings': R('synth-strings-1'),
-  brass: R('synth-brass-1'),
+  'bowed strings': R('church-organ'),
+  brass: R('rock-organ'),
   flute: R('recorder'),
   choir: R('upright'),
+  'electric piano': R('upright'),
+  'synth bass': R('bass-guitar'),
+  'synth leads': R('rock-organ'),
+  'synth pads': R('drawbar-organ'),
   'celesta / music box': R('kalimba'),
   'glockenspiel / vibraphone / marimba': R('xylophone'),
   'harpsichord / clavinet': R('honky-tonk'),
@@ -136,12 +146,12 @@ export function instrumentForProgram(program) {
  * above "string").
  */
 const NAMES = [
-  [/electric piano|rhodes|wurlitzer|\be[-. ]{0,2}piano\b|\bepiano\b/, R('fm-piano-1')],
+  [/electric piano|rhodes|wurlitzer|\be[-. ]{0,2}piano\b|\bepiano\b/, R('upright')],
   [/honky|tack piano|old piano/, R('honky-tonk')],
   [/harpsichord|clavichord|clavinet|virginal/, R('honky-tonk')],
-  [/synth bass/, R('synth-bass-1')],
+  [/synth bass/, R('bass-guitar')],
   [/bass guitar|electric bass|fretless|upright bass|double bass|string bass|jazz bass/, R('bass-guitar')],
-  [/contrabass|contrebasse|kontrabass/, R('synth-strings-1')],
+  [/contrabass|contrebasse|kontrabass/, R('bass-guitar')],
   [/grand|piano|bösendorfer|steinway|keyboard/, R('upright')],
   [/celesta|celeste|music box|musicbox/, R('kalimba')],
   [/glocken|xylophone|marimba|vibraphone|vibes|balafon|mallet/, R('xylophone')],
@@ -161,18 +171,17 @@ const NAMES = [
   [/accordion|harmonica|harmonium|concertina|bandoneon|melodica/, R('accordion')],
   [/bagpipe/, R('bagpipe')],
   // Vocal parts. The piano, because that is what a vocal line is rehearsed
-  // against, and because the only "choir" in the pack is a synth pad -- the
-  // sound this app must not default to. Bare section names (SOP, ALTO, TEN,
-  // BARI) say nothing here and fall through to the same recorded default.
+  // against. Bare section names (SOP, ALTO, TEN, BARI) say nothing here and
+  // fall through to the same recorded default.
   [/choir|voice|vocal|chorus|soprano|mezzo/, R('upright')],
-  [/violin|viola|cello|violoncello|fiddle|string|orchestra/, R('synth-strings-1')],
+  [/violin|viola|cello|violoncello|fiddle|string|orchestra/, R('church-organ')],
   [/clarinet|oboe|bassoon|english horn|cor anglais/, R('clarinet')],
-  [/trumpet|trombone|tuba|horn|cornet|flugel|euphonium|brass/, R('synth-brass-1')],
+  [/trumpet|trombone|tuba|horn|cornet|flugel|euphonium|brass/, R('rock-organ')],
   [/sax/, R('tenor-sax')],
   [/ocarina|pan ?flute|whistle/, R('ocarina')],
   [/flute|piccolo|recorder|fife/, R('recorder')],
-  [/synth.*lead|lead synth|square/, R('synth-square')],
-  [/pad|synth|warm/, R('synth-pad-bowed')],
+  [/synth.*lead|lead synth|square/, R('rock-organ')],
+  [/pad|synth|warm/, R('drawbar-organ')],
 ];
 
 /** @returns {string|null} a valid instrument id, or null when the name says nothing */

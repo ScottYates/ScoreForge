@@ -30,7 +30,7 @@ function check(name, ok, info = {}) { checks.push({ name, ok: !!ok, info }); }
 
 async function run() {
   /* ------------------------------------------------------------- roster -- */
-  check('fifty recorded instruments', INSTRUMENTS.length === 50, { n: INSTRUMENTS.length });
+  check('twenty-nine recorded instruments', INSTRUMENTS.length === 29, { n: INSTRUMENTS.length });
   check('every entry is sampled and names its pack',
     INSTRUMENTS.every((i) => i.sampled === true && typeof i.pack === 'string' && i.pack.startsWith('fp-')));
   check('ids are unique', new Set(INSTRUMENT_IDS).size === INSTRUMENT_IDS.length);
@@ -38,12 +38,13 @@ async function run() {
     { DEFAULT_INSTRUMENT });
   check('packFor answers for every id', INSTRUMENT_IDS.every((id) => typeof packFor(id) === 'string'));
   check('packFor is null for an unknown id', packFor('no-such-thing') === null);
-  // The synth banks are recordings OF synthesisers; they list after every
-  // real instrument so the FM pianos do not sit in second place.
+  // The recordings of synthesisers were removed from the roster. A bank that
+  // reintroduces a Synth group, or a name sold as synthesised, is a regression.
   const groups = [...new Set(INSTRUMENTS.map((i) => i.group))];
-  const firstSynth = groups.findIndex((g) => /Synth$/.test(g));
-  check('synth banks list last', firstSynth === -1 || groups.slice(firstSynth).every((g) => /Synth$/.test(g)),
-    { groups });
+  check('no synth group remains', groups.every((g) => !/synth/i.test(g)), { groups });
+  check('no instrument is named as synthesised',
+    INSTRUMENTS.every((i) => !/synth/i.test(i.name)), {
+      bad: INSTRUMENTS.filter((i) => /synth/i.test(i.name)).map((i) => i.id) });
 
   /* ----------------------------------------------------------- refusals -- */
   let threw = null;

@@ -24,14 +24,6 @@ const ROSTER = [
     pack: 'fp-honky-tonk',
     description: 'A sampled Honky-Tonk Piano from the FreePats collection.' },
 
-  /* --- FreePats: synthesised, so grouped with the synths --- */
-  { id: 'rec-fp-fm-piano-1', name: 'FM Piano I (synthesised)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-fm-piano-1',
-    description: 'An FM-synthesised piano from the FreePats collection — generated, not a recording of an instrument.' },
-  { id: 'rec-fp-fm-piano-2', name: 'FM Piano II (synthesised)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-fm-piano-2',
-    description: 'An FM-synthesised piano from the FreePats collection — generated, not a recording of an instrument.' },
-
   /* --- FreePats: Organ --- */
   { id: 'rec-fp-church-organ', name: 'Church Organ (recorded)', group: 'Recorded · Organ', engine: 'sampled',
     pack: 'fp-church-organ',
@@ -103,9 +95,6 @@ const ROSTER = [
   { id: 'rec-fp-bass-guitar', name: 'Bass Guitar (recorded)', group: 'Recorded · Guitar & Bass', engine: 'sampled',
     pack: 'fp-bass-guitar',
     description: 'A sampled Bass Guitar from the FreePats collection.' },
-  { id: 'rec-fp-lately-bass', name: 'Lately Bass (recorded)', group: 'Recorded · Guitar & Bass', engine: 'sampled',
-    pack: 'fp-lately-bass',
-    description: 'A sampled Lately Bass from the FreePats collection.' },
 
   /* --- FreePats: Winds & Reed --- */
   { id: 'rec-fp-clarinet', name: 'Clarinet (recorded)', group: 'Recorded · Winds & Reed', engine: 'sampled',
@@ -124,82 +113,10 @@ const ROSTER = [
     pack: 'fp-bagpipe',
     description: 'A sampled Bagpipe from the FreePats collection.' },
 
-  /* --- FreePats: Synth --- */
-  { id: 'rec-fp-synth-bass-1', name: 'Synth Bass I (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-bass-1',
-    description: 'A sampled Synth Bass I from the FreePats collection.' },
-  { id: 'rec-fp-synth-bass-2', name: 'Synth Bass II (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-bass-2',
-    description: 'A sampled Synth Bass II from the FreePats collection.' },
-  { id: 'rec-fp-synth-bass-lead', name: 'Synth Bass & Lead (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-bass-lead',
-    description: 'A sampled Synth Bass & Lead from the FreePats collection.' },
-  { id: 'rec-fp-synth-square', name: 'Synth Lead, Square (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-square',
-    description: 'A sampled Synth Lead, Square from the FreePats collection.' },
-  { id: 'rec-fp-synth-calliope', name: 'Synth Lead, Calliope (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-calliope',
-    description: 'A sampled Synth Lead, Calliope from the FreePats collection.' },
-  { id: 'rec-fp-synth-fifths', name: 'Synth Fifths (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-fifths',
-    description: 'A sampled Synth Fifths from the FreePats collection.' },
-  { id: 'rec-fp-synth-goblins', name: 'Synth Goblins (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-goblins',
-    description: 'A sampled Synth Goblins from the FreePats collection.' },
-  { id: 'rec-fp-synth-sci-fi', name: 'Synth Sci-Fi (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-sci-fi',
-    description: 'A sampled Synth Sci-Fi from the FreePats collection.' },
-  { id: 'rec-fp-synth-soundtrack', name: 'Synth Soundtrack (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-soundtrack',
-    description: 'A sampled Synth Soundtrack from the FreePats collection.' },
-  { id: 'rec-fp-synth-strings-1', name: 'Synth Strings I (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-strings-1',
-    description: 'A sampled Synth Strings I from the FreePats collection.' },
-  { id: 'rec-fp-synth-strings-2', name: 'Synth Strings II (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-strings-2',
-    description: 'A sampled Synth Strings II from the FreePats collection.' },
-  { id: 'rec-fp-synth-brass-1', name: 'Synth Brass I (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-brass-1',
-    description: 'A sampled Synth Brass I from the FreePats collection.' },
-  { id: 'rec-fp-synth-brass-2', name: 'Synth Brass II (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-brass-2',
-    description: 'A sampled Synth Brass II from the FreePats collection.' },
-  { id: 'rec-fp-synth-pad-choir', name: 'Synth Pad, Choir (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-pad-choir',
-    description: 'A sampled Synth Pad, Choir from the FreePats collection.' },
-  { id: 'rec-fp-synth-pad-bowed', name: 'Synth Pad, Bowed (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-pad-bowed',
-    description: 'A sampled Synth Pad, Bowed from the FreePats collection.' },
-  { id: 'rec-fp-sweep-pad', name: 'Synth Sweep Pad (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-sweep-pad',
-    description: 'A sampled Synth Sweep Pad from the FreePats collection.' },
-  { id: 'rec-fp-new-age', name: 'Synth Pad, New Age (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-new-age',
-    description: 'A sampled Synth Pad, New Age from the FreePats collection.' },
-  { id: 'rec-fp-synth-crystal', name: 'Synth Crystal (recorded)', group: 'Recorded · Synth', engine: 'sampled',
-    pack: 'fp-synth-crystal',
-    description: 'A sampled Synth Crystal from the FreePats collection.' },
-
-
-// 50 instruments in 6 groups
+// 29 instruments in 5 groups
 ];
 
-/**
- * The list the UI renders. Recorded groups in the order they first appear,
- * except the synth banks, which go last: they are recordings of synthesisers,
- * and the FM pianos would otherwise sit in second place.
- */
-const LISTED = (() => {
-  const rank = new Map();
-  for (const r of ROSTER) if (!rank.has(r.group)) rank.set(r.group, rank.size);
-  const key = (g) => (/Synth$/.test(g) ? Infinity : rank.get(g));
-  return ROSTER
-    .map((r, i) => [r, i])
-    .sort((a, b) => (key(a[0].group) - key(b[0].group)) || (a[1] - b[1]))
-    .map(([r]) => r);
-})();
-
-export const INSTRUMENTS = LISTED.map((r) => ({
+export const INSTRUMENTS = ROSTER.map((r) => ({
   id: r.id,
   name: r.name,
   group: r.group,

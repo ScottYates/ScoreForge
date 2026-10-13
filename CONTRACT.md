@@ -14,7 +14,7 @@ runs from `file://`.
 | `src/js/io/mscx.js` | MuseScore `.mscx` / `.mscz` → internal score |
 | `src/js/io/files.js` | File intake, zip, type sniffing |
 | `src/js/io/omr.js` | Recognition backend client (health, upload, MusicXML → scores) |
-| `src/js/audio/instruments.js` | Synthesised instrument voices |
+| `src/js/audio/instruments.js` | Recorded-instrument roster, silent fallback |
 | `src/js/audio/fx.js` | Reverb / EQ / compressor bus |
 | `src/js/audio/engine.js` | Realtime player + offline renderer |
 | `src/js/audio/mp3.js` | OfflineAudioContext → MP3 bytes |
@@ -103,10 +103,12 @@ Parameters:
   (never an abrupt `gain.value = 0`).
 
 ### Roster
-Every instrument is a FreePats recording; the roster is the 50 `engine:
-'sampled'` entries in `instruments.js`, one per pack in `pack/manifest.json`
-(the mapping lives in `tools/freepats-banks.mjs`). There is no synthesiser.
-Ids are load-bearing: `rec-fp-<bank>`, with `DEFAULT_INSTRUMENT =
+Every instrument is a FreePats recording of a real instrument; the roster is
+the 29 `engine: 'sampled'` entries in `instruments.js`, one per pack in
+`pack/manifest.json` (the mapping lives in `tools/freepats-banks.mjs`). There
+is no synthesiser, and the FreePats banks that are recordings of synthesisers
+(FM pianos, synth basses, leads, pads, strings, brass, Lately Bass) are not on
+the roster. Ids are load-bearing: `rec-fp-<bank>`, with `DEFAULT_INSTRUMENT =
 'rec-fp-upright'`.
 
 When an instrument's pack is not loaded or not decoded, `createInstrument`
