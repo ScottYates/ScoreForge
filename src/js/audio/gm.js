@@ -5,11 +5,9 @@
  * or a `<score-instrument>` name. Neither tells us which of *our* voices to use,
  * so this maps the 128 GM programs onto the roster in `instruments.js`.
  *
- * Every program lands on a **recorded** instrument. The modelled instruments are
- * not a destination of this table at all: each recorded entry carries its own
- * modelled `fallback`, and that is the only way a part ends up synthesised --
- * when its pack cannot be had. So "which recording is closest" is decided here,
- * and "what if there are no recordings" is decided in the roster, once.
+ * Every program lands on a recorded instrument; there is nothing else. A part
+ * whose pack cannot be had is silent and says so (see instruments.js). So
+ * "which recording is closest" is decided here, once.
  *
  * The FreePats banks do not cover every GM family with a real instrument. There
  * is no recorded bowed string, brass, flute, choir, celesta or harpsichord in

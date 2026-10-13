@@ -13,7 +13,7 @@ import { parseMusicXml } from './io/musicxml.js';
 import { parseMidi } from './io/smf.js';
 import { Timing, resolveScore } from './score/model.js';
 import { renderToBuffer, encodeMp3, inspectMp3 } from './audio/mp3.js';
-import { INSTRUMENTS, createInstrument } from './audio/instruments.js';
+import { DEFAULT_INSTRUMENT, INSTRUMENTS, createInstrument } from './audio/instruments.js';
 import { AudioBus } from './audio/fx.js';
 import { NotationView } from './render/notation.js';
 import { closeModal } from './ui/dom.js';
@@ -26,11 +26,9 @@ window.ScoreForge = app;
 
 /* -------------------------------------------------------------- sample pack */
 
-// Fetch and decode the recorded instruments in the background. Nothing waits on
-// this: every synthesised instrument already works, and a recorded one that is
-// picked before its pack is ready falls back to its modelled equivalent. It only
-// has to be finished before the user chooses one, which is why it starts here
-// rather than on first use.
+// Fetch and decode the recorded instruments in the background. Nothing waits
+// on this: a piece played before its pack is ready fetches its own keys first
+// at high priority, and a part whose pack cannot be had is silent and says so.
 if (!params.has('selftest')) {
   loadPack((p) => app._paintPackProgress(p))
     // Repaint once it settles: the progress callback fires on the last file and
@@ -238,50 +236,58 @@ async function selfTest() {
       t('transpose +2', r.notes[0].midi === before + 2, `${before} -> ${r.notes[0].midi}`);
     }
 
-    // 5 — every instrument renders audio
+    // 5 -- every instrument builds. The self-test runs from file://, where the
+    // pack cannot be fetched, so an instrument is either the real sampled one
+    // (pack decoded) or the silent one that names its pack and says why.
+    // Audibility against the real pack is check-default-samples' job.
     const problems = [];
     for (const inst of INSTRUMENTS) {
-      step = `render instrument: ${inst.id}`;
+      step = `build instrument: ${inst.id}`;
       paint(step);
       try {
-        const sr = 22050, secs = 1.2;
-        const ctx = new OfflineAudioContext(2, Math.ceil(sr * secs), sr);
+        const sr = 22050;
+        const ctx = new OfflineAudioContext(2, Math.ceil(sr * 0.3), sr);
         const bus = new AudioBus(ctx, ctx.destination);
         const v = createInstrument(inst.id, ctx, bus.input);
-        v.noteOn({ midi: 60, velocity: 0.8, when: 0.02, duration: 0.8 });
-        v.noteOn({ midi: 64, velocity: 0.6, when: 0.02, duration: 0.8 });
-        v.noteOn({ midi: 67, velocity: 0.9, when: 0.02, duration: 0.8 });
-        const buf = await withTimeout(ctx.startRendering(), 20000, inst.id);
-        const d = buf.getChannelData(0);
-        let peak = 0, bad = false;
-        for (let i = 0; i < d.length; i++) {
-          if (!isFinite(d[i])) { bad = true; break; }
-          const a = Math.abs(d[i]); if (a > peak) peak = a;
+        if (v.sampled) continue;
+        if (!v.silent) problems.push(`${inst.id}: neither sampled nor silent`);
+        else if (!v.reason || !v.reason.includes(inst.pack)) {
+          problems.push(`${inst.id}: silent without naming its pack (${v.reason})`);
+        } else if (typeof v.noteOn({ midi: 60, velocity: 0.8, when: 0.02, duration: 0.2 }) !== 'object') {
+          problems.push(`${inst.id}: silent instrument does not answer noteOn`);
         }
-        if (bad) problems.push(`${inst.id}: non-finite sample`);
-        else if (peak < 0.01) problems.push(`${inst.id}: silent (peak ${peak.toFixed(4)})`);
-        else if (peak >= 1.6) problems.push(`${inst.id}: runaway (peak ${peak.toFixed(2)})`);
       } catch (e) {
         problems.push(`${inst.id}: ${e.message}`);
       }
     }
     step = 'instrument results';
-    t(`all ${INSTRUMENTS.length} instruments render`, problems.length === 0, problems.slice(0, 8).join(' | '));
+    t(`all ${INSTRUMENTS.length} instruments build, sampled or silent-with-reason`,
+      problems.length === 0, problems.slice(0, 8).join(' | '));
 
     step = 'offline render + mp3';
     paint(step);
     // 6 — full offline render + MP3 encode + frame validation
     if (score) {
       const resolved = resolveScore(score, { transpose: 0, tempoScale: 1 });
-      const partInstruments = new Map([[score.parts[0].id, 'grand']]);
+      const partInstruments = new Map([[score.parts[0].id, DEFAULT_INSTRUMENT]]);
+      let fallbackWhy = null;
       const t0 = performance.now();
       const buf = await withTimeout(
-        renderToBuffer({ resolved, partInstruments, sampleRate: 44100 }), 90000, 'render');
+        renderToBuffer({ resolved, partInstruments, sampleRate: 44100,
+                         onSampleFallback: (why) => { fallbackWhy = why; } }), 90000, 'render');
       const renderMs = performance.now() - t0;
       let peak = 0, nan = false;
       const d0 = buf.getChannelData(0);
       for (let i = 0; i < d0.length; i++) { if (!isFinite(d0[i])) { nan = true; break; } peak = Math.max(peak, Math.abs(d0[i])); }
-      t('offline render produces audio', !nan && peak > 0.05, `peak ${peak.toFixed(3)}, ${(resolved.durationSec).toFixed(2)}s in ${renderMs.toFixed(0)}ms`);
+      if (fallbackWhy) {
+        // No pack here (file://): the render must complete, be silent, and
+        // REPORT the silence -- a silent file handed over without a reason is
+        // the failure mode this guards.
+        t('with no pack, the render completes silent and reports why', !nan && peak < 1e-6 && /pack/.test(fallbackWhy),
+          `peak ${peak.toFixed(6)}, reported: ${fallbackWhy}`);
+      } else {
+        t('offline render produces audio', !nan && peak > 0.05, `peak ${peak.toFixed(3)}, ${(resolved.durationSec).toFixed(2)}s in ${renderMs.toFixed(0)}ms`);
+      }
       t('render faster than realtime', renderMs < resolved.durationSec * 1000, `${(resolved.durationSec * 1000 / renderMs).toFixed(0)}x realtime`);
 
       const enc = await withTimeout(encodeMp3(buf, { kbps: 192, normalize: true }), 120000, 'encode');

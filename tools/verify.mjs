@@ -273,16 +273,6 @@ if (mobile.code !== 0) {
   failures.push('mobile: ' + (mobile.out.trim().split('\n').pop() || mobile.err.trim()));
 }
 
-// The Concert Grand used to get *brighter* as it rang, which no struck string
-// does. It passes the module suites either way -- they assert what the config
-// says, not what came out of the speaker -- so it is measured from rendered
-// samples here.
-const piano = await run(process.execPath, [path.join(root, 'tools/check-piano-voice.mjs')],
-  { allowFail: true });
-console.log(piano.out.trim());
-if (piano.code !== 0) {
-  failures.push('piano: ' + (piano.out.trim().split('\n').pop() || piano.err.trim()));
-}
 
 // The bundled pack: every take slice equals the bytes the manifest claims,
 // in the synthetic round trip and in the shipped pack/.

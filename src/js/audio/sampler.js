@@ -655,9 +655,18 @@ export async function prepare(ids, midis, onProgress) {
   if (!wanted.length) return;
 
   const jobs = [];
+  const unknown = [];
   for (const id of wanted) {
     const packId = PACK_OF.get(id);
     if (packId) jobs.push(packId);
+    else unknown.push(id);
+  }
+  // Every instrument is a recording now, so an id with no pack is not a
+  // synthesiser to skip, it is a mistake to report. The silent version of
+  // this (roster table empty, prepare resolving having done nothing) once
+  // cost a whole session of the app playing the wrong engine.
+  if (unknown.length) {
+    throw new Error(`prepare: no pack for instrument id(s) ${unknown.join(', ')}`);
   }
   if (!jobs.length) return;
 

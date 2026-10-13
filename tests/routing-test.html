@@ -19,10 +19,10 @@
   The answer is a recording. Every route into the roster -- a MIDI program, a
   MusicXML instrument name, the default for a part the file says nothing
   about, an engine channel created without an id -- must land on a sampled
-  instrument. The modelled instruments are reached only as a recorded
-  instrument's own fallback when its pack cannot be had, which on this page
-  (file://) is always: so the last section checks that the fallback still
-  makes a sound, because samples-by-default must not mean silence-offline.
+  instrument. There is no synthesiser: when a pack cannot be had, which on
+  this page (file://) is always, the instrument is a silent one that says
+  why, so the last section checks that the silence is marked and reported
+  rather than handed over as if it were sound.
 
   These assert against INSTRUMENTS' own `sampled` flag rather than an "rec-"
   prefix, so a recorded entry that was quietly turned modelled is caught.
@@ -145,16 +145,10 @@ try {
       String(instrumentForName(silent)));
   }
 
-  head('the picker lists recordings first');
-  const firstModelled = INSTRUMENTS.findIndex((i) => !i.sampled);
-  const lastRecorded = INSTRUMENTS.map((i) => i.sampled).lastIndexOf(true);
+  head('the picker is recordings only');
   ok('the first entry is the default recording', INSTRUMENTS[0].id === DEFAULT_INSTRUMENT, INSTRUMENTS[0].id);
-  ok('every recording is listed before any modelled instrument', lastRecorded < firstModelled,
-    `last recorded at ${lastRecorded}, first modelled at ${firstModelled}`);
-  const unlabelled = INSTRUMENTS.filter((i) => !i.sampled && !/^Synthesised /.test(i.group)).map((i) => i.id);
-  ok('every modelled instrument is grouped as synthesised', unlabelled.length === 0, unlabelled.join(','));
-  const mislabelled = INSTRUMENTS.filter((i) => i.sampled && /^Synthesised /.test(i.group)).map((i) => i.id);
-  ok('no recording is grouped as synthesised', mislabelled.length === 0, mislabelled.join(','));
+  const unsampled = INSTRUMENTS.filter((i) => !i.sampled).map((i) => i.id);
+  ok('every listed instrument is a recording', unsampled.length === 0, unsampled.join(','));
 
   head('preparing a recorded instrument reaches the sampler');
   {
@@ -169,10 +163,10 @@ try {
       resolved ? 'resolved without preparing anything' : '');
     ok('and the refusal names that pack', !!err && err.message.includes(packFor(DEFAULT_INSTRUMENT)),
       err ? err.message : '');
-    let modelledErr = null;
-    try { await prepare(['grand'], [60]); } catch (e) { modelledErr = e; }
-    ok('a modelled instrument needs no pack and prepares as a no-op', !modelledErr,
-      modelledErr && modelledErr.message);
+    let unknownErr = null;
+    try { await prepare(['grand'], [60]); } catch (e) { unknownErr = e; }
+    ok('a removed synthesiser id is refused, not quietly skipped', !!unknownErr,
+      unknownErr ? '' : 'resolved');
   }
 
   head('a channel created without an instrument gets the default');
@@ -180,24 +174,27 @@ try {
     const off = new OfflineAudioContext(2, 4410, 44100);
     const engine = new Engine(off, { bus: new AudioBus(off, off.destination), offline: true });
     engine.setPartMix('p1', { gain: 1 });
-    const got = engine._channels.get('p1').inst.id;
-    // With no pack on this page, the default resolves to its own modelled
-    // fallback. Ask the roster what that is rather than writing it down here.
-    const want = createInstrument(DEFAULT_INSTRUMENT, new OfflineAudioContext(1, 128, 44100)).id;
-    ok('the engine resolves an unset part through DEFAULT_INSTRUMENT', got === want, `got ${got}, want ${want}`);
-    ok('not through the modelled grand directly', got !== 'grand', got);
+    const ch = engine._channels.get('p1').inst;
+    // With no pack on this page, the default resolves to the silent
+    // instrument for that recording, which still carries the roster id.
+    ok('the engine resolves an unset part through DEFAULT_INSTRUMENT', ch.id === DEFAULT_INSTRUMENT,
+      `got ${ch.id}`);
+    ok('and the channel is marked silent, not passed off as sound', ch.silent === true, String(ch.silent));
   }
 
-  head('with no pack, the default still makes a sound');
+  head('with no pack, the default is silent and says so');
   {
-    // file:// has no pack, so this is the real offline path, not a stub.
+    // file:// has no pack. The honest result is digital silence that names
+    // its missing pack, not a substitute sound and not a crash.
     const off = new OfflineAudioContext(1, 44100, 44100);
     const inst = createInstrument(DEFAULT_INSTRUMENT, off, off.destination);
     inst.noteOn({ midi: 60, velocity: 0.8, when: 0.02, duration: 0.5 });
     const d = (await off.startRendering()).getChannelData(0);
     let peak = 0;
     for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
-    ok('the recorded default falls back to an audible instrument', peak > 0.02, `peak ${peak.toFixed(4)}`);
+    ok('the render is digital silence', peak === 0, `peak ${peak}`);
+    ok('and the instrument says why', inst.silent === true && inst.reason.includes(packFor(DEFAULT_INSTRUMENT)),
+      inst.reason);
   }
 } catch (e) {
   fail++;

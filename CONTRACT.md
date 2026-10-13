@@ -93,14 +93,8 @@ Parameters:
   natural decay/release on top; do not cut the sound at `when + duration`.
 
 ### Hard performance rules
-- A 6-minute piece at 160 bpm can be ~4,000 notes. Pool and recycle voices; cap the
-  polyphony of percussive voices (bell/pluck) to a sensible maximum (e.g. 12–16) and
-  steal the oldest.
-- Target < 40 audio nodes per sounding voice, and < 300 nodes total for a piano chord
-  of 4 notes. Prefer `OscillatorNode` + `GainNode` + shared filter chains over
-  per-note `ConvolverNode`/`DelayNode`.
-- Generate noise buffers **once per instrument instance** (lazily, via a shared cache
-  keyed on `ctx`), not per note.
+- A 6-minute piece at 160 bpm can be ~4,000 notes. Pool and recycle voices; cap
+  polyphony and steal the oldest voice.
 
 ### Required behaviours
 - Must be phase-coherent enough that repeated renders are deterministic.
@@ -108,38 +102,19 @@ Parameters:
 - Should have a short fade-in (< 2 ms) to avoid clicks, and a proper release tail
   (never an abrupt `gain.value = 0`).
 
-### Required roster (ids are load-bearing; the UI renders this list)
-Groups: `Pianos`, `Bells & Mallet`, `Plucked`, `Bowed & Sustained`, `Brass & Wind`, `Synth`.
+### Roster
+Every instrument is a FreePats recording; the roster is the 50 `engine:
+'sampled'` entries in `instruments.js`, one per pack in `pack/manifest.json`
+(the mapping lives in `tools/freepats-banks.mjs`). There is no synthesiser.
+Ids are load-bearing: `rec-fp-<bank>`, with `DEFAULT_INSTRUMENT =
+'rec-fp-upright'`.
 
-```
-Pianos          grand          Concert Grand      (flagship; must be excellent)
-                 bright-piano   Bright Piano
-                 felt-piano     Felt Piano
-                 rhodes         Rhodes Electric Piano
-Bells & Mallet   celesta        Celesta
-                 glockenspiel   Glockenspiel
-                 music-box      Music Box
-                 marimba        Marimba
-                 vibraphone     Vibraphone
-                 timpani        Timpani
-Plucked          harpsichord    Harpsichord
-                 harp           Concert Harp
-                 nylon-guitar   Nylon-String Guitar
-                 electric-bass  Electric Bass
-Bowed/Sustained  strings        String Ensemble
-                 choir          Choir (aah)
-                 warm-pad       Warm Analog Pad
-                 pipe-organ     Pipe Organ
-Brass & Wind     flute          Flute
-                 clarinet       Clarinet
-                 alto-sax       Alto Sax
-Synth            analog-lead    Analog Lead
-```
-
-Grand piano requirements specifically: additive partials with real **inharmonicity**
-(`f_n = n·f0·sqrt(1+B·n²)`, B growing for the bass), per-partial decay (high partials die
-first), 2–3 detuned unison strings, a filtered-noise hammer transient scaled by velocity,
-pitch-dependent brightness, and a damper release. It should not sound like a sine bank.
+When an instrument's pack is not loaded or not decoded, `createInstrument`
+returns a silent instrument: the full interface above, `silent: true`, a
+`reason` string naming the pack, and digital silence from `noteOn`. It must
+never throw for a roster id and never substitute another sound.
+`Engine.prepare()` replaces a silent channel with the sampled instrument once
+its pack decodes.
 
 ---
 

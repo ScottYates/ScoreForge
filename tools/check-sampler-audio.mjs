@@ -203,7 +203,6 @@ const SCORE = \`<?xml version="1.0" encoding="UTF-8"?>
     return { peak: +peak.toFixed(4), rms: +Math.sqrt(energy / d.length).toFixed(5), seconds: +buf.duration.toFixed(2) };
   };
 
-  const synth = await renderOne('grand');
   const rec = await renderOne(PROBE);
 
   const integration = {
@@ -229,7 +228,7 @@ const SCORE = \`<?xml version="1.0" encoding="UTF-8"?>
     groups: [...new Set(recorded.map((i) => i.group))].sort(),
     everyRecordedHasFallback: recorded.every((i) => rosterIds.includes(i.id.replace(/^rec-/, '')) || true),
     routedIsSampled,
-    synth, rec,
+    rec,
   };
 
   window.__RESULT__ = { loadMs, state, rows, integration };
@@ -332,7 +331,6 @@ console.log(`  packs in the manifest              : ${ix.packsInManifest}`);
 console.log(`  every pack reachable from the picker: ${ix.everyPackHasARosterEntry}`);
 console.log(`  picker groups           : ${ix.groups.join(' | ')}`);
 console.log(`  createInstrument routes to a sampler: ${ix.routedIsSampled}`);
-console.log(`  synthesised grand  : peak ${ix.synth.peak}  rms ${ix.synth.rms}  ${ix.synth.seconds}s`);
 console.log(`  recorded ${PROBE.padEnd(13)}: peak ${ix.rec.peak}  rms ${ix.rec.rms}  ${ix.rec.seconds}s`);
 
 let ixBad = 0;

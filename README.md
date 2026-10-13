@@ -11,11 +11,11 @@ optical music recognition and hands back a score you can edit, transpose and
 export like any other. It runs on the CPU, so there is no graphics card
 requirement.
 
-Every part plays recorded samples by default: real FreePats instruments,
-fetched from `pack/` when the page is served over http. `index.html` is the
-build output: 1.7 MB with the notation engine, MP3 encoder, zip reader and 22
-modelled instruments inlined, so it also runs from `file://`, where there is no
-pack to fetch and the parts fall back to those (see [Instruments](#instruments)).
+Every part plays recorded samples: real FreePats instruments, fetched from
+`pack/` when the page is served over http. `index.html` is the build output:
+1.7 MB with the notation engine, MP3 encoder and zip reader inlined. It opens
+from `file://` too, but there is no pack to fetch there, so playback is silent
+and the page says so (see [Instruments](#instruments)).
 
 ![ScoreForge with a score loaded](docs/screenshots/app.png)
 
@@ -167,8 +167,9 @@ detection and injection without the OCR.
 
 ## Instruments
 
-There are two kinds, and both are in the same per-part list: the recordings
-first, then the modelled instruments under groups labelled *Synthesised*.
+Fifty recorded instruments, and nothing else: the synthesiser that used to be
+the offline fallback was removed, so what you hear is always a recording or
+silence that says why.
 
 **Which one a part gets.** A recording, always. A part's MusicXML instrument
 name, its MIDI program, or (when the file says neither) the default all lead
@@ -183,26 +184,11 @@ is usually rehearsed against. They never default to the "Synth Pad, Choir"
 bank, which is a recording of a synthesiser and sounds like one. The
 substitutions are listed once, as `GAPS` in `gm.js`.
 
-A modelled instrument is reached in two ways only: you pick one, or a recorded
-instrument's pack cannot be had and it plays its own modelled `fallback`.
-
-**Synthesised** (22 instruments, the fallback). No audio samples. A convincing grand
-piano as samples runs to tens of megabytes, which would break the one-file idea.
-Each instrument is synthesis written directly against the Web Audio API instead.
-
-Concert Grand follows the physics of a real piano: inharmonic partials
-`f_n = n·f₀·√(1+B·n²)` with a stiffness coefficient that rises in the bass,
-per-partial decay times so the upper partials die before the fundamental, three
-detuned unison strings per note for the slow beating, a filtered-noise hammer
-transient scaled by velocity, brightness that tracks pitch and velocity, body
-resonance that glues a chord into one instrument, and dampers that lift under
-the sustain pedal.
-
-The others use the same idea: tuned-bar inharmonic ratios for bells and mallets,
-Karplus–Strong-style excitation for plucked strings, formant shaping with vibrato
-that ramps in for bowed and vocal sounds, breath noise for the winds, and
-drawbar-style additive synthesis for the organ. None of these needs a network
-connection, and the whole app still fits in one file.
+**When a pack cannot be had** (a page opened from `file://`, a download that
+failed), the instrument is a silent one that answers the full playback
+interface and names its missing pack. Playback and export complete; the parts
+are silent; the status line, a one-time toast and the export dialog's
+*Instruments* line all say so. Nothing substitutes a different sound.
 
 **Recorded** (50 instruments, a `pack/` directory of ~268 MB). Real sampled
 instruments, in six picker groups: piano, organ, plucked & struck, guitar & bass,
@@ -238,13 +224,12 @@ but the size of that shift varies a lot between banks.
 shifts at all, while the button accordion claims the whole MIDI range but has 16
 real takes, so its extremes are transposed by nearly four octaves.
 
-These need the pack fetched once, so they are **not** available from a page
-opened as a `file://` URL. There, every part is still assigned its recording,
-and plays that recording's modelled fallback instead: the status line in
-Settings says why, a toast says it once (not on every Play), and an MP3 export
-completes and lists its *Instruments* as modelled, with the reason, rather than
-passing a synthesised file off as the recording. Over http the backend serves
-`pack/` from its own origin.
+These need the pack fetched once, so they are not available from a page
+opened as a `file://` URL. There, every part is still assigned its recording
+and plays silence: the status line in Settings says why, a toast says it once
+(not on every Play), and an MP3 export completes and lists its *Instruments*
+as SILENT with the reason, rather than passing a silent file off as the
+recording. Over http the backend serves `pack/` from its own origin.
 
 **Fetching and decoding are separate.** The whole pack is fetched once, in
 compressed form, in the background from start-up. Nothing waits for it to
@@ -597,7 +582,6 @@ tools/
   check-transport.mjs   press Play / Stop / Back-to-start and read the UI back
   check-mobile.mjs      the phone layout: drawers, roll touch gestures, the export dialog, 320px
   check-default-samples.mjs  load a score, press Play at once: is it the recording?
-  check-piano-voice.mjs measure the synth piano against the recorded one
   drive-omr.mjs         drives the built page against a live backend
   drive-transport.mjs   one transport scenario, optionally with a screenshot
   check-omr-jobs.py     the job API against a live backend
@@ -655,8 +639,11 @@ wider than what the tool had made, without erroring.
 `npm test` builds the single file and opens it in a headless browser with
 `?selftest`, which parses a known score, parses a hand-built MIDI byte fixture
 (running status, tempo, key, note pairs), checks the timing arithmetic and
-transposition, renders a chord on all 21 instruments and asserts none is silent
-or clipping, renders the demo score offline and asserts it beats real time,
+transposition, builds every roster instrument and asserts each is either the
+recording or the silent instrument that names its missing pack (the self-test
+runs from `file://`, so there is no pack; audibility against the real pack is
+check-default-samples' and check-sampler-audio's job), renders the demo score
+offline and asserts it beats real time and that its silence is reported,
 encodes MP3 and walks the MPEG frame headers to confirm the file really is
 MPEG-1 Layer III at the requested bitrate, and renders real notation and counts
 the glyph paths.
@@ -712,11 +699,11 @@ samples?" in the built page against the real pack. Served over http with every
 sample file slowed down, it loads the demo, mutes and unmutes the part (which
 builds its channel before the samples exist), presses Play while the download
 is still running, and reads back which instrument each channel actually built;
-then exports and reads the dialog's *Instruments* line. From `file://` it checks
-the fallback instead: modelled, audible, announced once, and an export that
-completes and says so. Every module suite passed while the app played the
-synthesiser for every part (the sampler's roster table arrived empty), and
-this is the check that would have shown it.
+then exports and reads the dialog's *Instruments* line. From `file://` it
+checks the silence instead: marked silent, announced once, and an export that
+completes, is measurably silent, and says so. Every module suite once passed
+while the app played the wrong engine for every part (the sampler's roster
+table arrived empty), and this is the check that would have shown it.
 
 `check-transport.mjs` presses the real transport buttons against the built page
 and reads back what a person would see: the time readout, the scrub bar's width,
@@ -790,9 +777,9 @@ is fetched at runtime.
 - Playback and export share a code path, but `OfflineAudioContext` output is
   bit-identical only because "humanise" is forced off for renders.
 - Very long scores render the notation view progressively as you scroll.
-- The recorded instruments need the page to be served over http. From a `file://`
-  page the pack cannot be fetched and every part plays its recording's modelled
-  fallback, which the page and the export both say.
+- Playback needs the page served over http, because the pack cannot be
+  fetched from a `file://` page. There the page still opens for notation and
+  editing, every part is silent, and the page and the export both say so.
 - The pack has no recorded bowed strings, brass, flute, choir, tuned mallets or
   harpsichord. Those parts play the nearest recording (`GAPS` in `gm.js`), which
   for strings and brass is a recording of a synthesiser, not of the instrument.
@@ -809,9 +796,9 @@ is fetched at runtime.
   past a few seconds into a drone that jumped back up to full level. Its takes
   are also kept to 10 s rather than the 4 s the other families get, because an
   A2 on that bank is still audible at four.
-- The two FM pianos are labelled *synthesised* and sit with the synths. FreePats
-  calls them "FM Synthesized Piano", so listing them as recordings would be
-  misleading.
+- The two FM pianos are grouped under the synth banks. FreePats calls them
+  "FM Synthesized Piano": they are recordings of a synthesiser, so listing
+  them with the acoustic instruments would be misleading.
 - A key with no recording of its own is played by resampling its nearest
   neighbour, up to three semitones. Marimba and xylophone have gaps wide enough
   to need the full three, so those keys are a resample rather than a real take.

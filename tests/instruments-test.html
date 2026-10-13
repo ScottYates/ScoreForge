@@ -11,410 +11,114 @@
 <body>
 <pre id="out">running…</pre>
 <script type="module">
-/* Headless verification harness for src/js/audio/instruments.js.
-   Renders every instrument offline and measures the signal — the point is to be
-   able to prove the synthesis is physical without listening to it. */
+/* Headless verification of src/js/audio/instruments.js.
+   Every instrument is a recording; the audible behaviour of the sampled
+   instrument lives in sampler-test.html against synthetic buffers and in
+   check-sampler-audio.mjs against the real pack. This suite pins the roster's
+   shape and the one thing instruments.js itself decides: an instrument whose
+   pack cannot be had is a SILENT instrument that answers the full interface
+   and says why, never a crash and never an unreported nothing. */
 
-import { INSTRUMENTS, createInstrument } from '../src/js/audio/instruments.js';
+import {
+  DEFAULT_INSTRUMENT, INSTRUMENTS, INSTRUMENT_IDS, createInstrument, packFor,
+} from '../src/js/audio/instruments.js';
 
 const out = document.getElementById('out');
 const SR = 44100;
-const log = [];
-
-/* ------------------------------------------------------------------ FFT */
-function fft(re, im) {
-  const n = re.length;
-  for (let i = 1, j = 0; i < n; i++) {
-    let bit = n >> 1;
-    for (; j & bit; bit >>= 1) j ^= bit;
-    j ^= bit;
-    if (i < j) {
-      let t = re[i]; re[i] = re[j]; re[j] = t;
-      t = im[i]; im[i] = im[j]; im[j] = t;
-    }
-  }
-  for (let len = 2; len <= n; len <<= 1) {
-    const half = len >> 1;
-    for (let k = 0; k < half; k++) {
-      const ang = -Math.PI * k / half;
-      const wr = Math.cos(ang), wi = Math.sin(ang);
-      for (let i = 0; i < n; i += len) {
-        const ur = re[i + k], ui = im[i + k];
-        const vr = re[i + k + half] * wr - im[i + k + half] * wi;
-        const vi = re[i + k + half] * wi + im[i + k + half] * wr;
-        re[i + k] = ur + vr; im[i + k] = ui + vi;
-        re[i + k + half] = ur - vr; im[i + k + half] = ui - vi;
-      }
-    }
-  }
-}
-
-/** Hann-windowed magnitude spectrum of one channel. */
-function spectrum(data, sr, startSec, n) {
-  const re = new Float64Array(n), im = new Float64Array(n);
-  const off = Math.max(0, Math.round(startSec * sr));
-  for (let i = 0; i < n; i++) {
-    const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1));
-    re[i] = (data[off + i] || 0) * w;
-  }
-  fft(re, im);
-  const half = n >> 1;
-  const mag = new Float64Array(half);
-  for (let k = 0; k < half; k++) mag[k] = Math.hypot(re[k], im[k]);
-  return { mag, sr, n };
-}
-
-/** Power-weighted spectral centroid in Hz (bins below 50 Hz excluded). */
-function centroid(sp, loHz = 50) {
-  let num = 0, den = 0;
-  const k0 = Math.max(1, Math.round(loHz / (sp.sr / sp.n)));
-  for (let k = k0; k < sp.mag.length; k++) {
-    const f = k * sp.sr / sp.n;
-    const p = sp.mag[k] * sp.mag[k];
-    num += f * p; den += p;
-  }
-  return den > 0 ? num / den : 0;
-}
-
-/**
- * Frequency of a partial: find the main lobe near `fExpected`, then take a
- * power-weighted centroid across it. With a Hann window this is far more
- * accurate than bin picking, and the symmetric unison spread means the measured
- * frequency is the true mean of the string choir.
- */
-function partialFreq(sp, fExpected, relWin = 0.06) {
-  const binHz = sp.sr / sp.n;
-  const c = Math.round(fExpected / binHz);
-  const half = Math.max(3, Math.round((relWin * fExpected) / binHz));
-  let best = c;
-  for (let k = Math.max(1, c - half); k < Math.min(sp.mag.length, c + half + 1); k++) {
-    if (sp.mag[k] > sp.mag[best]) best = k;
-  }
-  let num = 0, den = 0;
-  for (let k = Math.max(1, best - 3); k <= Math.min(sp.mag.length - 1, best + 3); k++) {
-    const p = sp.mag[k] * sp.mag[k];
-    num += p * k * binHz; den += p;
-  }
-  return { hz: den > 0 ? num / den : best * binHz, level: sp.mag[best] };
-}
-
-const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
-const cents = (a, b) => 1200 * Math.log2(a / b);
-
-/* --------------------------------------------------------------- render */
-
-/** Render one instrument; returns the PCM plus the instrument's own node stats. */
-async function render(id, notes, dur, opts = {}) {
-  const oc = new OfflineAudioContext(2, Math.ceil(SR * dur), SR);
-  const inst = createInstrument(id, oc, oc.destination);
-  if (opts.params) for (const [k, v] of Object.entries(opts.params)) inst.setParam(k, v, 0);
-  const handles = notes.map((n) => inst.noteOn({
-    midi: n.midi, velocity: n.velocity == null ? 0.8 : n.velocity,
-    when: n.when == null ? 0.01 : n.when,
-    duration: n.duration == null ? 1 : n.duration,
-  }));
-  for (let i = 0; i < notes.length; i++) {
-    if (notes[i].off != null) inst.noteOff(handles[i], notes[i].off);
-  }
-  if (opts.sustainAt != null) inst.setSustain(true, opts.sustainAt);
-  const afterSchedule = inst.debugStats();
-  const buf = await oc.startRendering();
-  const afterRender = inst.debugStats();
-  const a = buf.getChannelData(0), b = buf.getChannelData(1);
-  inst.dispose(0);
-  return { a, b, stats: afterRender, statsScheduled: afterSchedule, warnings: inst.warnings.slice() };
-}
-
-/**
- * peak / DC / non-finite, plus the -40 dB fall time.
- *
- * The fall time is measured on a windowed RMS envelope rather than from the
- * raw sample peak: for a sustained voice the largest individual cycle can
- * occur anywhere in the note, and taking the decay from it makes t40 depend on
- * where that one cycle happened to land.
- */
-function measure(a) {
-  let peak = 0, sum = 0, bad = 0;
-  for (let i = 0; i < a.length; i++) {
-    const v = a[i];
-    if (!Number.isFinite(v)) { bad++; continue; }
-    sum += v;
-    const av = Math.abs(v);
-    if (av > peak) peak = av;
-  }
-  const W = Math.round(SR * 0.01);
-  const env = new Float64Array(Math.floor(a.length / W));
-  for (let i = 0; i < env.length; i++) {
-    let s = 0;
-    for (let j = 0; j < W; j++) { const v = a[i * W + j]; s += v * v; }
-    env[i] = Math.sqrt(s / W);
-  }
-  let ePeak = 0, eIdx = 0;
-  for (let i = 0; i < env.length; i++) if (env[i] > ePeak) { ePeak = env[i]; eIdx = i; }
-  let last = eIdx;
-  for (let i = eIdx; i < env.length; i++) if (env[i] > ePeak * 0.01) last = i;
-  // Reference the fall to the note's onset, not to the single loudest window:
-  // a sustained voice has no unique peak and its envelope is flat for seconds,
-  // so "peak −40 dB" would depend on which window happened to win.
-  let onset = 0;
-  for (let i = 0; i < env.length; i++) if (env[i] >= ePeak * 0.5) { onset = i; break; }
-  return {
-    peak, dc: sum / a.length, nonFinite: bad,
-    t40: ((last - onset) * W) / SR,
-    t60Env: ePeak, peakAt: (eIdx * W) / SR,
-  };
-}
-
-/* ---------------------------------------------------------- assertions */
-
 const checks = [];
-function check(name, ok, info) {
-  checks.push({ name, ok: !!ok, info });
-  if (!ok) log.push('FAIL ' + name + ' :: ' + JSON.stringify(info));
-  return ok;
-}
-
-const r3 = (x) => (typeof x === 'number' ? +x.toFixed(3) : x);
-const r4 = (x) => (typeof x === 'number' ? +x.toFixed(4) : x);
-
-/* ==================================================================== run */
+function check(name, ok, info = {}) { checks.push({ name, ok: !!ok, info }); }
 
 async function run() {
-  const table = [];
+  /* ------------------------------------------------------------- roster -- */
+  check('fifty recorded instruments', INSTRUMENTS.length === 50, { n: INSTRUMENTS.length });
+  check('every entry is sampled and names its pack',
+    INSTRUMENTS.every((i) => i.sampled === true && typeof i.pack === 'string' && i.pack.startsWith('fp-')));
+  check('ids are unique', new Set(INSTRUMENT_IDS).size === INSTRUMENT_IDS.length);
+  check('the default instrument is on the roster', INSTRUMENT_IDS.includes(DEFAULT_INSTRUMENT),
+    { DEFAULT_INSTRUMENT });
+  check('packFor answers for every id', INSTRUMENT_IDS.every((id) => typeof packFor(id) === 'string'));
+  check('packFor is null for an unknown id', packFor('no-such-thing') === null);
+  // The synth banks are recordings OF synthesisers; they list after every
+  // real instrument so the FM pianos do not sit in second place.
+  const groups = [...new Set(INSTRUMENTS.map((i) => i.group))];
+  const firstSynth = groups.findIndex((g) => /Synth$/.test(g));
+  check('synth banks list last', firstSynth === -1 || groups.slice(firstSynth).every((g) => /Synth$/.test(g)),
+    { groups });
 
+  /* ----------------------------------------------------------- refusals -- */
+  let threw = null;
+  try { createInstrument('tenor-kazoo', new OfflineAudioContext(1, SR, SR)); } catch (e) { threw = e; }
+  check('an unknown id throws, naming the roster', !!threw && /unknown instrument/.test(threw.message));
+  threw = null;
+  try { createInstrument(DEFAULT_INSTRUMENT, {}); } catch (e) { threw = e; }
+  check('a non-AudioContext throws', !!threw && /AudioContext/.test(threw.message));
+
+  /* -------------------------------------- no pack: silent, and says so -- */
+  // This suite runs from file://, so no pack is loaded: every instrument must
+  // come back as the silent one, with the full interface and its reason.
+  const bad = [];
   for (const spec of INSTRUMENTS) {
-    /* --- chord render: level, headroom, DC, node budget ---------------- */
-    const chord = [52, 59, 64, 71].map((m) => ({ midi: m, velocity: 0.8, duration: 1.5, off: 1.6 }));
-    const ch = await render(spec.id, chord, 4.0);
-    const mc = measure(ch.a);
-    const nodesPerVoice = Math.max(0, Math.round((ch.stats.peakNodes - 10) / chord.length));
-
-    /* --- velocity: spectral centroid at 0.15 vs 0.95 -------------------- */
-    // Measured over the first ~93 ms. Dynamics change the *attack* spectrum,
-    // and on a fast-decaying bell most of the upper partial energy is gone
-    // before a long window finishes, which would flatten the measurement.
-    const lo = await render(spec.id, [{ midi: 60, velocity: 0.15, duration: 1.0 }], 1.2);
-    const hi = await render(spec.id, [{ midi: 60, velocity: 0.95, duration: 1.0 }], 1.2);
-    const cLo = centroid(spectrum(lo.a, SR, 0.005, 4096));
-    const cHi = centroid(spectrum(hi.a, SR, 0.005, 4096));
-    const pkLo = measure(lo.a).peak, pkHi = measure(hi.a).peak;
-
-    /* --- decay of a single held-then-released note --------------------- */
-    const dec = await render(spec.id, [{ midi: 60, velocity: 0.7, duration: 1.5, off: 1.5 }], 5.0);
-    const md = measure(dec.a);
-
-    table.push({
-      id: spec.id, group: spec.group, name: spec.name,
-      peak: r3(mc.peak), dc: r4(mc.dc), t40: r3(md.t40), envPeakAt: r3(md.peakAt),
-      centroidLo: Math.round(cLo), centroidHi: Math.round(cHi),
-      pkLo: r3(pkLo), pkHi: r3(pkHi),
-      nodesPerVoice, peakNodes: ch.stats.peakNodes, cap: ch.stats.cap,
-    });
-
-    check(spec.id + ':not_silent', mc.peak >= 0.02 && mc.peak <= 0.9, { peak: r4(mc.peak) });
-    check(spec.id + ':no_clip', mc.peak < 1.0, { peak: r4(mc.peak) });
-    check(spec.id + ':finite', mc.nonFinite === 0, { nonFinite: mc.nonFinite });
-    check(spec.id + ':dc_offset', Math.abs(mc.dc) < 0.004, { dc: mc.dc });
-    check(spec.id + ':velocity_centroid_rises', cHi > cLo * 1.02,
-      { lo: Math.round(cLo), hi: Math.round(cHi), ratio: r3(cHi / (cLo || 1)) });
-    check(spec.id + ':velocity_is_louder', pkHi > pkLo * 1.5, { pkLo: r3(pkLo), pkHi: r3(pkHi) });
-    check(spec.id + ':node_budget', nodesPerVoice <= 45, { nodesPerVoice });
-    if (spec.warnings_count === undefined && (spec.warnings || []).length) { /* n/a */ }
-  }
-
-  /* ------------------------------------------------ grand: inharmonicity */
-  const inN = 65536;                                     // 1.49 s window @ 44.1 k
-  async function partialSpread(midi, vel) {
-    const r = await render('grand', [{ midi, velocity: vel, duration: 3 }], 3.0);
-    const sp = spectrum(r.a, SR, 0.05, inN);
-    const f0 = mtof(midi);
-    const f1 = partialFreq(sp, f0, 0.05).hz;
-    const rows = [];
-    for (const n of [1, 2, 3, 4, 5]) {
-      const p = partialFreq(sp, n * f0, 0.07);
-      rows.push({ n, hz: r3(p.hz), cents: r3(cents(p.hz, n * f1)), lvl: r3(p.level) });
-    }
-    return { midi, f0: r3(f0), f1: r3(f1), rows };
-  }
-  const bass = await partialSpread(33, 0.95);
-  const treble = await partialSpread(79, 0.95);
-  const avg = (sp, ns) => {
-    const v = sp.rows.filter((x) => ns.includes(x.n)).map((x) => x.cents);
-    return v.reduce((a, b) => a + b, 0) / v.length;
-  };
-  const bassC = avg(bass, [3, 4, 5]);
-  const trebleC = avg(treble, [3, 4, 5]);
-  check('grand:partials_are_inharmonic', bassC > 15, { bassCents: bassC, bass });
-  check('grand:stretch_bass_gt_treble', bassC > trebleC + 10, { bassC, trebleC, treble });
-
-  /* ---------------------------------------- grand: per-partial decay order */
-  // High partials must die faster than the fundamental. Compare the level of
-  // the 5th partial relative to the 1st early in the note against late in it:
-  // with the per-partial decay law removed the ratio never moves.
-  {
-    const r = await render('grand', [{ midi: 86, velocity: 0.95, duration: 4 }], 4.5);
-    const N = 8192;
-    const early = spectrum(r.a, SR, 0.02, N);
-    const late = spectrum(r.a, SR, 2.4, N);
-    const f0 = mtof(86);
-    const e1 = partialFreq(early, f0, 0.06).level, e5 = partialFreq(early, 5 * f0, 0.08).level;
-    const l1 = partialFreq(late, f0, 0.06).level, l5 = partialFreq(late, 5 * f0, 0.08).level;
-    const earlyDb = r3(20 * Math.log10(e5 / e1));
-    const lateDb = r3(20 * Math.log10(l5 / l1));
-    window.__PDECAY__ = { earlyDb, lateDb, drop: r3(earlyDb - lateDb) };
-    check('grand:high_partials_decay_first', earlyDb - lateDb > 12,
-      { earlyDb, lateDb, drop: r3(earlyDb - lateDb) });
-  }
-
-  /* ------------------------------------------------------- grand: decay */
-  const dHeld = await render('grand', [{ midi: 86, velocity: 0.6, duration: 4 }], 6.0);
-  const mHeld = measure(dHeld.a);
-  const dRel = await render('grand', [{ midi: 60, velocity: 0.75, duration: 1.2, off: 1.2 }], 5.0);
-  const mRel = measure(dRel.a);
-  check('grand:decay_treble_held', mHeld.t40 >= 0.8 && mHeld.t40 <= 4.0, { t40: r3(mHeld.t40) });
-  check('grand:decay_with_damper', mRel.t40 >= 0.8 && mRel.t40 <= 4.0, { t40: r3(mRel.t40) });
-
-  /* --------------------------------------- grand: damper + sustain pedal */
-  const ped = await render('grand',
-    [{ midi: 55, velocity: 0.8, duration: 0.5, off: 0.5 }, { midi: 62, velocity: 0.8, duration: 3, off: 3.4 }],
-    5.0, { sustainAt: 0 });
-  const mPed = measure(ped.a);
-  const noPed = await render('grand', [{ midi: 55, velocity: 0.8, duration: 0.5, off: 0.5 }], 5.0);
-  const mNoPed = measure(noPed.a);
-  check('grand:sustain_pedal_rings_on', mPed.t40 > mNoPed.t40 * 1.5,
-    { pedalT40: r3(mPed.t40), noPedalT40: r3(mNoPed.t40) });
-
-  /* ------------------------------------------------- extreme pitch range */
-  for (const midi of [0, 1, 20, 108, 126, 127]) {
-    const r = await render('grand', [{ midi, velocity: 0.9, duration: 1 }], 2.0);
-    const m = measure(r.a);
-    check('grand:range_midi_' + midi, m.nonFinite === 0 && m.peak < 1.0 && Number.isFinite(m.peak),
-      { peak: r4(m.peak), nonFinite: m.nonFinite });
-  }
-
-  /* ---------------------------------------------------- pooling / stress */
-  /**
-   * 200 notes over 4 s over 48 distinct pitches — more distinct pitches than
-   * any instrument's polyphony cap, so the cap and oldest-voice stealing are
-   * the only thing that can keep the voice count down (re-striking the same
-   * pitch re-excites the ringing string rather than allocating a new voice).
-   *
-   *   withOff=true  — musical passage, notes released after 250 ms.
-   *   withOff=false — worst case: nothing is released, so without pooling every
-   *                  one of the 200 notes would still be sounding at the end.
-   */
-  function storm(withOff) {
-    const notes = [];
-    for (let i = 0; i < 200; i++) {
-      const when = 0.01 + i * 0.02;
-      const n = { midi: 36 + (i * 7) % 48, velocity: 0.5 + 0.45 * ((i * 7) % 10) / 10, when, duration: 3 };
-      if (withOff) n.off = when + 0.25;
-      notes.push(n);
-    }
-    return notes;
-  }
-  // Absolute budgets, deliberately *not* derived from each instrument's own cap:
-  // a bound computed from the cap would stay true if the cap were removed.
-  const ABS_VOICES = 40;      // 48 distinct pitches are live at once uncapped
-  const ABS_NODES = 1600;     // grand caps at 36 voices x <=41 nodes + chain
-  const poolRows = [];
-  for (const id of ['grand', 'vibraphone', 'strings', 'flute']) {
-    for (const withOff of [true, false]) {
-      const t0 = performance.now();
-      const r = await render(id, storm(withOff), withOff ? 6.0 : 9.0);
-      const m = measure(r.a);
-      const ms = performance.now() - t0;
-      const tag = 'pool:' + id + (withOff ? '' : ':held');
-      poolRows.push({
-        id, mode: withOff ? 'released' : 'held', cap: r.stats.cap,
-        peakVoices: r.stats.peakVoices, peakNodes: r.stats.peakNodes,
-        liveNodes: r.stats.nodes, peak: r4(m.peak), nonFinite: m.nonFinite, ms: Math.round(ms),
-      });
-      check(tag + ':voices_bounded', r.stats.peakVoices <= ABS_VOICES && r.stats.peakVoices <= r.stats.cap,
-        { peakVoices: r.stats.peakVoices, cap: r.stats.cap, abs: ABS_VOICES });
-      check(tag + ':nodes_bounded', r.stats.peakNodes <= ABS_NODES,
-        { peakNodes: r.stats.peakNodes, abs: ABS_NODES });
-      check(tag + ':render_clean', m.nonFinite === 0 && Number.isFinite(m.peak),
-        { peak: r4(m.peak), nonFinite: m.nonFinite, ms: Math.round(ms) });
-      // The released storm is also the headroom check: it deliberately stacks up
-      // to `cap` fortissimo notes, so a couple of dB over unity there is the fx
-      // chain's job. The contract's per-instrument headroom requirement is
-      // asserted above against a 4-note chord.
-      if (withOff) {
-        check(tag + ':headroom', m.peak < 2.0 && m.peak > 0.02,
-          { peak: r4(m.peak) });
-      }
+    try {
+      const ctx = new OfflineAudioContext(1, Math.ceil(SR * 0.1), SR);
+      const v = createInstrument(spec.id, ctx, ctx.destination);
+      if (v.sampled) { bad.push(`${spec.id}: sampled with no pack loaded`); continue; }
+      if (!v.silent) { bad.push(`${spec.id}: not marked silent`); continue; }
+      if (!v.reason || !v.reason.includes(spec.pack)) bad.push(`${spec.id}: reason does not name the pack (${v.reason})`);
+      if (!Array.isArray(v.warnings) || !v.warnings.length) bad.push(`${spec.id}: no warnings entry`);
+    } catch (e) {
+      // A throw here is the regression under test: with no pack the contract
+      // is a silent instrument, never an exception.
+      bad.push(`${spec.id}: threw (${e && e.message})`);
     }
   }
+  check('with no pack, every instrument is silent with its pack named', bad.length === 0,
+    { first: bad.slice(0, 4) });
 
-  /* ------------------------- offline scheduling keeps every note's audio */
-  //
-  // An offline render schedules the whole piece while the clock reads 0, so a
-  // voice can be retired -- reaped, or dropped by a re-strike of its own key --
-  // before one of its samples has rendered. Detaching its nodes at that
-  // moment silences the note entirely: an exported MP3 of the demo kept
-  // little more than its final chord, and every per-note assertion above
-  // still passed, because each one renders its subject in isolation.
-  {
-    const peakIn = (a, from, to) => {
-      let p = 0;
-      for (let i = Math.floor(from * SR); i < Math.min(a.length, Math.floor(to * SR)); i++) {
-        const v = Math.abs(a[i]);
-        if (v > p) p = v;
-      }
-      return p;
-    };
+  // The silent instrument answers the whole Instrument contract without
+  // throwing: the engine schedules against it and an export renders through
+  // it, so a missing method is a crash in the middle of someone's render.
+  const ctx = new OfflineAudioContext(1, Math.ceil(SR * 0.5), SR);
+  let apiErr = null;
+  let handle = null;
+  try {
+    // Inside the try: a createInstrument that THROWS with no pack is itself
+    // the regression under test, and must fail these assertions, not the run.
+    const v = createInstrument(DEFAULT_INSTRUMENT, ctx, ctx.destination);
+    handle = v.noteOn({ midi: 60, velocity: 0.8, when: 0.02, duration: 0.2 });
+    v.noteOff(handle, 0.1);
+    v.setSustain(true, 0.1);
+    v.setSustain(false, 0.2);
+    v.setParam('level', 0.5, 0.1);
+    v.sweep(0.3);
+    v.allNotesOff(0.4);
+    void v.params;
+    v.debugStats();
+    v.dispose(0.5);
+  } catch (e) { apiErr = e; }
+  check('the silent instrument answers the full interface', !apiErr && typeof handle === 'object',
+    { err: apiErr && apiErr.message });
 
-    // Two notes that do not overlap: scheduling the second reaps the first.
-    const seq = await render('grand',
-      [{ midi: 60, when: 0.05, duration: 0.15, off: 0.2 }, { midi: 64, when: 2.0, duration: 0.3, off: 2.3 }], 3.0);
-    check('offline: an early note survives a later one being scheduled',
-      peakIn(seq.a, 0.05, 0.7) > 0.01 && peakIn(seq.a, 2.0, 2.7) > 0.01,
-      { early: r4(peakIn(seq.a, 0.05, 0.7)), late: r4(peakIn(seq.a, 2.0, 2.7)) });
+  // And it is actually silent: an offline render through it is all zeros.
+  let peak = -1;
+  try {
+    const ctx2 = new OfflineAudioContext(1, Math.ceil(SR * 0.4), SR);
+    const v2 = createInstrument(DEFAULT_INSTRUMENT, ctx2, ctx2.destination);
+    v2.noteOn({ midi: 60, velocity: 0.9, when: 0.02, duration: 0.3 });
+    const buf = await ctx2.startRendering();
+    const d = buf.getChannelData(0);
+    peak = 0;
+    for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+  } catch (e) { /* recorded by the check below */ }
+  check('and renders digital silence', peak === 0, { peak });
 
-    // The same key struck again while it still rings reuses the voice, which
-    // drops the old nodes -- that must not erase the first strike.
-    const re = await render('grand',
-      [{ midi: 60, when: 0.05, duration: 0.2, off: 0.25 }, { midi: 60, when: 1.2, duration: 0.3, off: 1.5 }], 2.6);
-    check('offline: a re-struck key keeps its first strike',
-      peakIn(re.a, 0.05, 0.7) > 0.01 && peakIn(re.a, 1.2, 1.9) > 0.01,
-      { first: r4(peakIn(re.a, 0.05, 0.7)), second: r4(peakIn(re.a, 1.2, 1.9)) });
-
-    // And the vibration it replaced is parked as DONE AT THE RE-STRIKE, not at
-    // its natural decay's far-off end. The engine never sends note-offs -- a
-    // struck string rings its whole decay -- so a re-struck bass key's old
-    // nodes otherwise sit in the graph under a stop half a minute away, and an
-    // offline render drags every one of them to its last sample: a rendered
-    // piece crawled at realtime while live playback was fine. The graveyard's
-    // park times are the property; the render-speed gate in the self-test is
-    // what feels it.
-    {
-      const oc = new OfflineAudioContext(2, Math.ceil(SR * 2.6), SR);
-      const inst = createInstrument('grand', oc, oc.destination);
-      inst.noteOn({ midi: 48, velocity: 0.8, when: 0.05, duration: 4 });
-      inst.noteOn({ midi: 48, velocity: 0.8, when: 1.2, duration: 4 });
-      const d = inst.debugStats();
-      check('offline: a re-struck voice parks its old nodes under the re-strike time',
-        d.graveyard >= 1 && d.graveyardAts.every((t) => t <= 1.2 + 1e-6),
-        { graveyard: d.graveyard, ats: d.graveyardAts });
-      inst.dispose(0);
-    }
-  }
-
-  /* ------------------------------------------------------------- report */
   const failed = checks.filter((c) => !c.ok);
   const summary = {
     pass: failed.length === 0,
     checks: checks.length,
     failed: failed.length,
     failures: failed.map((f) => f.name + ' ' + JSON.stringify(f.info)),
-    // Uniform verdict for CI: every suite publishes {passed, failed, fatal}.
     passed: checks.length - failed.length,
     fatal: null,
-    table,
-    grand: { inharmonic: { bass, treble, bassCents: r3(bassC), trebleCents: r3(trebleC) },
-             decay: { trebleHeldT40: r3(mHeld.t40), releasedT40: r3(mRel.t40), pedalT40: r3(mPed.t40) } },
-    pool: poolRows,
   };
   out.textContent = JSON.stringify(summary, null, 1);
   window.__RESULT__ = summary;
@@ -425,8 +129,8 @@ run().catch((e) => {
   const failed = checks.filter((c) => !c.ok);
   window.__RESULT__ = {
     pass: false, passed: checks.length - failed.length, failed: failed.length + 1,
-    checks: checks.length, failures: checks.filter(c=>!c.ok).map(f=>f.name),
-    fatal: String(e && e.stack || e), log,
+    checks: checks.length, failures: checks.filter((c) => !c.ok).map((f) => f.name),
+    fatal: String(e && e.stack || e),
   };
   out.textContent = JSON.stringify(window.__RESULT__, null, 1);
   window.__DONE__ = true;

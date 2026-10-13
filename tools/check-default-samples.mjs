@@ -56,12 +56,12 @@ const script = (mode) => `(async () => {
       return true;
     };
 
-    // Count the fallback toasts, so "once, not on every Play" is measured.
+    // Count the silence warnings, so "once, not on every Play" is measured.
     let fallbackToasts = 0;
     const host = document.querySelector('#toasts');
     new MutationObserver((ms) => {
       for (const m of ms) for (const n of m.addedNodes) {
-        if (/modelled instruments instead/.test(n.textContent || '')) fallbackToasts++;
+        if (/Recorded samples unavailable/.test(n.textContent || '')) fallbackToasts++;
       }
     }).observe(host, { childList: true });
 
@@ -74,8 +74,8 @@ const script = (mode) => `(async () => {
 
     // Mute and unmute the part before the first Play, through its button. That
     // builds the part's channel while its samples are not decoded yet -- so it
-    // is built as the modelled fallback -- and Play has to replace it with the
-    // recording once they are, not keep playing the model for the session.
+    // is built as the silent instrument -- and Play has to replace it with the
+    // recording once they are, not keep a silent part for the session.
     if (MODE === 'http') {
       app.ensureAudio();
       const mute = document.querySelector('.part-row .mini.mute');
@@ -83,7 +83,7 @@ const script = (mode) => `(async () => {
       if (mute) { mute.click(); await sleep(50); mute.click(); await sleep(50); }
       const pre = app._engine && app._engine._channels ? [...app._engine._channels.values()] : [];
       out.facts.builtBeforePlay = pre.map((c) => ({ id: c.inst.id, sampled: !!c.inst.sampled }));
-      check('a channel existed before Play, built as the fallback',
+      check('a channel existed before Play, built silent',
         pre.length > 0 && pre.every((c) => !c.inst.sampled), JSON.stringify(out.facts.builtBeforePlay));
     }
 
@@ -102,12 +102,13 @@ const script = (mode) => `(async () => {
     if (MODE === 'http') {
       const stillLoading = /loading recorded instruments/.test(stateAtPlay);
       check('Play was pressed while the pack was still downloading', stillLoading, stateAtPlay);
-      check('every channel plays the recording, not its modelled fallback',
+      check('every channel plays the recording, none is silent',
         built.length > 0 && built.every((b) => b.sampled), JSON.stringify(built));
-      check('no fallback toast', fallbackToasts === 0, fallbackToasts + ' toast(s)');
+      check('no silence warning', fallbackToasts === 0, fallbackToasts + ' toast(s)');
     } else {
-      check('with no pack, every channel falls back to a modelled instrument',
-        built.length > 0 && built.every((b) => !b.sampled), JSON.stringify(built));
+      const silent = chans.map((c) => ({ id: c.inst.id, silent: !!c.inst.silent }));
+      check('with no pack, every channel is the silent instrument, marked as such',
+        silent.length > 0 && silent.every((b) => b.silent), JSON.stringify(silent));
     }
 
     // Let it sound briefly, then stop. With no pack, play a second time: the
@@ -118,7 +119,7 @@ const script = (mode) => `(async () => {
       await app.togglePlay();
       await sleep(400);
       app.stop();
-      check('the fallback is announced once, not on every Play', fallbackToasts === 1, fallbackToasts + ' toast(s)');
+      check('the silence is announced once, not on every Play', fallbackToasts === 1, fallbackToasts + ' toast(s)');
       const status = (document.querySelector('#packStatus') || {}).textContent || '';
       check('the status line says why there are no samples', /unavailable|served over http/.test(status), status);
     }
@@ -136,7 +137,7 @@ const script = (mode) => `(async () => {
     if (MODE === 'http') {
       check('and says it used the recorded samples', factVal === 'Recorded samples', factVal);
     } else {
-      check('and says it fell back to the modelled instruments, and why', /^Modelled .*unavailable/.test(factVal), factVal);
+      check('and says those parts are SILENT, and why', /^SILENT: recorded samples unavailable/.test(factVal), factVal);
     }
 
     // Listen to the export, not just its paperwork. The render schedules the
@@ -144,7 +145,9 @@ const script = (mode) => `(async () => {
     // that scheduling used to be detached before it had rendered a sample --
     // an export of sequential notes kept only the final ones, and every
     // assertion above still passed. So: decode the preview's own bytes and
-    // require the music to start at the start.
+    // require the music to start at the start. With no pack the export is
+    // silence by design, labelled SILENT above, so the listen checks that
+    // instead.
     const audioEl = document.querySelector('.modal audio');
     check('the export preview carries audio', !!(audioEl && audioEl.src));
     if (audioEl && audioEl.src) {
@@ -161,9 +164,14 @@ const script = (mode) => `(async () => {
       const headPeak = peakIn(0, 3);
       const wholePeak = peakIn(0, d.length / sr2);
       out.facts.exportHeadPeak = +headPeak.toFixed(4);
-      check('the exported audio begins at the beginning, not only at the end',
-        wholePeak > 0.01 && headPeak > wholePeak * 0.1,
-        'first 3 s peak ' + headPeak.toFixed(4) + ', whole-file peak ' + wholePeak.toFixed(4));
+      if (MODE === 'http') {
+        check('the exported audio begins at the beginning, not only at the end',
+          wholePeak > 0.01 && headPeak > wholePeak * 0.1,
+          'first 3 s peak ' + headPeak.toFixed(4) + ', whole-file peak ' + wholePeak.toFixed(4));
+      } else {
+        check('with no pack, the export really is silence, as its label says',
+          wholePeak < 0.001, 'whole-file peak ' + wholePeak.toFixed(6));
+      }
     }
   } catch (e) {
     check('no exception', false, String((e && e.stack) || e));

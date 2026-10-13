@@ -462,7 +462,7 @@ export class App {
    *
    * This is worth showing because the two states look identical from the
    * instrument list: a recorded instrument chosen before its pack is ready
-   * quietly plays the modelled one instead, and without this the user would
+   * quietly plays silence instead, and without this the user would
    * pick "Concert Grand (recorded)" and hear the synthesiser.
    */
   _paintPackProgress(p) {
@@ -1105,9 +1105,9 @@ export class App {
       });
     } catch (e) {
       // A recorded instrument that will not decode is not a reason to refuse
-      // to play: createInstrument falls back to the modelled version. Say what
+      // to play: createInstrument hands back the silent instrument. Say what
       // happened, where the user can read it, and carry on.
-      console.warn('could not decode recorded samples, using modelled instruments:', e);
+      console.warn('could not decode recorded samples; those parts are silent:', e);
       const el = this.dom.packStatus;
       if (el) {
         el.textContent = `recorded samples unavailable - ${e.message}`;
@@ -1118,7 +1118,7 @@ export class App {
       // here; the status line above keeps saying so for as long as it is true.
       if (this._sampleFallbackToasted !== e.message) {
         this._sampleFallbackToasted = e.message;
-        toast('Recorded samples unavailable - playing modelled instruments instead.');
+        toast('Recorded samples unavailable', 'Those parts are silent until the pack loads. Serve the page over http to fetch it.', 'warn');
       }
     }
     if (token !== this._playToken) return;   // paused again while decoding
@@ -1155,10 +1155,10 @@ export class App {
     // Three notes' worth of samples, which for a recorded instrument is a
     // fraction of a family. Decoding them before the note is placed is the whole
     // reason this is async: otherwise the audition either waits on a decode that
-    // finishes after its start time, or plays the modelled fallback and the
+    // finishes after its start time, or stays silent and the
     // picker lies about what it sounds like.
     await prepare([instrumentId], [60, 64, 67]).catch((e) => {
-      console.warn('could not decode recorded samples, auditioning the modelled instrument:', e);
+      console.warn('could not decode recorded samples; the audition is silent:', e);
     });
 
     let inst;
@@ -1304,7 +1304,7 @@ export class App {
           this.partInstruments.set(p.id, id);
           // Decode before the swap, not after. setPartInstrument rebuilds the
           // channel synchronously, so an undecoded pack would quietly settle for
-          // the modelled fallback and the part would change instrument a second
+          // the silent instrument and the part would change instrument a second
           // later -- or never.
           await prepare([id], this._usedMidis()).catch((err) => {
             console.warn('could not decode recorded samples:', err);
@@ -1428,16 +1428,13 @@ export class App {
   /* -------------------------------------------------------------- export */
 
   /**
-   * What the parts will actually sound as: recordings, the modelled
-   * instruments, or a mix, given whether the samples could be prepared.
-   * `fallbackWhy` is the reason preparing failed, or null when it did not.
+   * What the parts will actually sound as. Every instrument is a recording;
+   * `fallbackWhy` is the reason preparing failed, in which case those parts
+   * rendered as silence and the label must say so.
    */
   _soundSourceLabel(fallbackWhy) {
-    const ids = [...this.partInstruments.values()];
-    const recorded = ids.filter((id) => packFor(id)).length;
-    if (!recorded) return 'Modelled (synthesised)';
-    if (fallbackWhy) return 'Modelled \u2014 recorded samples unavailable: ' + fallbackWhy;
-    return recorded === ids.length ? 'Recorded samples' : `Recorded samples (${recorded} of ${ids.length} parts)`;
+    if (fallbackWhy) return 'SILENT: recorded samples unavailable (' + fallbackWhy + ')';
+    return 'Recorded samples';
   }
 
   async openExport() {
@@ -1512,8 +1509,8 @@ export class App {
           facts.appendChild(f('MPEG frames', `${check.frames}${check.badSync ? ` · ${check.badSync} resyncs` : ''}`));
           facts.appendChild(f('Channels', enc.channels === 2 ? 'Stereo' : 'Mono'));
           // Which sound went into the file. Samples are the default, so a render
-          // that had to use the modelled instruments says so here, beside the
-          // result, rather than passing a synthesised MP3 off as the recording.
+          // whose samples were unavailable says so here, beside the
+          // result, rather than passing a silent MP3 off as the recording.
           facts.appendChild(f('Instruments', this._soundSourceLabel(sampleFallback)));
 
           out.innerHTML = '';

@@ -79,12 +79,11 @@ export async function renderToBuffer(o) {
   // note that never sounds. renderToBuffer is async, so this is a real
   // boundary rather than a promise buried under a synchronous scheduler.
   //
-  // Recorded instruments are the default, so on a page with no pack -- opened
-  // from file://, or a pack that failed -- this rejects for an ordinary piece.
-  // That must not make the export fail: playback falls back to the modelled
-  // instruments, and the render does the same. It is reported through
-  // `onSampleFallback` so the caller can say so beside the result, rather than
-  // handing over a synthesised MP3 as if it were the recording.
+  // On a page with no pack (opened from file://, or a pack that failed) this
+  // rejects for an ordinary piece. That must not make the export fail: the
+  // render completes with those parts silent, and `onSampleFallback` carries
+  // the reason so the caller says so beside the result rather than handing
+  // over a silent MP3 as if it were the recording.
   try {
     await engine.prepare((p) => {
       // A recorded instrument's first use decodes real PCM, which on a cold cache
@@ -97,7 +96,7 @@ export async function renderToBuffer(o) {
     });
   } catch (e) {
     const why = e && e.message ? e.message : String(e);
-    console.warn('recorded samples unavailable for the render, using modelled instruments:', e);
+    console.warn('recorded samples unavailable for the render; those parts are silent:', e);
     o.onSampleFallback?.(why);
   }
   if (signal?.aborted) throw new RenderCancelled();
@@ -125,7 +124,7 @@ export async function renderToBuffer(o) {
   }
 
   const buffer = await ctx.startRendering();
-  onProgress?.({ phase: 'render', ratio: 0.55, message: 'Synthesised' });
+  onProgress?.({ phase: 'render', ratio: 0.55, message: 'Rendered' });
   if (signal?.aborted) throw new RenderCancelled();
 
   bus.dispose();
