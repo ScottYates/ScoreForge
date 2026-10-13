@@ -88,10 +88,24 @@ jobs:
       # tools/cdp.mjs finds Chrome on Linux via /usr/bin/google-chrome-stable,
       # which is where setup-chrome installs it. SCOREFORGE_BROWSER overrides
       # the search if that ever stops being true.
+      # The failing lines are repeated as ::error annotations because the raw
+      # log is not always reachable from where this repo is worked on.
       - name: Self-test the built page
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/verify.log || {
+            grep -aE ' FAIL |FAILED|FATAL|Error' /tmp/verify.log | tail -40 \
+              | while IFS= read -r l; do echo "::error::${l}"; done
+            exit 1
+          }
       - name: Module test suites
-        run: node tools/run-suites.mjs
+        run: |
+          set -o pipefail
+          node tools/run-suites.mjs 2>&1 | tee /tmp/suites.log || {
+            grep -aE 'FAIL|FATAL' /tmp/suites.log | tail -40 \
+              | while IFS= read -r l; do echo "::error::${l}"; done
+            exit 1
+          }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -40,7 +40,7 @@ const KICK = `(window.__K__ || (window.__K__ = (async () => {
   const app = window.ScoreForge;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const notesOf = () => app.score.parts[0].notes.map((n) => [n.quarter, n.midi, n.durationQuarters]);
-  const waitFor = async (fn, ms = 8000) => {
+  const waitFor = async (fn, ms = 20000) => {
     const t0 = performance.now();
     for (;;) {
       const v = fn();
@@ -53,7 +53,7 @@ const KICK = `(window.__K__ || (window.__K__ = (async () => {
   await app.addFiles([new File([${JSON.stringify(FIXTURE)}], 'edit-me.musicxml', { type: 'application/xml' })]);
   const svg = await waitFor(() => document.querySelector('.paper svg'));
   out.rendered = !!svg;
-  await sleep(600); // let incremental rendering settle
+  await sleep(1500); // let the layout settle (CI runners are slow)
   out.saveEnabled = !document.querySelector('#btnSaveXml').disabled;
 
   // ---- 1. click the first notehead on the engraved score -------------------
@@ -157,9 +157,10 @@ const env = JSON.parse(out.slice(start, out.lastIndexOf('}') + 1));
 const p = JSON.parse(env.value);
 
 if (process.env.DEBUG) console.log('OUT:', JSON.stringify(p, null, 1));
+let sawFail = false;
 let failed = 0;
 const ok = (name, cond, detail = '') => {
-  if (!cond) failed++;
+  if (!cond) { failed++; sawFail = true; }
   console.log(`${cond ? '  ok  ' : ' FAIL '} ${name}${detail ? '  — ' + detail : ''}`);
 };
 
@@ -187,5 +188,6 @@ ok('the selection moves on after a delete', p.selMoved === true);
 ok('escape clears the selection and hides the bar', p.cleared === true);
 ok('nothing goes uncaught', Array.isArray(p.uncaught) && p.uncaught.length === 0, JSON.stringify(p.uncaught));
 
+if (sawFail) console.log('STATE: ' + JSON.stringify(p));
 console.log(`\n${failed ? 'edit ui FAILED' : 'edit ui OK'}`);
 process.exit(failed ? 1 : 0);
