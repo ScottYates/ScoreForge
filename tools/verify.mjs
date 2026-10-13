@@ -284,6 +284,15 @@ if (piano.code !== 0) {
   failures.push('piano: ' + (piano.out.trim().split('\n').pop() || piano.err.trim()));
 }
 
+// The bundled pack: every take slice equals the bytes the manifest claims,
+// in the synthetic round trip and in the shipped pack/.
+const packBundle = await run(process.execPath, [path.join(root, 'tools/check-pack-bundle.mjs')],
+  { allowFail: true });
+console.log(packBundle.out.trim());
+if (packBundle.code !== 0) {
+  failures.push('pack bundle: ' + (packBundle.out.trim().split('\n').pop() || packBundle.err.trim()));
+}
+
 // Sample provenance. Almost the whole pack is CC0, but one FreePats bank is
 // GPL-3+ with the sound-sample exception, and a licence nobody is shown is a
 // licence nobody is complying with. This fails on a missing credit, a stale

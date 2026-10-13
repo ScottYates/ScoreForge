@@ -194,13 +194,24 @@ export function loadPack(onProgress) {
       manifestSettled();
     }
 
-    // Every distinct file, so a take shared by several pitches is fetched once.
+    // Every distinct take, so one shared by several pitches is fetched once.
+    // A version-3 manifest bundles each bank's takes into one <bank>.pack
+    // file; `locations` maps a take to its slice, and the background fetch
+    // pulls whole bundles (50 requests) instead of one request per take.
     const wanted = new Set();
     for (const inst of Object.values(manifest.instruments)) {
+      const bundle = inst.bundle || null;
       for (const note of Object.values(inst.notes)) {
-        for (const hit of note.hits) wanted.add(hit.f);
+        for (const hit of note.hits) {
+          wanted.add(hit.f);
+          if (bundle && hit.o != null && !locations.has(hit.f)) {
+            locations.set(hit.f, { file: bundle.file, o: hit.o, n: hit.n });
+          }
+        }
       }
+      if (bundle && !bundleTakes.has(bundle.file)) bundleTakes.set(bundle.file, []);
     }
+    for (const [rel, loc] of locations) bundleTakes.get(loc.file)?.push(rel);
     const files = [...wanted];
 
     // Register every pack now, before a single sample has arrived. Samples are
@@ -240,32 +251,40 @@ export function loadPack(onProgress) {
     // This runs behind any on-demand fetch: while preparePack() is waiting on
     // the network, the background workers stand aside, so the notes someone
     // is about to hear are not queued behind a xylophone nobody asked for.
+    // Bundled packs download one file per bank; a per-file (version 2) pack
+    // downloads one file per take as before. Progress counts takes in both
+    // cases, so the bar means the same thing.
+    const units = bundleTakes.size
+      ? [...bundleTakes.entries()].map(([file, takes]) => ({ file, takes }))
+      : files.map((f) => ({ file: null, takes: [f] }));
     let next = 0;
     const failures = [];
     const worker = async () => {
       for (;;) {
         const i = next++;
-        if (i >= files.length) return;
+        if (i >= units.length) return;
         while (demand > 0) await demandIdle();
+        const unit = units[i];
         try {
-          await fetchFile(files[i], 'low');
+          if (unit.file) await fetchBundle(unit.file, 'low');
+          else await fetchFile(unit.takes[0], 'low');
         } catch (e) {
-          // One missing file costs that take, not the whole pack. The rest
-          // still loads, and preparePack reports the missing one if a piece
-          // actually needs it.
+          // A failed bundle costs that bank; a failed file costs that take.
+          // The rest still loads, and preparePack reports what is missing if
+          // a piece actually needs it.
           failures.push(e && e.message ? e.message : String(e));
         }
-        done++;
+        done += unit.takes.length;
         report();
       }
     };
 
-    await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, files.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, units.length) }, worker));
 
     loadProgress = 1;
     if (failures.length) {
       loadState = 'failed';
-      loadError = `${failures.length} of ${files.length} sample files could not be fetched (first: ${failures[0]})`;
+      loadError = `${failures.length} of ${units.length} sample ${bundleTakes.size ? 'bundles' : 'files'} could not be fetched (first: ${failures[0]})`;
     } else {
       loadState = 'ready';
     }
@@ -287,6 +306,12 @@ export function loadPack(onProgress) {
  */
 const fetched = new Map();     // rel -> ArrayBuffer
 const fetching = new Map();    // rel -> Promise<ArrayBuffer>
+// Version-3 manifests: where each take lives inside its bank's bundle, and
+// which takes each bundle holds. Empty for a per-file (version 2) pack.
+const locations = new Map();   // rel -> {file, o, n}
+const bundleTakes = new Map(); // bundle file -> [rel]
+const bundled = new Set();     // bundle files whose takes are all in `fetched`
+const bundling = new Map();    // bundle file -> Promise, whole-file fetch in flight
 let fetchBase = null;
 /** Resolves once the manifest has been read (or has failed). Null before loadPack. */
 let manifestReady = null;
@@ -319,17 +344,82 @@ function fetchFile(rel, priority = 'high') {
   if (inflight) return inflight;
   if (!fetchBase) return Promise.reject(new Error(`${rel}: no sample pack to fetch from`));
 
-  const url = `${fetchBase}/${rel.split('/').map(encodeURIComponent).join('/')}`;
+  const loc = locations.get(rel);
+  const url = `${fetchBase}/${(loc ? loc.file : rel).split('/').map(encodeURIComponent).join('/')}`;
   const p = (async () => {
-    const r = await fetch(url, { cache: 'force-cache', priority });
-    if (!r.ok) throw new Error(`${rel}: ${r.status} ${r.statusText}`);
+    if (!loc) {
+      // Version-2 pack: the take is its own file.
+      const r = await fetch(url, { cache: 'force-cache', priority });
+      if (!r.ok) throw new Error(`${rel}: ${r.status} ${r.statusText}`);
+      const buf = await r.arrayBuffer();
+      fetched.set(rel, buf);
+      return buf;
+    }
+    // The whole bank is already arriving, or has arrived: join that download
+    // instead of adding a second request for the same bytes.
+    if (bundling.has(loc.file) || bundled.has(loc.file)) {
+      await fetchBundle(loc.file, priority);
+      const sliced = fetched.get(rel);
+      if (!sliced) throw new Error(`${rel}: bundle ${loc.file} did not contain it`);
+      return sliced;
+    }
+    // One take out of the bank's bundle, by byte range. A server that ignores
+    // the Range header answers 200 with the whole bundle; keep it and slice,
+    // so the fallback costs one bank download, never a broken take.
+    const r = await fetch(url, {
+      headers: { Range: `bytes=${loc.o}-${loc.o + loc.n - 1}` },
+      cache: 'force-cache', priority,
+    });
+    if (!r.ok && r.status !== 206) throw new Error(`${rel}: ${r.status} ${r.statusText}`);
     const buf = await r.arrayBuffer();
-    fetched.set(rel, buf);
-    return buf;
+    if (r.status === 206) {
+      if (buf.byteLength !== loc.n) {
+        throw new Error(`${rel}: range returned ${buf.byteLength} bytes, wanted ${loc.n}`);
+      }
+      fetched.set(rel, buf);
+      return buf;
+    }
+    storeBundle(loc.file, buf);
+    const sliced = fetched.get(rel);
+    if (!sliced) throw new Error(`${rel}: bundle ${loc.file} did not contain it`);
+    return sliced;
   })();
   fetching.set(rel, p);
   p.then(() => fetching.delete(rel), () => fetching.delete(rel));
   return p;
+}
+
+/** One whole bank bundle, fetched at most once; its takes land in `fetched`. */
+function fetchBundle(file, priority = 'low') {
+  if (bundled.has(file)) return Promise.resolve(true);
+  const inflight = bundling.get(file);
+  if (inflight) return inflight;
+  const url = `${fetchBase}/${file.split('/').map(encodeURIComponent).join('/')}`;
+  const p = (async () => {
+    const r = await fetch(url, { cache: 'force-cache', priority });
+    if (!r.ok) throw new Error(`${file}: ${r.status} ${r.statusText}`);
+    storeBundle(file, await r.arrayBuffer());
+    return true;
+  })();
+  bundling.set(file, p);
+  p.then(() => bundling.delete(file), () => bundling.delete(file));
+  return p;
+}
+
+/**
+ * Slice every take of a bundle into `fetched` and let the bundle bytes go.
+ * slice() copies, so dropping the parent buffer keeps the compressed memory
+ * at one copy per take, the same as the per-file pack held.
+ */
+function storeBundle(file, buf) {
+  for (const rel of bundleTakes.get(file) || []) {
+    if (fetched.has(rel)) continue;
+    const loc = locations.get(rel);
+    if (loc && loc.o + loc.n <= buf.byteLength) {
+      fetched.set(rel, buf.slice(loc.o, loc.o + loc.n));
+    }
+  }
+  bundled.add(file);
 }
 
 /* ---------------------------------------------------------------- prepare */
@@ -415,6 +505,21 @@ export function __setDecodeBudget(bytes) {
  * @param {(p:{done:number,total:number})=>void} [onProgress]
  */
 export async function preparePack(packId, midis, onProgress) {
+  // Hold the background download off from the first moment of the prepare,
+  // not just around its own fetches. The background used to be gated only
+  // while the prepare's fetches were in flight, and both paths wake on the
+  // manifest settling, so the background could claim the very bank the
+  // prepare was about to ask for and the piece's keys queued behind a whole
+  // bundle nobody was waiting on.
+  demand++;
+  try {
+    return await _preparePack(packId, midis, onProgress);
+  } finally {
+    demandDone();
+  }
+}
+
+async function _preparePack(packId, midis, onProgress) {
   let pack = packs.get(packId);
   // Asked before the manifest has arrived -- Play pressed the moment the page
   // opened. The manifest is a few kilobytes; wait for it rather than giving up
@@ -1094,6 +1199,10 @@ export function __clearPacks() {
   preparing.clear();
   fetched.clear();
   fetching.clear();
+  locations.clear();
+  bundleTakes.clear();
+  bundled.clear();
+  bundling.clear();
   missingPacks = [];
   fetchBase = null;
   manifestReady = null;

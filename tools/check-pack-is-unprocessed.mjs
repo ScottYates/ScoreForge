@@ -29,6 +29,7 @@
  * against the pack's own manifest, which would prove nothing.
  */
 import fs from 'node:fs';
+import { takeIndex, takeBytes } from './lib/packbundle.mjs';
 import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -113,6 +114,7 @@ const MAX_WIDTH_NARROWING_DB = 4;
 const MIN_MEANINGFUL_WIDTH_DB = -30;
 
 const manifest = JSON.parse(fs.readFileSync(path.join(PACK, 'manifest.json'), 'utf8'));
+const packTakes = takeIndex(manifest); // rel f -> slice, for bundled packs
 
 /** Every take in the pack, flattened, with its manifest entry alongside. */
 const takes = [];
@@ -347,6 +349,14 @@ const server = http.createServer((req, res) => {
   // from are named `D#1vH.wav`, and the day a pack is named after its bank that
   // stops being true. Cheap to be right now.
   const rel = url.pathname.split('/').filter(Boolean).map(decodeURIComponent).join('/');
+  // A bundled pack keeps each take as a slice of <bank>.pack; serve the slice
+  // so the page decodes exactly the shipped bytes.
+  const loc = packTakes.get(rel);
+  if (loc) {
+    const bytes = takeBytes(PACK, { bundle: { file: loc.file } }, { f: rel, o: loc.o, n: loc.n });
+    res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': bytes.length });
+    return res.end(bytes);
+  }
   const file = path.resolve(PACK, rel);
   if (!file.startsWith(PACK) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     res.writeHead(404);

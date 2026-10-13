@@ -855,7 +855,14 @@ def pack(path: str) -> FileResponse:
     target = (_PACK / path).resolve()
     if not str(target).startswith(str(_PACK.resolve())) or not target.is_file():
         raise HTTPException(404, "no such sample")
-    media = "application/json" if target.name == "manifest.json" else "audio/mpeg"
+    if target.name == "manifest.json":
+        media = "application/json"
+    elif target.suffix == ".pack":
+        # A bank's takes concatenated into one file; the page fetches single
+        # takes out of it with Range requests, which FileResponse answers 206.
+        media = "application/octet-stream"
+    else:
+        media = "audio/mpeg"
     # The audio may be cached for a week: a rebuild re-encodes the takes, and a
     # fresh manifest exposes any file that no longer matches. The manifest
     # itself may NOT: its name never changes, and a week-old cached copy fed a

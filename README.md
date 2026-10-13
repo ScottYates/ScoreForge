@@ -206,8 +206,17 @@ connection, and the whole app still fits in one file.
 
 **Recorded** (50 instruments, a `pack/` directory of ~268 MB). Real sampled
 instruments, in six picker groups: piano, organ, plucked & struck, guitar & bass,
-winds & reed, and synth. Every file is its source WAV re-encoded and nothing
+winds & reed, and synth. Every take is its source WAV re-encoded and nothing
 else: no trim, no normalisation, no truncation.
+
+The pack ships as one `<bank>.pack` file per instrument (50 files plus the
+manifest) rather than one MP3 per take (about 4,200 files). A bundle is the
+bank's take MP3s concatenated; the manifest records each take's byte offset
+and length. The page fetches a single take out of a bundle with an HTTP Range
+request, and falls back to downloading the whole bank once when a server
+ignores the Range header. `tools/lib/packbundle.mjs` does the bundling;
+`node tools/check-pack-bundle.mjs` verifies every slice equals the bytes the
+manifest claims.
 
 Every one of them is a [FreePats][freepats] bank. Forty-nine are CC0; the FSS
 steel-string acoustic guitar is GPL-3.0-or-later with the FreePats sound-sample
@@ -567,6 +576,8 @@ tools/
   verify.mjs            build + self-test + screenshot
   run-suites.mjs        the module suites, one verdict
   make-pack.mjs         build pack/ from the sample caches
+  bundle-pack.mjs       repack a per-file pack/ into per-bank bundles, in place
+  check-pack-bundle.mjs  every bundle slice equals the bytes the manifest claims
   freepats-banks.mjs     which FreePats bank is which instrument, and where it goes
   fetch-freepats.mjs     scrape the FreePats catalogue, download and extract the banks
   survey-freepats.mjs    what is actually in a downloaded bank

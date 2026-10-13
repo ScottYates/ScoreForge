@@ -27,6 +27,7 @@
  * Exits non-zero on any failure.
  */
 import fs from 'node:fs';
+import { sendFileRanged } from './lib/packbundle.mjs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -208,8 +209,7 @@ const server = http.createServer((req, res) => {
     return res.end('not found');
   }
   const send = () => {
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
-    fs.createReadStream(file).pipe(res);
+    sendFileRanged(req, res, file, MIME[path.extname(file)] || 'application/octet-stream');
   };
   // Every sample file is slowed down, so the 4,000-file background download
   // is still running when Play is pressed -- the situation that used to play

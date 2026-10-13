@@ -30,6 +30,7 @@
  * anything it fetches.
  */
 import fs from 'node:fs';
+import { takeIndex, takeBytes } from './lib/packbundle.mjs';
 import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -71,6 +72,7 @@ const MAX_WIDTH_DRIFT_DB = 4;
 const MIN_MEANINGFUL_WIDTH_DB = -30;
 
 const manifest = JSON.parse(fs.readFileSync(path.join(repo, 'pack', 'manifest.json'), 'utf8'));
+const packTakes = takeIndex(manifest); // rel f -> slice, for bundled packs
 
 /* ---------------------------------------------- manifest-side checks, in node */
 
@@ -312,6 +314,16 @@ const server = http.createServer((req, res) => {
   }
   const file = path.join(repo, decodeURIComponent(url.pathname));
   if (!file.startsWith(repo) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+    // A bundled pack keeps takes as slices of <bank>.pack, so the per-take
+    // path the page asks for is no file on disk. Serve the slice.
+    const rel = decodeURIComponent(url.pathname).replace(/^\/pack\//, '');
+    const loc = packTakes.get(rel);
+    if (loc) {
+      const inst = { bundle: { file: loc.file } };
+      const bytes = takeBytes(path.join(repo, 'pack'), inst, { f: rel, o: loc.o, n: loc.n });
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': bytes.length });
+      return res.end(bytes);
+    }
     res.writeHead(404);
     return res.end('not found');
   }

@@ -21,6 +21,7 @@
  *   node tools/check-decode-budget.mjs
  */
 import fs from 'node:fs';
+import { sendFileRanged } from './lib/packbundle.mjs';
 import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -126,8 +127,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(404);
     return res.end('not found');
   }
-  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
-  fs.createReadStream(file).pipe(res);
+  sendFileRanged(req, res, file, MIME[path.extname(file)] || 'application/octet-stream');
 });
 
 await new Promise((r) => server.listen(0, '127.0.0.1', r));

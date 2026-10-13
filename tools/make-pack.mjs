@@ -61,6 +61,7 @@ import { readWav } from './lib/wav.mjs';
 import { encodeMp3 } from './lib/lame.mjs';
 import { parseSfz, regionsForKey, keyCentreOf, loopsRegion } from './lib/sfz.mjs';
 import { FREEPATS_BANKS } from './freepats-banks.mjs';
+import { bundlePack } from './lib/packbundle.mjs';
 import { noticeBlock, applyNoticeBlock, obligationOf } from './lib/credits.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -869,6 +870,13 @@ function main() {
 
   if (!DRY) {
     fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest), 'utf8');
+
+    // Bundle each bank's takes into one <bank>.pack file and rewrite the
+    // manifest with slice offsets (version 3). The per-take files written
+    // above are the bundling input and stay on disk for the fidelity checks;
+    // the repository ships only the bundles and the manifest.
+    const bundled = bundlePack(OUT);
+    console.log(`bundled ${Object.keys(bundled.instruments).length} banks into .pack files (manifest v${bundled.version})`);
 
     // The credit travels with the audio (manifest) AND with the repository
     // (NOTICE.md), from the same SOURCES table. Writing it here rather than by

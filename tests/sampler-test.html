@@ -659,6 +659,175 @@ try {
     }
   }
 
+  /* ==================== a bundled (version 3) pack loads by bank ========= */
+
+  // The pack ships one <bank>.pack file per instrument instead of one MP3 per
+  // take. On demand, a single take comes out of the bundle by Range request;
+  // in the background, each bank downloads as one file; a server that ignores
+  // Range answers 200 with the whole bundle, which the loader keeps and
+  // slices. Same stub-fetch approach as above, judged by the request log.
+
+  head('a bundled pack: ranges on demand, one request per bank in the background');
+
+  {
+    const BASE = 'http://pack.test/pack';
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    function wavBytes(freq, seconds = 0.25) {
+      const n = Math.round(SR * seconds);
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+      str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE');
+      str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, SR, true); v.setUint32(28, SR * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      str(36, 'data'); v.setUint32(40, n * 2, true);
+      for (let i = 0; i < n; i++) {
+        const t = Math.sin(2 * Math.PI * freq * (i / SR)) * Math.exp(-6 * i / SR) * 0.8;
+        v.setInt16(44 + i * 2, Math.round(t * 32767), true);
+      }
+      return buf;
+    }
+
+    // Two banks of 12 keys each, bundled: the manifest carries each take's
+    // offset and length, and the stub serves slices of the concatenation.
+    const KEYS = Array.from({ length: 12 }, (_, i) => 48 + i);
+    const manifest = { version: 3, credits: {}, instruments: {} };
+    const bundleBytes = new Map();   // '<id>.pack' -> Uint8Array
+    for (const id of ['alpha', 'beta']) {
+      const notes = {};
+      const parts = [];
+      let off = 0;
+      for (const k of KEYS) {
+        const bytes = new Uint8Array(wavBytes(440 * Math.pow(2, (k - 69) / 12)));
+        notes[k] = { rate: 1, hits: [{ f: `${id}/${k}.wav`, g: 1, dur: 0.25, loop: null, o: off, n: bytes.length }] };
+        parts.push(bytes);
+        off += bytes.length;
+      }
+      const all = new Uint8Array(off);
+      let p = 0;
+      for (const b of parts) { all.set(b, p); p += b.length; }
+      bundleBytes.set(`${id}.pack`, all);
+      manifest.instruments[id] = { name: id, lo: KEYS[0], hi: KEYS[KEYS.length - 1], sustains: false, notes, bundle: { file: `${id}.pack`, size: off } };
+    }
+
+    let serveRanges = true;
+    let failBeta = false;
+    const log = [];
+    const realFetch = window.fetch;
+    window.fetch = async (url, init = {}) => {
+      const rel = decodeURIComponent(String(url).slice(BASE.length + 1));
+      const range = (init.headers && init.headers.Range) || null;
+      log.push({ ev: 'start', rel, priority: init.priority || null, range });
+      await sleep(rel === 'manifest.json' ? 40 : 20);
+      log.push({ ev: 'end', rel, priority: init.priority || null });
+      if (rel === 'manifest.json') return new Response(JSON.stringify(manifest), { status: 200 });
+      const whole = bundleBytes.get(rel);
+      if (!whole || (failBeta && rel === 'beta.pack')) return new Response('', { status: 404, statusText: 'Not Found' });
+      const m = range && /^bytes=(\d+)-(\d+)$/.exec(range);
+      if (m && serveRanges) {
+        return new Response(whole.slice(Number(m[1]), Number(m[2]) + 1), { status: 206 });
+      }
+      return new Response(whole.slice(0), { status: 200 });
+    };
+
+    try {
+      // Ranges honoured: the common server.
+      __clearPacks();
+      __setPackBase(BASE);
+      const lp = loadPack();
+      const early = await preparePack('alpha', [50]);
+      ok('an early key is prepared from a Range request into its bank', !!early && isPackDecoded('alpha'));
+      const ranged = log.filter((e) => e.ev === 'start' && e.range);
+      ok('the on-demand fetch asked for the slice, at high priority',
+        ranged.length >= 1 && ranged[0].rel === 'alpha.pack' && ranged[0].priority === 'high',
+        JSON.stringify(ranged[0] || null));
+      await lp;
+      const nonManifest = log.filter((e) => e.ev === 'start' && e.rel !== 'manifest.json');
+      ok('every request names a bundle; no per-take file is ever asked for',
+        nonManifest.every((e) => e.rel.endsWith('.pack')),
+        [...new Set(nonManifest.map((e) => e.rel))].join(','));
+      const background = nonManifest.filter((e) => e.priority === 'low');
+      ok('the background download is one request per bank', background.length === 2,
+        `${background.length} background requests: ${background.map((e) => e.rel).join(',')}`);
+      ok('the load finishes ready', packState().state === 'ready', packState().error);
+
+      let peak = 0, playErr = null;
+      try {
+        const off = new OfflineAudioContext(1, Math.ceil(SR * 0.4), SR);
+        const inst = createSampledInstrument('alpha', off, off.destination);
+        inst.noteOn({ midi: 50, velocity: 0.8, when: 0.02, duration: 0.2 });
+        const d = (await off.startRendering()).getChannelData(0);
+        for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+      } catch (e) { playErr = e; }
+      ok('a sliced take plays from the recording', !playErr && peak > 0.02,
+        playErr ? playErr.message : `peak ${peak.toFixed(4)}`);
+
+      // A server that ignores Range: the fallback costs one bank download.
+      serveRanges = false;
+      log.length = 0;
+      __clearPacks();
+      __setPackBase(BASE);
+      const lp2 = loadPack();
+      const fb = await preparePack('alpha', [52]);
+      await lp2;
+      const alphaFetches = log.filter((e) => e.ev === 'start' && e.rel === 'alpha.pack').length;
+      ok('a 200 answer to a range is kept and sliced; the take still prepares', !!fb && isPackDecoded('alpha'));
+      ok('and that bank is downloaded once, not once per take and once whole', alphaFetches === 1,
+        `${alphaFetches} fetches of alpha.pack`);
+      ok('the fallback load still finishes ready', packState().state === 'ready', packState().error);
+
+      // A bank already downloading in the background: an on-demand take joins
+      // that download instead of adding a second request for the same bytes.
+      serveRanges = true;
+      log.length = 0;
+      let releaseAlpha = null;
+      const holdAlpha = new Promise((r) => { releaseAlpha = r; });
+      const gatedFetch = window.fetch;
+      window.fetch = async (url, init = {}) => {
+        const rel = decodeURIComponent(String(url).slice(BASE.length + 1));
+        if (rel === 'alpha.pack' && !(init.headers && init.headers.Range)) await holdAlpha;
+        return gatedFetch(url, init);
+      };
+      __clearPacks();
+      __setPackBase(BASE);
+      const lp3 = loadPack();
+      // Let the manifest land and the background claim alpha.pack.
+      await sleep(80);
+      const joined = preparePack('alpha', [53]);
+      await sleep(40);
+      releaseAlpha();
+      await joined;
+      await lp3;
+      window.fetch = gatedFetch;
+      const alphaStarts = log.filter((e) => e.ev === 'start' && e.rel === 'alpha.pack');
+      ok('an on-demand take joins a bank already downloading in the background',
+        isPackDecoded('alpha') && alphaStarts.length === 1,
+        `${alphaStarts.length} fetches of alpha.pack: ${JSON.stringify(alphaStarts)}`);
+
+      // A bank the server cannot produce costs that bank, and is reported.
+      serveRanges = true;
+      failBeta = true;
+      log.length = 0;
+      __clearPacks();
+      __setPackBase(BASE);
+      await loadPack().catch(() => {});
+      const st = packState();
+      ok('a failed bank marks the load failed, counting bundles',
+        st.state === 'failed' && /^1 of 2 sample bundles/.test(st.error || ''), `${st.state}: ${st.error}`);
+      let aOk = null, aErr = null;
+      try { aOk = await preparePack('alpha', [55]); } catch (e) { aErr = e; }
+      ok('the surviving bank still prepares', !!aOk && !aErr, aErr && aErr.message);
+      let bErr = null;
+      try { await preparePack('beta', [50]); } catch (e) { bErr = e; }
+      ok('a piece that needs the failed bank is told', !!bErr && /beta/.test(bErr ? bErr.message : ''),
+        bErr ? bErr.message : 'resolved');
+    } finally {
+      window.fetch = realFetch;
+      __setPackBase(null);
+      __clearPacks();
+    }
+  }
+
   /* ============== an offline render keeps the notes it already scheduled == */
 
   head('a note scheduled early survives the scheduling of a later one');

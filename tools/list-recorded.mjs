@@ -23,6 +23,13 @@ for (const id of Object.keys(manifest.instruments)) {
 }
 
 const dirBytes = (pack) => {
+  // A bundled pack (manifest v3) keeps the bank in one <id>.pack file; the
+  // old layout kept one file per take in a directory of the same name.
+  const bundle = manifest.instruments[pack]?.bundle;
+  if (bundle) {
+    const file = path.join(root, 'pack', bundle.file);
+    return fs.existsSync(file) ? fs.statSync(file).size : bundle.size || 0;
+  }
   const dir = path.join(root, 'pack', pack);
   if (!fs.existsSync(dir)) return 0;
   let n = 0;
