@@ -461,9 +461,8 @@ export class App {
    * Where the recorded-instrument pack has got to.
    *
    * This is worth showing because the two states look identical from the
-   * instrument list: a recorded instrument chosen before its pack is ready
-   * quietly plays silence instead, and without this the user would
-   * pick "Concert Grand (recorded)" and hear the synthesiser.
+   * instrument list: an instrument chosen before its pack is ready plays
+   * silence, and this line is where that silence is explained.
    */
   _paintPackProgress(p) {
     const el = this.dom.packStatus;
@@ -475,9 +474,9 @@ export class App {
     if (s.missing && s.missing.length) {
       // Worse than any loading state, and it can coexist with "ready": the
       // server handed this page a pack older than the app, so the instruments
-      // named in it will play the synthesiser while everything else reports
-      // success. Say so before saying ready.
-      text = `the sample pack this page fetched is older than the app — ${s.missing.length} instrument${s.missing.length === 1 ? ' is' : 's are'} missing and will play the synthesiser. Hard-refresh (Ctrl+Shift+R); if it persists, rebuild pack/ on the server.`;
+      // named in it are silent while everything else reports success. Say so
+      // before saying ready.
+      text = `the sample pack this page fetched is older than the app — ${s.missing.length} instrument${s.missing.length === 1 ? ' is' : 's are'} missing and silent. Hard-refresh (Ctrl+Shift+R); if it persists, rebuild pack/ on the server.`;
       tone = 'bad';
     } else if (s.state === 'ready') {
       text = `recorded instruments ready — ${s.loaded.length} instruments`;
@@ -1464,7 +1463,7 @@ export class App {
         out.innerHTML = '';
         this._exportAbort = new AbortController();
         try {
-          status('Synthesising…', 0.04);
+          status('Rendering…', 0.04);
           let sampleFallback = null;
           const buffer = await renderToBuffer({
             resolved: this.resolved,

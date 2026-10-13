@@ -99,10 +99,10 @@ export class Engine {
     await prepareInstruments(ids, midis, onProgress);
 
     // A part's channel can exist before its samples did: touching mute, solo
-    // or gain builds it, and built then it could only be the modelled
-    // fallback. Nothing rebuilt it afterwards, so one press of mute before the
-    // first Play meant the synthesiser for the rest of the session. Now that
-    // the samples are in, swap any such channel for the recording.
+    // or gain builds it, and built then it could only be the silent
+    // instrument. Nothing rebuilt it afterwards, so one press of mute before
+    // the first Play meant silence for the rest of the session. Now that the
+    // samples are in, swap any such channel for the recording.
     // setPartInstrument keeps its level, mute and solo.
     if (this._channels) {
       for (const [partId, id] of this.partInstruments) {

@@ -105,7 +105,7 @@ export async function renderToBuffer(o) {
   engine.humanize = 0;
   engine.scheduleAll();
 
-  onProgress?.({ phase: 'render', ratio: 0.05, message: 'Synthesising…' });
+  onProgress?.({ phase: 'render', ratio: 0.05, message: 'Rendering…' });
   if (signal?.aborted) throw new RenderCancelled();
 
   // Housekeeping stops, one per rendered second. Scheduling happens while the

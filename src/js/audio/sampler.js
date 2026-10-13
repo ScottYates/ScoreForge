@@ -1,10 +1,9 @@
 /**
  * audio/sampler.js — recorded instruments, played back from a sample pack.
  *
- * The synthesiser in instruments.js is physically modelled and needs nothing
- * from the network. This is the other half: real recordings of real instruments,
- * which sound like themselves rather than like an approximation. Both are in the
- * roster and the user picks.
+ * Every instrument on the roster plays through this module. instruments.js
+ * holds the roster and hands out a silent instrument when a pack cannot be
+ * had; the audible path is here.
  *
  * ── Why the bytes come up front but the PCM does not ────────────────────────
  *
@@ -137,8 +136,8 @@ export function packState() {
     error: loadError,
     // Roster packs the fetched manifest does not contain. Non-empty means the
     // server (or a cache in front of it) handed this page a pack older than
-    // the app, and the instruments named here are falling back to the
-    // synthesiser however "ready" the rest of the pack is.
+    // the app, and the instruments named here are silent however "ready"
+    // the rest of the pack is.
     missing: missingPacks.slice(),
   };
 }
@@ -181,8 +180,8 @@ export function loadPack(onProgress) {
       // The manifest must revalidate. It is the one file whose name never
       // changes, and force-cache here handed a week-old copy to a newer app:
       // the load finished "ready" with every instrument the OLD pack had and
-      // none that the roster now asks for, so every part quietly fell back to
-      // the synthesiser on a page that said ready. The audio files keep
+      // none that the roster now asks for, so every part went silent on a
+      // page that said ready. The audio files keep
       // force-cache below -- they are large, and a mismatch between them and
       // a fresh manifest is caught by the roster check that follows.
       const res = await fetch(`${base}/manifest.json`, { cache: 'no-cache' });
@@ -215,9 +214,9 @@ export function loadPack(onProgress) {
     const files = [...wanted];
 
     // Register every pack now, before a single sample has arrived. Samples are
-    // the default sound, so a piece played in the first seconds after the page
+    // the only sound, so a piece played in the first seconds after the page
     // opens must not wait for 277 MB to finish downloading -- or worse, find no
-    // pack and quietly play the synthesiser. preparePack() fetches whatever
+    // pack and stay silent. preparePack() fetches whatever
     // keys it needs that the background fetch has not reached yet.
     fetchBase = base;
     // The pack the server offered, against the packs the roster will ask for.
@@ -642,9 +641,8 @@ async function _preparePack(packId, midis, onProgress) {
 /**
  * Decode what `ids` will need, for the keys in `midis`.
  *
- * The one call a UI wants: it takes roster ids rather than pack ids, and skips
- * anything that is modelled rather than sampled, so a piece of synths costs
- * nothing.
+ * The one call a UI wants: it takes roster ids rather than pack ids and
+ * decodes each id's pack.
  *
  * @param {string[]} ids
  * @param {number[]} [midis]
@@ -661,10 +659,10 @@ export async function prepare(ids, midis, onProgress) {
     if (packId) jobs.push(packId);
     else unknown.push(id);
   }
-  // Every instrument is a recording now, so an id with no pack is not a
-  // synthesiser to skip, it is a mistake to report. The silent version of
-  // this (roster table empty, prepare resolving having done nothing) once
-  // cost a whole session of the app playing the wrong engine.
+  // Every instrument is a recording, so an id with no pack is a mistake to
+  // report. Skipping it quietly (roster table empty, prepare resolving having
+  // done nothing) once cost a whole session of the app playing the wrong
+  // engine.
   if (unknown.length) {
     throw new Error(`prepare: no pack for instrument id(s) ${unknown.join(', ')}`);
   }
@@ -727,7 +725,8 @@ export function findOnset(buffer) {
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
 /**
- * A sampled instrument, shaped to the same interface as the synthesiser's.
+ * A sampled instrument, answering the Instrument interface the engine
+ * schedules against.
  *
  * Throws if its pack has not been loaded. That is deliberate: returning a voice
  * that cannot make a sound is how this feature failed the first time.
@@ -762,10 +761,9 @@ export function createSampledInstrument(packId, ctx, outputNode) {
   const cap = 48;
   const active = [];
   // Nodes of voices retired ahead of the clock, parked under the time their
-  // fade is done. Same contract as the synthesiser's kit.graveyard: the graph
-  // may only lose a node once the clock has passed its end, so reap, sweep
-  // and dispose detach from here as the clock catches up. See the long
-  // comment in drop().
+  // fade is done. The graph may only lose a node once the clock has passed
+  // its end, so reap, sweep and dispose detach from here as the clock
+  // catches up. See the long comment in drop().
   const graveyard = [];
   function drainGraveyard(upTo) {
     const now = Number.isFinite(upTo) ? upTo : ctx.currentTime;
@@ -1103,7 +1101,7 @@ export function createSampledInstrument(packId, ctx, outputNode) {
     sampled: true,
     noteOn,
     noteOff,
-    /** See the synthesiser's sweep(): offline-render housekeeping. */
+    /** Offline-render housekeeping: reap voices the clock has passed. */
     sweep(when) { reap(Number.isFinite(Number(when)) ? Number(when) : ctx.currentTime); },
     setSustain,
     allNotesOff,
