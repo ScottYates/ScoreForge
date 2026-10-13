@@ -13,6 +13,9 @@
 #   SKIP_PYTHON_FETCH=1                 (fail instead of fetching a Python)
 #   SKIP_SMOKE=0                        (also transcribe a fixture end to end;
 #                                        skipped by default -- see below)
+#   SKIP_AUDIVERIS=1                    (do not install the Audiveris second
+#                                        engine; an existing one is left alone)
+#   AUDIVERIS_HEAP=1536m                (Java heap ceiling for Audiveris)
 #
 # The end-to-end transcription check is off by default because it is by far the
 # slowest thing here: it runs CPU inference, which is minutes per fixture. Set
@@ -80,6 +83,40 @@ SKIP_PYTHON_FETCH="${SKIP_PYTHON_FETCH:-0}"   # 1 = never download anything
 # leave it off -- but it stays available, because it is the only thing in the
 # install that proves homr can read a score rather than merely import.
 SKIP_SMOKE="${SKIP_SMOKE:-1}"
+# Audiveris, the optional second engine (backend/audiveris.py). Pinned like the
+# Python dependencies: one release, checked against its published SHA-256, so an
+# install never runs a binary nobody looked at. Upstream ships Linux builds only
+# as Ubuntu x86_64 .deb packages; the 22.04 and 24.04 builds carry byte-identical
+# files (they differ only in the package's dependency names), and the bundled
+# Java runtime needs nothing newer than glibc 2.16, so one build serves every
+# distribution. The package is unpacked, never installed: its maintainer scripts
+# only register a desktop menu entry, which a headless service has no use for,
+# and the system package manager stays untouched, as it does for Python.
+SKIP_AUDIVERIS="${SKIP_AUDIVERIS:-0}"
+AUDIVERIS_VERSION="5.11.0"
+AUDIVERIS_DEB="Audiveris-$AUDIVERIS_VERSION-ubuntu22.04-x86_64.deb"
+AUDIVERIS_SHA256="ae714594f40e54b1a4951fc3f914f08ae38fe5d07b7f2283b1a904fdb6e0a318"
+AUDIVERIS_URL="https://github.com/Audiveris/audiveris/releases/download/$AUDIVERIS_VERSION/$AUDIVERIS_DEB"
+# Upstream's launcher allows an 8 GB heap, but the unit caps the whole service
+# at MemoryMax=4G and homr shares that. A page measured ~380 MB peak; 1.5 GB
+# leaves room for a dense 300 dpi scan without letting Java starve homr.
+AUDIVERIS_HEAP="${AUDIVERIS_HEAP:-1536m}"
+# English OCR data, without which Audiveris reads no lyrics or text at all. From
+# tesseract-ocr/tessdata, the repository Audiveris's own language installer uses,
+# pinned to its 4.1.0 tag. Not tessdata_fast or tessdata_best: Audiveris runs
+# Tesseract in legacy mode, and only these full files include that model. GitHub publishes a git blob id rather than a SHA-256
+# for repository files, so that is what is checked: SHA-1 over "blob <size>\0"
+# plus the bytes, together with the size.
+TESSDATA_URL="https://raw.githubusercontent.com/tesseract-ocr/tessdata/4.1.0/eng.traineddata"
+TESSDATA_SIZE=23466654
+TESSDATA_BLOB="f4744c201359d02ced6914c77f0de68ee9bbdd74"
+AUDIVERIS_DIR="$PREFIX/audiveris"
+# Downloads are kept here so a re-run does not fetch ~100 MB again. Outside the
+# web root, like the model cache.
+AUDIVERIS_CACHE="$PREFIX/share/audiveris"
+# Set by install_audiveris when the engine is ready to use; empty otherwise.
+AUDIVERIS_LAUNCHER=""
+audiverisline="  audiveris    skipped (SKIP_AUDIVERIS=1); any earlier install is left as it was"
 # requirements.txt pins numpy==2.5.3, which needs Python >= 3.12 (homr itself
 # allows 3.11-3.15, so 3.11 passes homr's check but cannot install numpy).
 PY_MIN="3.12"; PY_MAX="3.15"
@@ -375,6 +412,228 @@ w = sorted(Path(homr.__file__).parent.rglob("*.onnx"))
 print(f"    {len(w)} weight file(s), {sum(f.stat().st_size for f in w) / 1e6:.1f} MB in {Path(homr.__file__).parent}")
 PY
 
+# ----------------------------------------------------------------- audiveris
+# The second engine is optional, so nothing in this section may fail the
+# install: each step reports through aud_fail and the install carries on with
+# homr alone, saying so in the summary. That is also why every command below
+# checks itself explicitly -- install_audiveris runs as an `if` condition,
+# where bash switches off both `set -e` and the ERR trap for the whole body.
+aud_fail() {
+    warn "Audiveris: $*"
+    warn "continuing without the second engine; homr alone still reads scores"
+    audiverisline="  audiveris    not installed -- $*"
+}
+
+sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
+
+# A git blob id: what GitHub publishes for a file in a repository.
+git_blob_of() {
+    { printf 'blob %s\0' "$(stat -c%s "$1")"; cat "$1"; } | sha1sum | cut -d' ' -f1
+}
+
+# fetch_verified URL DEST CHECKER EXPECTED -- download unless DEST already
+# passes CHECKER, and keep the result only if it does.
+fetch_verified() {
+    local url="$1" dest="$2" check="$3" want="$4" got
+    if [ -f "$dest" ] && [ "$("$check" "$dest")" = "$want" ]; then
+        echo "    cached  ${dest##*/}"
+        return 0
+    fi
+    echo "    fetch   $url"
+    curl -fL --retry 3 --silent --show-error -o "$dest.part" "$url" || return 1
+    got="$("$check" "$dest.part")"
+    if [ "$got" != "$want" ]; then
+        rm -f "$dest.part"
+        warn "${dest##*/}: checksum $got, expected $want -- not using it"
+        return 1
+    fi
+    mv "$dest.part" "$dest"
+}
+
+# extract_deb DEB DIR -- unpack the payload only. No maintainer scripts run and
+# no package database is touched. dpkg-deb where it exists; elsewhere the .deb's
+# ar container is opened with Python and its data.tar.zst piped through zstd.
+extract_deb() {
+    local deb="$1" dir="$2" member
+    if command -v dpkg-deb >/dev/null; then
+        dpkg-deb -x "$deb" "$dir"
+        return
+    fi
+    command -v zstd >/dev/null || {
+        warn "unpacking a .deb here needs dpkg-deb or zstd, and neither is installed"
+        return 1
+    }
+    member="$("$PYTHON_REAL" - "$deb" "$dir" <<'PY'
+import sys
+from pathlib import Path
+deb, out = sys.argv[1], Path(sys.argv[2])
+with open(deb, "rb") as f:
+    if f.read(8) != b"!<arch>\n":
+        sys.exit("not an ar archive")
+    while True:
+        head = f.read(60)
+        if len(head) < 60:
+            sys.exit("no data.tar member")
+        name = head[:16].decode().strip().rstrip("/")
+        size = int(head[48:58])
+        if name.startswith("data.tar"):
+            (out / name).write_bytes(f.read(size))
+            print(name)
+            break
+        f.seek(size + size % 2, 1)
+PY
+)" || return 1
+    case "$member" in
+        data.tar.zst) zstd -dc "$dir/$member" | tar -x -C "$dir" || return 1 ;;
+        data.tar.xz)  xz -dc "$dir/$member" | tar -x -C "$dir" || return 1 ;;
+        *) warn "unexpected payload $member"; return 1 ;;
+    esac
+    rm -f "$dir/$member"
+}
+
+# check_audiveris ROOT -- transcribe a fixture as $SVC_USER with ROOT's launcher,
+# the way the service will: no home directory, the bundled OCR data. Seconds,
+# not the minutes homr's smoke test costs, so it always runs. Prints the note
+# count; fails on no score at all. Missing OCR is reported but not fatal -- the
+# notes are still a useful second reading.
+check_audiveris() {
+    local root="$1" scratch fixture notes
+    command -v runuser >/dev/null || { warn "runuser not found, so Audiveris cannot be checked as $SVC_USER"; return 1; }
+    fixture=""
+    for f in simple grand ode; do
+        if [ -f "$REPO/fixtures/$f.png" ]; then fixture="$REPO/fixtures/$f.png"; break; fi
+    done
+    [ -n "$fixture" ] || { warn "no fixture image to check Audiveris with"; return 1; }
+    # Made here and removed below: nothing else is ever put in it.
+    scratch="$(mktemp -d)" || return 1
+    install -m 0644 "$fixture" "$scratch/page.png" || { rm -rf "$scratch"; return 1; }
+    install -d -o "$SVC_USER" -g "$SVC_USER" "$scratch/out" "$scratch/home" || { rm -rf "$scratch"; return 1; }
+    chmod 0755 "$scratch"
+    runuser -u "$SVC_USER" -- env -i PATH=/usr/bin:/bin \
+        HOME="$scratch/home" TESSDATA_PREFIX="$root/tessdata" \
+        timeout 300 "$root/bin/Audiveris" -batch -transcribe -export \
+        -output "$scratch/out" -- "$scratch/page.png" > "$scratch/run.log" 2>&1
+    notes="$("$PYTHON_REAL" - "$scratch/out" <<'PY' 2>/dev/null || true
+import sys, zipfile
+from pathlib import Path
+n = 0
+for mxl in Path(sys.argv[1]).rglob("*.mxl"):
+    with zipfile.ZipFile(mxl) as z:
+        for name in z.namelist():
+            if name.endswith(".xml") and not name.startswith("META-INF"):
+                n += z.read(name).decode("utf-8", "replace").count("<note")
+print(n)
+PY
+)"
+    # Two ways to fail: no language data found at all, and data found that
+    # Tesseract cannot load. Audiveris drives Tesseract in its legacy mode, which
+    # the full tesseract-ocr/tessdata files support and the _fast/_best ones
+    # (LSTM only) do not -- a wrong source shows up as the second kind.
+    if grep -qE "No installed OCR languages|collection of supported languages is empty|Missing support for|Could not initialize TessBaseAPI|couldn't load any languages|Failed loading language" "$scratch/run.log"; then
+        warn "Audiveris ran but did not load its OCR data from $root/tessdata, so lyrics will not be read"
+        grep -E 'OCR|Tesseract|language' "$scratch/run.log" | tail -5 | sed 's/^/    /' >&2 || true
+        AUDIVERIS_OCR=0
+    else
+        AUDIVERIS_OCR=1
+    fi
+    case "$notes" in ''|*[!0-9]*) notes=0 ;; esac
+    if [ "$notes" -eq 0 ]; then
+        tail -15 "$scratch/run.log" | sed 's/^/    /' >&2 || true
+        rm -rf "$scratch"
+        warn "Audiveris exported no notes from ${fixture##*/}"
+        return 1
+    fi
+    rm -rf "$scratch"
+    echo "    read ${fixture##*/}: $notes notes as $SVC_USER"
+}
+
+install_audiveris() {
+    say "Installing Audiveris $AUDIVERIS_VERSION (second engine, reads lyrics)"
+    if [ "$(uname -m)" != x86_64 ]; then
+        aud_fail "upstream publishes Linux builds for x86_64 only, and this is $(uname -m)"
+        return 1
+    fi
+    # What a finished install records, so an unchanged re-run is a no-op.
+    local stamp="audiveris=$AUDIVERIS_VERSION sha256=$AUDIVERIS_SHA256 heap=$AUDIVERIS_HEAP tessdata=eng@$TESSDATA_BLOB"
+    local marker="$AUDIVERIS_DIR/.scoreforge-owned"
+    if [ -e "$AUDIVERIS_DIR" ] && [ ! -f "$marker" ]; then
+        # Never replace what this script did not put there.
+        aud_fail "$AUDIVERIS_DIR exists but was not installed by this script; move it, or set SKIP_AUDIVERIS=1"
+        return 1
+    fi
+    if [ -f "$marker" ] && grep -qxF "$stamp" "$marker" && [ -x "$AUDIVERIS_DIR/bin/Audiveris" ]; then
+        echo "    already installed at $AUDIVERIS_DIR"
+        check_audiveris "$AUDIVERIS_DIR" || { aud_fail "the installed copy at $AUDIVERIS_DIR failed its check"; return 1; }
+        AUDIVERIS_LAUNCHER="$AUDIVERIS_DIR/bin/Audiveris"
+        return 0
+    fi
+
+    install -d -m 0755 "$AUDIVERIS_CACHE" || { aud_fail "cannot create $AUDIVERIS_CACHE"; return 1; }
+    fetch_verified "$AUDIVERIS_URL" "$AUDIVERIS_CACHE/$AUDIVERIS_DEB" sha256_of "$AUDIVERIS_SHA256" \
+        || { aud_fail "could not download a verified $AUDIVERIS_DEB"; return 1; }
+    fetch_verified "$TESSDATA_URL" "$AUDIVERIS_CACHE/eng.traineddata" git_blob_of "$TESSDATA_BLOB" \
+        || { aud_fail "could not download verified English OCR data"; return 1; }
+    [ "$(stat -c%s "$AUDIVERIS_CACHE/eng.traineddata")" = "$TESSDATA_SIZE" ] \
+        || { aud_fail "eng.traineddata is not $TESSDATA_SIZE bytes"; return 1; }
+
+    # Built beside the live copy and checked before it replaces anything, so a
+    # bad new version never displaces a working old one.
+    local stage
+    stage="$(mktemp -d "$PREFIX/.audiveris.XXXXXX")" || { aud_fail "cannot create a staging directory"; return 1; }
+    chmod 0755 "$stage"
+    local new="$stage/root/opt/audiveris"
+    if ! { install -d "$stage/root" && extract_deb "$AUDIVERIS_CACHE/$AUDIVERIS_DEB" "$stage/root"; }; then
+        rm -rf --one-file-system "$stage"
+        aud_fail "could not unpack $AUDIVERIS_DEB"
+        return 1
+    fi
+    local cfg="$new/lib/app/Audiveris.cfg"
+    if [ ! -x "$new/bin/Audiveris" ] || [ ! -f "$cfg" ]; then
+        rm -rf --one-file-system "$stage"
+        aud_fail "$AUDIVERIS_DEB does not have the expected opt/audiveris layout"
+        return 1
+    fi
+    sed -i -E "s/^java-options=-Xmx.*/java-options=-Xmx$AUDIVERIS_HEAP/" "$cfg"
+    if ! grep -qx "java-options=-Xmx$AUDIVERIS_HEAP" "$cfg"; then
+        rm -rf --one-file-system "$stage"
+        aud_fail "could not set the heap limit in Audiveris.cfg"
+        return 1
+    fi
+    install -d -m 0755 "$new/tessdata"
+    install -m 0644 "$AUDIVERIS_CACHE/eng.traineddata" "$new/tessdata/eng.traineddata"
+    chmod -R a+rX "$new"
+
+    if ! check_audiveris "$new"; then
+        rm -rf --one-file-system "$stage"
+        aud_fail "Audiveris $AUDIVERIS_VERSION did not transcribe a test page on this machine"
+        return 1
+    fi
+
+    printf '%s\n%s\n' \
+        "Created by ScoreForge deploy/install.sh; re-running it replaces this directory." \
+        "$stamp" > "$new/.scoreforge-owned"
+    # The old copy is ours (checked above), so moving it aside and deleting it
+    # with the stage is deleting only what this script created.
+    if [ -e "$AUDIVERIS_DIR" ]; then
+        mv "$AUDIVERIS_DIR" "$stage/previous" || { rm -rf --one-file-system "$stage"; aud_fail "could not move the old copy aside"; return 1; }
+    fi
+    mv "$new" "$AUDIVERIS_DIR" || { aud_fail "could not move Audiveris into $AUDIVERIS_DIR"; return 1; }
+    rm -rf --one-file-system "$stage"
+    echo "    installed at $AUDIVERIS_DIR"
+    AUDIVERIS_LAUNCHER="$AUDIVERIS_DIR/bin/Audiveris"
+}
+
+AUDIVERIS_OCR=0
+if [ "$SKIP_AUDIVERIS" = 1 ]; then
+    say "Skipping Audiveris (SKIP_AUDIVERIS=1)"
+elif install_audiveris; then
+    if [ "$AUDIVERIS_OCR" = 1 ]; then
+        audiverisline="  audiveris    $AUDIVERIS_VERSION, second engine with English lyrics"
+    else
+        audiverisline="  audiveris    $AUDIVERIS_VERSION, second engine -- OCR data did not load, so no lyrics"
+    fi
+fi
+
 chown -R root:root "$PREFIX"
 chmod -R a+rX "$PREFIX"
 
@@ -406,6 +665,28 @@ else
     cp -p "$ETC_DIR/scoreforge.env" "$ETC_DIR/scoreforge.env.bak"
     chgrp "$SVC_USER" "$ETC_DIR/scoreforge.env"; chmod 0640 "$ETC_DIR/scoreforge.env"
     echo "    kept existing $ETC_DIR/scoreforge.env (backup: .bak)"
+fi
+
+# Point the backend at the Audiveris just installed. An existing setting is the
+# operator's choice -- their own build, say -- so it is reported, not replaced.
+if [ -n "$AUDIVERIS_LAUNCHER" ]; then
+    current="$(grep -E '^[[:space:]]*SCOREFORGE_AUDIVERIS=' "$ETC_DIR/scoreforge.env" | tail -1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+    # The comment this block writes stays behind when someone comments the
+    # setting out, which is how a deliberate "off" survives the next install.
+    if [ -z "$current" ] && grep -qF '# Set by deploy/install.sh: the Audiveris' "$ETC_DIR/scoreforge.env"; then
+        echo "    SCOREFORGE_AUDIVERIS is commented out in scoreforge.env; leaving the engine off"
+        audiverisline="$audiverisline (switched off in scoreforge.env)"
+    elif [ -z "$current" ]; then
+        printf '\n# Set by deploy/install.sh: the Audiveris it installed.\nSCOREFORGE_AUDIVERIS=%s\n' \
+            "$AUDIVERIS_LAUNCHER" >> "$ETC_DIR/scoreforge.env"
+        echo "    set SCOREFORGE_AUDIVERIS=$AUDIVERIS_LAUNCHER"
+    elif [ "$current" = "$AUDIVERIS_LAUNCHER" ]; then
+        echo "    SCOREFORGE_AUDIVERIS already points at $AUDIVERIS_LAUNCHER"
+    else
+        warn "$ETC_DIR/scoreforge.env sets SCOREFORGE_AUDIVERIS=$current, not the copy just installed;"
+        warn "leaving it as you set it. Remove that line to use $AUDIVERIS_LAUNCHER."
+        audiverisline="$audiverisline (but scoreforge.env points at $current)"
+    fi
 fi
 
 UNIT_DST="/etc/systemd/system/scoreforge.service"
@@ -600,16 +881,10 @@ $webline
   install   $PREFIX
   python    $PYTHON_REAL
 $smokeline
+$audiverisline
   config    $ETC_DIR/scoreforge.env
   systemctl status scoreforge
   journalctl -u scoreforge -f
 $apihint
 $(printf '\033[33m')The service binds loopback and has no authentication.$(printf '\033[0m')
-
-Optional second engine: install Audiveris (free, AGPL) for a cross-check
-reading with lyrics -- download a release from
-https://github.com/Audiveris/audiveris/releases (releases only; the
-audiveris.com/.net domains are unaffiliated), unpack it, and set
-SCOREFORGE_AUDIVERIS=/path/to/bin/Audiveris in $ETC_DIR/scoreforge.env,
-then: systemctl restart scoreforge
 MSG

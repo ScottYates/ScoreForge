@@ -8,7 +8,8 @@
 #
 #   npm ci                  exact install from the committed lockfile
 #   npm run build           writes index.html
-#   sudo deploy/install.sh  /opt, a system user, systemd, model weights
+#   sudo deploy/install.sh  /opt, a system user, systemd, model weights, and
+#                           Audiveris (the second engine, which reads lyrics)
 #
 # Everything is idempotent, so this is also the upgrade path: pull and re-run.
 #
@@ -16,7 +17,11 @@
 #   SKIP_NPM=1              only run the installer
 #   SKIP_INSTALL=1          only build
 #   NPM_INSTALL=1           use `npm install` instead of `npm ci`
+#
+# and any of deploy/install.sh's own (see its header), passed through to it:
 #   PYTHON_VERSION=3.13     interpreter to fetch if the host has none in range
+#   SKIP_AUDIVERIS=1        leave out the Audiveris second engine
+#   SKIP_SMOKE=0            also transcribe a fixture through homr end to end
 
 # Builds and installs a system service; sourcing it would do that inside your
 # shell and close it on the first error. Run it as a program.
@@ -106,10 +111,19 @@ fi
 if [ "$SKIP_INSTALL" != 1 ]; then
     say "deploy/install.sh"
     [ -x deploy/install.sh ] || die "deploy/install.sh is not executable (chmod +x it)"
+    # sudo resets the environment, so an override exported for this script
+    # would silently not reach the installer. Hand over the ones that are set.
+    fwd=()
+    for v in PREFIX SVC_USER PYTHON PYTHON_VERSION UV_PYTHON_INSTALL_DIR \
+             SKIP_WEB SKIP_PYTHON_FETCH SKIP_SMOKE SKIP_AUDIVERIS AUDIVERIS_HEAP \
+             NUMPY_SPEC MODEL_CACHE; do
+        if [ -n "${!v+set}" ]; then fwd+=("$v=${!v}"); fi
+    done
+    [ "${#fwd[@]}" -eq 0 ] || echo "    passing on: ${fwd[*]}"
     if [ "$(id -u)" -eq 0 ]; then
-        deploy/install.sh
+        env ${fwd[@]+"${fwd[@]}"} deploy/install.sh
     elif command -v sudo >/dev/null; then
-        sudo ./deploy/install.sh
+        sudo env ${fwd[@]+"${fwd[@]}"} ./deploy/install.sh
     else
         die "installing needs root and sudo is not available; run: su -c '$(pwd)/deploy/install.sh'"
     fi

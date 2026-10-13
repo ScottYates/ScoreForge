@@ -204,6 +204,44 @@ with tempfile.TemporaryDirectory() as td:
     (_P(td) / 'page.omr').write_bytes(b'junk')
     cases['export_none'] = {'found': av._read_export(_P(td))}
 
+# ----- the sidecar's environment -------------------------------------------
+# Under systemd the service account has no writable home, and Audiveris reads
+# no lyrics without OCR data. _child_env() supplies both; outside the service
+# it must leave a working home and an operator's TESSDATA_PREFIX alone.
+import os as _os
+with tempfile.TemporaryDirectory() as td:
+    root = _P(td) / 'audiveris'
+    (root / 'bin').mkdir(parents=True)
+    launcher = root / 'bin' / 'Audiveris'
+    launcher.write_text('#!/bin/sh\\n')
+    work = _P(td) / 'work'
+    work.mkdir()
+    saved = dict(_os.environ)
+    try:
+        _os.environ.pop('TESSDATA_PREFIX', None)
+        _os.environ['HOME'] = str(_P(td) / 'no-such-home')
+        env = av._child_env(work, str(launcher))
+        cases['env_nohome'] = {
+            'home_in_work': env['HOME'].startswith(str(work)) and _P(env['HOME']).is_dir(),
+            'xdg_in_work': all(env[k].startswith(env['HOME'])
+                               for k in ('XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME')),
+            'tess_without_data': env.get('TESSDATA_PREFIX'),
+        }
+        (root / 'tessdata').mkdir()
+        (root / 'tessdata' / 'eng.traineddata').write_bytes(b'x')
+        env = av._child_env(work, str(launcher))
+        cases['env_tess'] = {'tess': env.get('TESSDATA_PREFIX') == str((root / 'tessdata').resolve())}
+        home = _P(td) / 'realhome'
+        home.mkdir()
+        _os.environ['HOME'] = str(home)
+        _os.environ['TESSDATA_PREFIX'] = '/operator/choice'
+        env = av._child_env(work, str(launcher))
+        cases['env_kept'] = {'home': env['HOME'] == str(home),
+                             'tess': env['TESSDATA_PREFIX'] == '/operator/choice'}
+    finally:
+        _os.environ.clear()
+        _os.environ.update(saved)
+
 print(json.dumps(cases))
 `;
 
@@ -275,6 +313,16 @@ ok('a bare .xml export is found, and a non-score .xml is not mistaken for it',
   c.export_xml.found === true, JSON.stringify(c.export_xml));
 ok('an export with no score in it is None, so the caller can say so',
   c.export_none.found === null, JSON.stringify(c.export_none));
+
+ok('with no writable home, Audiveris gets one inside its scratch directory',
+  c.env_nohome.home_in_work === true && c.env_nohome.xdg_in_work === true,
+  JSON.stringify(c.env_nohome));
+ok('no OCR folder next to the launcher means no TESSDATA_PREFIX is invented',
+  c.env_nohome.tess_without_data == null, JSON.stringify(c.env_nohome));
+ok('the installed OCR data beside bin/ is handed to Audiveris',
+  c.env_tess.tess === true, JSON.stringify(c.env_tess));
+ok('a working home and an operator\'s TESSDATA_PREFIX are left alone',
+  c.env_kept.home === true && c.env_kept.tess === true, JSON.stringify(c.env_kept));
 
 console.log(`\n${failed ? 'omr errors FAILED' : 'omr errors OK'}`);
 process.exit(failed ? 1 : 0);

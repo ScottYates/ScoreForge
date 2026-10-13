@@ -11,9 +11,27 @@ with decorrelated failure modes beat four renderings through one engine.
 The sidecar is entirely optional. It is found through $SCOREFORGE_AUDIVERIS
 (the launcher script or binary) or `audiveris` on PATH; where neither
 exists, available() is False and the pipeline is exactly what it was.
-Install: download a release from github.com/Audiveris/audiveris/releases
-(releases only -- audiveris.com/.net are unaffiliated scam sites), unpack,
-and point SCOREFORGE_AUDIVERIS at bin/Audiveris.
+deploy/install.sh installs it under $PREFIX/audiveris and sets
+SCOREFORGE_AUDIVERIS for the service. By hand: download a release from
+github.com/Audiveris/audiveris/releases (releases only -- audiveris.com/.net
+are unaffiliated scam sites), unpack, and point SCOREFORGE_AUDIVERIS at
+bin/Audiveris.
+
+Two things the service's sandbox would otherwise break, both handled by
+_child_env():
+
+  * Audiveris writes its log and config under $HOME (or $XDG_*), and the
+    service account has no home (ProtectHome=true, no home directory). When
+    $HOME is not a writable directory the child gets one inside the per-call
+    scratch directory, which owned_tree() removes afterwards. Tesseract's
+    native libraries are a separate matter: JavaCPP takes the home from the
+    user database rather than $HOME, finds it unwritable and unpacks them to
+    /tmp/.javacpp-<user> instead -- the service's own PrivateTmp, so they
+    load and act as a cache until the next restart.
+  * Without OCR language data Audiveris reads no lyrics at all, and lyrics
+    are most of the reason to run it. The installer puts that data in
+    <install>/tessdata next to bin/, and the child is pointed at it through
+    TESSDATA_PREFIX unless the environment already names one.
 """
 
 from __future__ import annotations
@@ -43,6 +61,38 @@ def find_audiveris() -> Optional[str]:
 
 def available() -> bool:
     return find_audiveris() is not None
+
+
+def bundled_tessdata(launcher: str) -> Optional[Path]:
+    """The OCR language folder installed beside this launcher, if there is one.
+
+    The installer lays Audiveris out as <root>/bin/Audiveris with the language
+    data in <root>/tessdata. resolve() first, so a launcher reached through a
+    symlink on PATH still finds the folder next to the real one.
+    """
+    root = Path(launcher).resolve().parent.parent
+    folder = root / "tessdata"
+    return folder if any(folder.glob("*.traineddata")) else None
+
+
+def _child_env(workdir: Path, launcher: str) -> dict:
+    """The environment to run Audiveris in. See the module docstring."""
+    env = dict(os.environ)
+    home = env.get("HOME", "")
+    if not (home and os.path.isdir(home) and os.access(home, os.W_OK)):
+        fake = workdir / "home"
+        fake.mkdir(parents=True, exist_ok=True)
+        env["HOME"] = str(fake)
+        # Audiveris reads these before falling back to $HOME, so an inherited
+        # value pointing somewhere unwritable would defeat the new HOME.
+        env["XDG_CONFIG_HOME"] = str(fake / ".config")
+        env["XDG_CACHE_HOME"] = str(fake / ".cache")
+        env["XDG_DATA_HOME"] = str(fake / ".local" / "share")
+    if not env.get("TESSDATA_PREFIX"):
+        tessdata = bundled_tessdata(launcher)
+        if tessdata is not None:
+            env["TESSDATA_PREFIX"] = str(tessdata)
+    return env
 
 
 def _read_export(outdir: Path) -> Optional[str]:
@@ -90,6 +140,7 @@ def transcribe(image: np.ndarray, workdir: Path) -> str:
         [launcher, "-batch", "-transcribe", "-export",
          "-output", str(outdir), "--", str(src)],
         capture_output=True, text=True, timeout=_TIMEOUT,
+        env=_child_env(workdir, launcher),
     )
     text = _read_export(outdir)
     if text is None:
